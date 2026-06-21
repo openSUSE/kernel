@@ -1035,7 +1035,7 @@ static void wait_lease_breaking(struct oplock_info *opinfo)
 }
 
 static int oplock_break(struct oplock_info *brk_opinfo, int req_op_level,
-			struct ksmbd_work *in_work)
+			struct ksmbd_work *in_work, bool share_break)
 {
 	int err = 0;
 	bool sent_interim = false;
@@ -1073,6 +1073,10 @@ again:
 			 * none.
 			 */
 			lease->new_state = SMB2_LEASE_NONE_LE;
+		} else if (share_break &&
+			   lease->state & SMB2_LEASE_HANDLE_CACHING_LE) {
+			lease->new_state =
+				lease->state & ~SMB2_LEASE_HANDLE_CACHING_LE;
 		} else {
 			if (lease->state & SMB2_LEASE_WRITE_CACHING_LE) {
 				if (lease->state & SMB2_LEASE_HANDLE_CACHING_LE)
@@ -1121,7 +1125,13 @@ again:
 
 		if (wait_ack)
 			wait_lease_breaking(brk_opinfo);
-		if (wait_ack && !err &&
+		/*
+		 * A break caused by a share-mode conflict only drops the
+		 * conflicting caching bit and the triggering open still fails
+		 * with a sharing violation, so it must stay a single break.
+		 * Do not cascade down to req_op_level through the again loop.
+		 */
+		if (wait_ack && !err && !share_break &&
 		    lease_break_needed(brk_opinfo, req_op_level, open_trunc))
 			goto again;
 
@@ -1281,7 +1291,7 @@ void smb_send_parent_lease_break_noti(struct ksmbd_file *fp,
 				continue;
 			}
 
-			oplock_break(opinfo, SMB2_OPLOCK_LEVEL_NONE, NULL);
+			oplock_break(opinfo, SMB2_OPLOCK_LEVEL_NONE, NULL, false);
 			opinfo_put(opinfo);
 		}
 	}
@@ -1322,7 +1332,7 @@ void smb_lazy_parent_lease_break_close(struct ksmbd_file *fp)
 				continue;
 			}
 
-			oplock_break(opinfo, SMB2_OPLOCK_LEVEL_NONE, NULL);
+			oplock_break(opinfo, SMB2_OPLOCK_LEVEL_NONE, NULL, false);
 			opinfo_put(opinfo);
 		}
 	}
@@ -1441,7 +1451,8 @@ int smb_grant_oplock(struct ksmbd_work *work, int req_op_level, u64 pid,
 		prev_fid = prev_opinfo->fid;
 	}
 
-	err = oplock_break(prev_opinfo, break_level, work);
+	err = oplock_break(prev_opinfo, break_level, work,
+			   share_ret < 0 && prev_opinfo->is_lease);
 	if (prev_durable_detached || (prev_durable_open && err == -ENOENT))
 		ksmbd_invalidate_durable_fd(prev_fid);
 	opinfo_put(prev_opinfo);
@@ -1539,7 +1550,7 @@ static bool smb_break_all_write_oplock(struct ksmbd_work *work,
 	}
 
 	brk_opinfo->open_trunc = is_trunc;
-	oplock_break(brk_opinfo, SMB2_OPLOCK_LEVEL_II, work);
+	oplock_break(brk_opinfo, SMB2_OPLOCK_LEVEL_II, work, false);
 	sent_break = true;
 	opinfo_put(brk_opinfo);
 
@@ -1611,7 +1622,8 @@ static void __smb_break_all_levII_oplock(struct ksmbd_work *work,
 			oplock_break(brk_op,
 				     brk_op->is_lease && !is_trunc ?
 				     SMB2_OPLOCK_LEVEL_II : SMB2_OPLOCK_LEVEL_NONE,
-				     send_interim && !sent_interim ? work : NULL);
+				     send_interim && !sent_interim ? work : NULL,
+				     false);
 		}
 		sent_interim = true;
 next:
