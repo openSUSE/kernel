@@ -60,6 +60,7 @@ struct ksmbd_work {
 	u64				compound_fid;
 	u64				compound_pfid;
 	u64				compound_sid;
+	__le32				compound_status;
 
 	const struct cred		*saved_cred;
 

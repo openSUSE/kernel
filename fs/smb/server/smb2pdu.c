@@ -405,6 +405,59 @@ static void init_chained_smb2_rsp(struct ksmbd_work *work)
 		work->compound_fid = ((struct smb2_create_rsp *)rsp)->VolatileFileId;
 		work->compound_pfid = ((struct smb2_create_rsp *)rsp)->PersistentFileId;
 		work->compound_sid = le64_to_cpu(rsp->SessionId);
+		work->compound_status = STATUS_SUCCESS;
+	} else if ((req->Command == SMB2_FLUSH ||
+		    req->Command == SMB2_READ ||
+		    req->Command == SMB2_WRITE) &&
+		   rsp->Status == STATUS_SUCCESS) {
+		u64 volatile_id = KSMBD_NO_FID;
+		u64 persistent_id = KSMBD_NO_FID;
+
+		if (req->Command == SMB2_FLUSH) {
+			struct smb2_flush_req *flush_req =
+				(struct smb2_flush_req *)req;
+
+			volatile_id = flush_req->VolatileFileId;
+			persistent_id = flush_req->PersistentFileId;
+		} else if (req->Command == SMB2_READ) {
+			struct smb2_read_req *read_req =
+				(struct smb2_read_req *)req;
+
+			volatile_id = read_req->VolatileFileId;
+			persistent_id = read_req->PersistentFileId;
+		} else {
+			struct smb2_write_req *write_req =
+				(struct smb2_write_req *)req;
+
+			volatile_id = write_req->VolatileFileId;
+			persistent_id = write_req->PersistentFileId;
+		}
+
+		if (has_file_id(volatile_id)) {
+			work->compound_fid = volatile_id;
+			work->compound_pfid = persistent_id;
+			work->compound_sid = le64_to_cpu(rsp->SessionId);
+			work->compound_status = STATUS_SUCCESS;
+		}
+	} else if (req->Command == SMB2_CREATE) {
+		work->compound_fid = KSMBD_NO_FID;
+		work->compound_pfid = KSMBD_NO_FID;
+		work->compound_sid = le64_to_cpu(rsp->SessionId);
+		work->compound_status = rsp->Status;
+	} else if (rsp->Status != STATUS_SUCCESS) {
+		work->compound_sid = le64_to_cpu(rsp->SessionId);
+		/*
+		 * Only carry the failed status forward when the failing command
+		 * was itself part of the related chain. An unrelated command
+		 * that fails (e.g. a standalone request with a bad session id)
+		 * must not seed the status for a following related command,
+		 * which has to be evaluated on its own (and may legitimately
+		 * fail with a different status such as INVALID_PARAMETER). The
+		 * compound session id is still tracked so a following related
+		 * command can validate it.
+		 */
+		if (req->Flags & SMB2_FLAGS_RELATED_OPERATIONS)
+			work->compound_status = rsp->Status;
 	}
 
 	len = get_rfc1002_len(work->response_buf) - work->next_smb2_rsp_hdr_off;
@@ -430,6 +483,7 @@ static void init_chained_smb2_rsp(struct ksmbd_work *work)
 		ksmbd_debug(SMB, "related flag should be set\n");
 		work->compound_fid = KSMBD_NO_FID;
 		work->compound_pfid = KSMBD_NO_FID;
+		work->compound_status = STATUS_SUCCESS;
 	}
 	memset((char *)rsp_hdr, 0, sizeof(struct smb2_hdr) + 2);
 	rsp_hdr->ProtocolId = SMB2_PROTO_NUMBER;
@@ -447,6 +501,19 @@ static void init_chained_smb2_rsp(struct ksmbd_work *work)
 	rsp_hdr->Id.SyncId.TreeId = rcv_hdr->Id.SyncId.TreeId;
 	rsp_hdr->SessionId = rcv_hdr->SessionId;
 	memcpy(rsp_hdr->Signature, rcv_hdr->Signature, 16);
+}
+
+static bool smb2_compound_has_failed(struct ksmbd_work *work,
+				     struct smb2_hdr *rsp)
+{
+	if (!work->next_smb2_rcv_hdr_off ||
+	    has_file_id(work->compound_fid) ||
+	    work->compound_status == STATUS_SUCCESS)
+		return false;
+
+	rsp->Status = work->compound_status;
+	smb2_set_err_rsp(work);
+	return true;
 }
 
 /**
@@ -4608,10 +4675,27 @@ int smb2_query_dir(struct ksmbd_work *work)
 	unsigned char srch_flag;
 	int buffer_sz;
 	struct smb2_query_dir_private query_dir_private = {NULL, };
+	unsigned int id = KSMBD_NO_FID, pid = KSMBD_NO_FID;
 
 	ksmbd_debug(SMB, "Received smb2 query directory request\n");
 
 	WORK_BUFFERS(work, req, rsp);
+
+	if (smb2_compound_has_failed(work, &rsp->hdr))
+		return -EACCES;
+
+	if (work->next_smb2_rcv_hdr_off &&
+	    !has_file_id(req->VolatileFileId)) {
+		ksmbd_debug(SMB, "Compound request set FID = %llu\n",
+			    work->compound_fid);
+		id = work->compound_fid;
+		pid = work->compound_pfid;
+	}
+
+	if (!has_file_id(id)) {
+		id = req->VolatileFileId;
+		pid = req->PersistentFileId;
+	}
 
 	if (ksmbd_override_fsids(work)) {
 		rsp->hdr.Status = STATUS_NO_MEMORY;
@@ -4625,7 +4709,7 @@ int smb2_query_dir(struct ksmbd_work *work)
 		goto err_out2;
 	}
 
-	dir_fp = ksmbd_lookup_fd_slow(work, req->VolatileFileId, req->PersistentFileId);
+	dir_fp = ksmbd_lookup_fd_slow(work, id, pid);
 	if (!dir_fp) {
 		rc = -EBADF;
 		goto err_out2;
@@ -6088,6 +6172,9 @@ int smb2_query_info(struct ksmbd_work *work)
 
 	WORK_BUFFERS(work, req, rsp);
 
+	if (smb2_compound_has_failed(work, &rsp->hdr))
+		return -EACCES;
+
 	if (ksmbd_override_fsids(work)) {
 		rc = -ENOMEM;
 		goto err_out;
@@ -6191,6 +6278,9 @@ int smb2_close(struct ksmbd_work *work)
 	ksmbd_debug(SMB, "Received smb2 close request\n");
 
 	WORK_BUFFERS(work, req, rsp);
+
+	if (smb2_compound_has_failed(work, &rsp->hdr))
+		return -EACCES;
 
 	if (test_share_config_flag(work->tcon->share_conf,
 				   KSMBD_SHARE_FLAG_PIPE)) {
@@ -6862,6 +6952,8 @@ int smb2_set_info(struct ksmbd_work *work)
 	if (work->next_smb2_rcv_hdr_off) {
 		req = ksmbd_req_buf_next(work);
 		rsp = ksmbd_resp_buf_next(work);
+		if (smb2_compound_has_failed(work, &rsp->hdr))
+			return -EACCES;
 		if (!has_file_id(req->VolatileFileId)) {
 			ksmbd_debug(SMB, "Compound request set FID = %llu\n",
 				    work->compound_fid);
@@ -7093,6 +7185,8 @@ int smb2_read(struct ksmbd_work *work)
 	if (work->next_smb2_rcv_hdr_off) {
 		req = ksmbd_req_buf_next(work);
 		rsp = ksmbd_resp_buf_next(work);
+		if (smb2_compound_has_failed(work, &rsp->hdr))
+			return -EACCES;
 		if (!has_file_id(req->VolatileFileId)) {
 			ksmbd_debug(SMB, "Compound request set FID = %llu\n",
 					work->compound_fid);
@@ -7366,10 +7460,27 @@ int smb2_write(struct ksmbd_work *work)
 	bool writethrough = false, is_rdma_channel = false;
 	int err = 0;
 	unsigned int max_write_size = work->conn->vals->max_write_size;
+	unsigned int id = KSMBD_NO_FID, pid = KSMBD_NO_FID;
 
 	ksmbd_debug(SMB, "Received smb2 write request\n");
 
 	WORK_BUFFERS(work, req, rsp);
+
+	if (smb2_compound_has_failed(work, &rsp->hdr))
+		return -EACCES;
+
+	if (work->next_smb2_rcv_hdr_off &&
+	    !has_file_id(req->VolatileFileId)) {
+		ksmbd_debug(SMB, "Compound request set FID = %llu\n",
+			    work->compound_fid);
+		id = work->compound_fid;
+		pid = work->compound_pfid;
+	}
+
+	if (!has_file_id(id)) {
+		id = req->VolatileFileId;
+		pid = req->PersistentFileId;
+	}
 
 	if (test_share_config_flag(work->tcon->share_conf, KSMBD_SHARE_FLAG_PIPE)) {
 		ksmbd_debug(SMB, "IPC pipe write request\n");
@@ -7415,7 +7526,7 @@ int smb2_write(struct ksmbd_work *work)
 		goto out;
 	}
 
-	fp = ksmbd_lookup_fd_slow(work, req->VolatileFileId, req->PersistentFileId);
+	fp = ksmbd_lookup_fd_slow(work, id, pid);
 	if (!fp) {
 		err = -ENOENT;
 		goto out;
@@ -7509,13 +7620,30 @@ int smb2_flush(struct ksmbd_work *work)
 {
 	struct smb2_flush_req *req;
 	struct smb2_flush_rsp *rsp;
+	u64 id = KSMBD_NO_FID, pid = KSMBD_NO_FID;
 	int err;
 
 	WORK_BUFFERS(work, req, rsp);
 
 	ksmbd_debug(SMB, "Received smb2 flush request(fid : %llu)\n", req->VolatileFileId);
 
-	err = ksmbd_vfs_fsync(work, req->VolatileFileId, req->PersistentFileId);
+	if (smb2_compound_has_failed(work, &rsp->hdr))
+		return -EACCES;
+
+	if (work->next_smb2_rcv_hdr_off &&
+	    !has_file_id(req->VolatileFileId)) {
+		ksmbd_debug(SMB, "Compound request set FID = %llu\n",
+			    work->compound_fid);
+		id = work->compound_fid;
+		pid = work->compound_pfid;
+	}
+
+	if (!has_file_id(id)) {
+		id = req->VolatileFileId;
+		pid = req->PersistentFileId;
+	}
+
+	err = ksmbd_vfs_fsync(work, id, pid);
 	if (err)
 		goto out;
 
@@ -7734,11 +7862,29 @@ int smb2_lock(struct ksmbd_work *work)
 	LIST_HEAD(lock_list);
 	LIST_HEAD(rollback_list);
 	int prior_lock = 0, bkt;
+	unsigned int id = KSMBD_NO_FID, pid = KSMBD_NO_FID;
 
 	WORK_BUFFERS(work, req, rsp);
 
 	ksmbd_debug(SMB, "Received smb2 lock request\n");
-	fp = ksmbd_lookup_fd_slow(work, req->VolatileFileId, req->PersistentFileId);
+
+	if (smb2_compound_has_failed(work, &rsp->hdr))
+		return -EACCES;
+
+	if (work->next_smb2_rcv_hdr_off &&
+	    !has_file_id(req->VolatileFileId)) {
+		ksmbd_debug(SMB, "Compound request set FID = %llu\n",
+			    work->compound_fid);
+		id = work->compound_fid;
+		pid = work->compound_pfid;
+	}
+
+	if (!has_file_id(id)) {
+		id = req->VolatileFileId;
+		pid = req->PersistentFileId;
+	}
+
+	fp = ksmbd_lookup_fd_slow(work, id, pid);
 	if (!fp) {
 		ksmbd_debug(SMB, "Invalid file id for lock : %llu\n", req->VolatileFileId);
 		err = -ENOENT;
@@ -8544,6 +8690,8 @@ int smb2_ioctl(struct ksmbd_work *work)
 	if (work->next_smb2_rcv_hdr_off) {
 		req = ksmbd_req_buf_next(work);
 		rsp = ksmbd_resp_buf_next(work);
+		if (smb2_compound_has_failed(work, &rsp->hdr))
+			return -EACCES;
 		if (!has_file_id(req->VolatileFileId)) {
 			ksmbd_debug(SMB, "Compound request set FID = %llu\n",
 				    work->compound_fid);
@@ -9207,6 +9355,9 @@ int smb2_notify(struct ksmbd_work *work)
 	ksmbd_debug(SMB, "Received smb2 notify\n");
 
 	WORK_BUFFERS(work, req, rsp);
+
+	if (smb2_compound_has_failed(work, &rsp->hdr))
+		return -EACCES;
 
 	if (work->next_smb2_rcv_hdr_off && req->hdr.NextCommand) {
 		rsp->hdr.Status = STATUS_INTERNAL_ERROR;
