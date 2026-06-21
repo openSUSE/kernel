@@ -1094,6 +1094,7 @@ static __le32 decode_compress_ctxt(struct ksmbd_conn *conn,
 				   int ctxt_len)
 {
 	int alg_cnt, algs_size, i;
+	__le16 *algs;
 
 	if (sizeof(struct smb2_neg_context) + 10 > ctxt_len) {
 		pr_err("Invalid SMB2_COMPRESSION_CAPABILITIES context length\n");
@@ -1118,8 +1119,15 @@ static __le32 decode_compress_ctxt(struct ksmbd_conn *conn,
 		return STATUS_INVALID_PARAMETER;
 	}
 
+	/*
+	 * CompressionAlgorithms[] is declared as a fixed 4-element array, but
+	 * the actual element count is variable (clients such as Windows may
+	 * advertise more). The on-wire length was validated above, so walk the
+	 * algorithms through a pointer to avoid a fixed-array bounds check.
+	 */
+	algs = pneg_ctxt->CompressionAlgorithms;
 	for (i = 0; i < alg_cnt; i++) {
-		__le16 alg = pneg_ctxt->CompressionAlgorithms[i];
+		__le16 alg = algs[i];
 
 		/*
 		 * LZ77 is the required general-purpose codec. Pattern_V1 is an
