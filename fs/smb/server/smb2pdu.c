@@ -3332,6 +3332,13 @@ int smb2_open(struct ksmbd_work *work)
 		goto err_out2;
 	}
 
+	if (req->DesiredAccess == FILE_SYNCHRONIZE_LE &&
+	    req->CreateDisposition == FILE_OPEN_IF_LE &&
+	    !req->FileAttributes) {
+		rc = -EACCES;
+		goto err_out2;
+	}
+
 	if (req->FileAttributes && !(req->FileAttributes & FILE_ATTRIBUTE_MASK_LE)) {
 		pr_err("Invalid file attribute : 0x%x\n",
 		       le32_to_cpu(req->FileAttributes));
