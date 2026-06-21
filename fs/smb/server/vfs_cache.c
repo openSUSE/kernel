@@ -37,6 +37,8 @@ static struct ksmbd_file_table global_ft;
 static atomic_long_t fd_limit;
 static struct kmem_cache *filp_cache;
 
+static int ksmbd_mark_fp_closed(struct ksmbd_file *fp);
+
 #define OPLOCK_NONE      0
 #define OPLOCK_EXCLUSIVE 1
 #define OPLOCK_BATCH     2
@@ -771,6 +773,76 @@ bool ksmbd_has_other_active_fd(struct ksmbd_file *fp)
 	up_read(&ci->m_lock);
 
 	return ret;
+}
+
+static struct ksmbd_file *ksmbd_lookup_fd_app_instance_id(char *app_instance_id)
+{
+	struct ksmbd_file *fp = NULL;
+	unsigned int id;
+
+	if (!memchr_inv(app_instance_id, 0, SMB2_CREATE_GUID_SIZE))
+		return NULL;
+
+	read_lock(&global_ft.lock);
+	idr_for_each_entry(global_ft.idr, fp, id) {
+		if (!memcmp(fp->app_instance_id, app_instance_id,
+			    SMB2_CREATE_GUID_SIZE)) {
+			fp = ksmbd_fp_get(fp);
+			break;
+		}
+	}
+	read_unlock(&global_ft.lock);
+
+	return fp;
+}
+
+int ksmbd_close_fd_app_instance_id(char *app_instance_id)
+{
+	struct ksmbd_file_table *ft;
+	struct ksmbd_file *fp;
+	struct oplock_info *opinfo;
+	int n_to_drop = 0;
+
+	fp = ksmbd_lookup_fd_app_instance_id(app_instance_id);
+	if (!fp)
+		return 0;
+
+	opinfo = opinfo_get(fp);
+	if (!opinfo || !opinfo->sess)
+		goto out;
+
+	ft = &opinfo->sess->file_table;
+	write_lock(&ft->lock);
+	if (fp->f_state == FP_INITED) {
+		if (has_file_id(fp->volatile_id)) {
+			idr_remove(ft->idr, fp->volatile_id);
+			fp->volatile_id = KSMBD_NO_FID;
+		}
+		n_to_drop = ksmbd_mark_fp_closed(fp);
+	}
+	write_unlock(&ft->lock);
+	opinfo_put(opinfo);
+	opinfo = NULL;
+
+	if (!n_to_drop)
+		goto out;
+
+	down_write(&fp->f_ci->m_lock);
+	list_del_init(&fp->node);
+	up_write(&fp->f_ci->m_lock);
+
+	if (atomic_sub_and_test(n_to_drop, &fp->refcount)) {
+		if (fp->conn)
+			atomic_dec(&fp->conn->stats.open_files_count);
+		__ksmbd_close_fd(NULL, fp);
+	}
+	return 0;
+
+out:
+	if (opinfo)
+		opinfo_put(opinfo);
+	ksmbd_put_durable_fd(fp);
+	return 0;
 }
 
 int ksmbd_invalidate_durable_fd(unsigned long long id)

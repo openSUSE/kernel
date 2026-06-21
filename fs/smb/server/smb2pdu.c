@@ -2807,8 +2807,10 @@ struct durable_info {
 	unsigned short int type;
 	bool persistent;
 	bool reconnected;
+	bool app_instance_id;
 	unsigned int timeout;
 	char *CreateGuid;
+	char AppInstanceId[SMB2_CREATE_GUID_SIZE];
 };
 
 static int parse_durable_handle_context(struct ksmbd_work *work,
@@ -2993,6 +2995,31 @@ out:
 	return err;
 }
 
+static int parse_app_instance_id(struct smb2_create_req *req,
+				 struct durable_info *dh_info)
+{
+	struct create_context *context;
+	char *data;
+
+	context = smb2_find_context_vals(req, SMB2_CREATE_APP_INSTANCE_ID,
+					 SMB2_CREATE_GUID_SIZE);
+	if (IS_ERR(context))
+		return PTR_ERR(context);
+	if (!context)
+		return 0;
+
+	if (le32_to_cpu(context->DataLength) < 20)
+		return -EINVAL;
+
+	data = (char *)context + le16_to_cpu(context->DataOffset);
+	if (data[0] != 20 || data[1])
+		return -EINVAL;
+
+	memcpy(dh_info->AppInstanceId, data + 4, SMB2_CREATE_GUID_SIZE);
+	dh_info->app_instance_id = true;
+	return 0;
+}
+
 /**
  * smb2_open() - handler for smb file open request
  * @work:	smb work containing request buffer
@@ -3135,6 +3162,9 @@ int smb2_open(struct ksmbd_work *work)
 			ksmbd_debug(SMB, "error parsing durable handle context\n");
 			goto err_out2;
 		}
+		rc = parse_app_instance_id(req, &dh_info);
+		if (rc)
+			goto err_out2;
 
 		if (dh_info.reconnected == true) {
 			rc = smb2_check_durable_oplock(conn, share, dh_info.fp,
@@ -3161,6 +3191,9 @@ int smb2_open(struct ksmbd_work *work)
 
 			goto reconnected_fp;
 		}
+
+		if (dh_info.type == DURABLE_REQ_V2 && dh_info.app_instance_id)
+			ksmbd_close_fd_app_instance_id(dh_info.AppInstanceId);
 	} else if (req_op_level == SMB2_OPLOCK_LEVEL_LEASE) {
 		lc = parse_lease_state(req);
 		if (IS_ERR(lc)) {
@@ -3775,6 +3808,10 @@ int smb2_open(struct ksmbd_work *work)
 		if (dh_info.type == DURABLE_REQ_V2) {
 			memcpy(fp->create_guid, dh_info.CreateGuid,
 					SMB2_CREATE_GUID_SIZE);
+			if (dh_info.app_instance_id)
+				memcpy(fp->app_instance_id,
+				       dh_info.AppInstanceId,
+				       SMB2_CREATE_GUID_SIZE);
 			if (dh_info.timeout)
 				fp->durable_timeout =
 					min_t(unsigned int, dh_info.timeout,
