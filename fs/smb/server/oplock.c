@@ -1760,6 +1760,9 @@ struct create_context *smb2_find_context_vals(void *open_req, const char *tag, i
 	 * CreateContextsOffset and CreateContextsLength are guaranteed to
 	 * be valid because of ksmbd_smb2_check_message().
 	 */
+	if (!req->CreateContextsOffset || !req->CreateContextsLength)
+		return NULL;
+
 	cc = (struct create_context *)((char *)req +
 				       le32_to_cpu(req->CreateContextsOffset));
 	remain_len = le32_to_cpu(req->CreateContextsLength);
