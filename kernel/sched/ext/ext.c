@@ -513,7 +513,7 @@ do {										\
 } while (0)
 
 /*
- * Flipped on enable per sch->is_cid_type. Declared in ext_internal.h so
+ * Flipped on enable per sch->is_cid_type. Declared in internal.h so
  * subsystem inlines can read it.
  */
 DEFINE_STATIC_KEY_FALSE(__scx_is_cid_type);
@@ -608,7 +608,7 @@ do {										\
  * @cpumask: new cpumask
  *
  * For cid-form schedulers, translate @cpumask to a cmask via the per-cpu
- * scratch in ext_cid.c and dispatch through the ops_cid union view. Caller
+ * scratch in cid.c and dispatch through the ops_cid union view. Caller
  * must hold @rq's rq lock so this_cpu_ptr is stable across the call.
  */
 static inline void scx_call_op_set_cpumask(struct scx_sched *sch, struct rq *rq,

@@ -43,7 +43,7 @@ struct scx_sched;
  * possible-but-not-online cpus and carries all-(-1) topo info (see
  * scx_cid_topo); callers detect it via the -1 sentinels.
  *
- * See the comment above the table definitions in ext_cid.c for the
+ * See the comment above the table definitions in cid.c for the
  * memory-ordering and visibility contract.
  */
 extern s16 *scx_cid_to_cpu_tbl;

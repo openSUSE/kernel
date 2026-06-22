@@ -71,7 +71,7 @@ static s32 scx_cid_arrays_alloc(void)
  * scx_cid_init - build the cid mapping
  * @sch: the scx_sched being initialized; used as the scx_error() target
  *
- * See "Topological CPU IDs" in ext_cid.h for the model. Walk online cpus by
+ * See "Topological CPU IDs" in cid.h for the model. Walk online cpus by
  * intersection at each level (parent_scratch & this_level_mask), which keeps
  * containment correct by construction and naturally splits a physical LLC
  * straddling two NUMA nodes into two LLC units. The caller must hold
