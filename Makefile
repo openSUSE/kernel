@@ -790,7 +790,7 @@ endif
 # in addition to whatever we do anyway.
 # Just "make" or "make all" shall build modules as well
 
-ifneq ($(filter all modules nsdeps compile_commands.json clang-%,$(MAKECMDGOALS)),)
+ifneq ($(filter all modules nsdeps compile_commands.json clang-% sbom,$(MAKECMDGOALS)),)
   KBUILD_MODULES := y
 endif
 
@@ -1721,7 +1721,7 @@ CLEAN_FILES += vmlinux.symvers modules-only.symvers \
 	       vmlinux.thinlto-index builtin.order \
 	       compile_commands.json rust/test \
 	       rust-project.json .vmlinux.objs .vmlinux.export.c \
-               .builtin-dtbs-list .builtin-dtbs.S
+	       .builtin-dtbs-list .builtin-dtbs.S sbom-*.spdx.json
 
 # Directories & files removed with 'make mrproper'
 MRPROPER_FILES += include/config include/generated          \
@@ -1842,6 +1842,7 @@ help:
 	@echo  ''
 	@echo  'Tools:'
 	@echo  '  nsdeps          - Generate missing symbol namespace dependencies'
+	@echo  '  sbom            - Generate Software Bill of Materials'
 	@echo  ''
 	@echo  'Kernel selftest:'
 	@echo  '  kselftest         - Build and run kernel selftest'
@@ -2231,6 +2232,29 @@ PHONY += nsdeps
 nsdeps: export KBUILD_NSDEPS=1
 nsdeps: modules
 	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/nsdeps
+
+# Script to generate .spdx.json SBOM documents describing the build
+# ---------------------------------------------------------------------------
+
+ifdef building_out_of_srctree
+sbom_targets := sbom-source.spdx.json
+endif
+sbom_targets += sbom-build.spdx.json sbom-output.spdx.json
+quiet_cmd_sbom = GEN     $(sbom_targets)
+      cmd_sbom = printf "%s\n" "$(KBUILD_IMAGE)" >"$(tmp-target)"; \
+                 $(if $(CONFIG_MODULES),sed 's/\.o$$/.ko/' $(objtree)/modules.order >> "$(tmp-target)";) \
+                 $(PYTHON3) $(srctree)/scripts/sbom/sbom.py \
+                     --src-tree $(abspath $(srctree)) \
+                     --obj-tree $(abspath $(objtree)) \
+                     --roots-file "$(tmp-target)" \
+                     --output-directory $(abspath $(objtree)) \
+                     --generate-spdx \
+                     --package-license "GPL-2.0 WITH Linux-syscall-note" \
+                     --package-version "$(KERNELVERSION)" \
+                     --write-output-on-error;
+PHONY += sbom
+sbom: $(notdir $(KBUILD_IMAGE)) include/generated/autoconf.h $(if $(CONFIG_MODULES),modules modules.order)
+	$(call cmd,sbom)
 
 # Clang Tooling
 # ---------------------------------------------------------------------------
