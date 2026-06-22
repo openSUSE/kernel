@@ -5,6 +5,12 @@
  * Copyright (c) 2025 Meta Platforms, Inc. and affiliates.
  * Copyright (c) 2025 Tejun Heo <tj@kernel.org>
  */
+#ifndef _KERNEL_SCHED_EXT_INTERNAL_H
+#define _KERNEL_SCHED_EXT_INTERNAL_H
+
+#include "../sched.h"
+#include "types.h"
+
 #define SCX_OP_IDX(op)		(offsetof(struct sched_ext_ops, op) / sizeof(void (*)(void)))
 #define SCX_MOFF_IDX(moff)	((moff) / sizeof(void (*)(void)))
 
@@ -1651,3 +1657,5 @@ static inline struct scx_sched *scx_prog_sched(const struct bpf_prog_aux *aux)
 	return rcu_dereference_all(scx_root);
 }
 #endif	/* CONFIG_EXT_SUB_SCHED */
+
+#endif /* _KERNEL_SCHED_EXT_INTERNAL_H */

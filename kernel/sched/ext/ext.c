@@ -6,6 +6,19 @@
  * Copyright (c) 2022 Tejun Heo <tj@kernel.org>
  * Copyright (c) 2022 David Vernet <dvernet@meta.com>
  */
+#include <linux/bitmap.h>
+#include <linux/btf_ids.h>
+#include <linux/rhashtable.h>
+#include <linux/sched/clock.h>
+#include <linux/sched/isolation.h>
+#include <linux/suspend.h>
+#include <linux/sysrq.h>
+
+#include "../pelt.h"
+#include "internal.h"
+#include "cid.h"
+#include "arena.h"
+#include "idle.h"
 
 static DEFINE_RAW_SPINLOCK(scx_sched_lock);
 

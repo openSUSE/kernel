@@ -8,6 +8,8 @@
 #ifndef _KERNEL_SCHED_EXT_ARENA_H
 #define _KERNEL_SCHED_EXT_ARENA_H
 
+#include <linux/types.h>
+
 struct scx_sched;
 
 s32 scx_arena_pool_init(struct scx_sched *sch);

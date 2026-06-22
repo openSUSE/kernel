@@ -7,6 +7,9 @@
  */
 #include <linux/cacheinfo.h>
 
+#include "internal.h"
+#include "cid.h"
+
 /*
  * cid tables.
  *

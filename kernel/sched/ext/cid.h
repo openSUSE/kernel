@@ -33,6 +33,8 @@
 #ifndef _KERNEL_SCHED_EXT_CID_H
 #define _KERNEL_SCHED_EXT_CID_H
 
+#include "internal.h"
+
 struct scx_sched;
 
 /*
