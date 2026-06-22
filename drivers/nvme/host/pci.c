@@ -404,8 +404,20 @@ enum nvme_iod_flags {
 	/* single segment dma mapping */
 	IOD_SINGLE_SEGMENT	= 1U << 2,
 
+	/* Data payload contains p2p memory */
+	IOD_DATA_P2P		= 1U << 3,
+
+	/* Metadata contains p2p memory */
+	IOD_META_P2P		= 1U << 4,
+
+	/* Data payload contains MMIO memory */
+	IOD_DATA_MMIO		= 1U << 5,
+
+	/* Metadata contains MMIO memory */
+	IOD_META_MMIO		= 1U << 6,
+
 	/* Metadata using non-coalesced MPTR */
-	IOD_SINGLE_META_SEGMENT	= 1U << 5,
+	IOD_SINGLE_META_SEGMENT	= 1U << 7,
 };
 
 struct nvme_dma_vec {
@@ -842,20 +854,20 @@ static void nvme_free_descriptors(struct request *req)
 	}
 }
 
-static void nvme_free_prps(struct request *req)
+static void nvme_free_prps(struct request *req, unsigned int attrs)
 {
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 	struct nvme_queue *nvmeq = req->mq_hctx->driver_data;
 	unsigned int i;
 
 	for (i = 0; i < iod->nr_dma_vecs; i++)
-		dma_unmap_page(nvmeq->dev->dev, iod->dma_vecs[i].addr,
-				iod->dma_vecs[i].len, rq_dma_dir(req));
+		dma_unmap_phys(nvmeq->dev->dev, iod->dma_vecs[i].addr,
+			       iod->dma_vecs[i].len, rq_dma_dir(req), attrs);
 	mempool_free(iod->dma_vecs, nvmeq->dev->dmavec_mempool);
 }
 
 static void nvme_free_sgls(struct request *req, struct nvme_sgl_desc *sge,
-		struct nvme_sgl_desc *sg_list)
+		struct nvme_sgl_desc *sg_list, unsigned int attrs)
 {
 	struct nvme_queue *nvmeq = req->mq_hctx->driver_data;
 	enum dma_data_direction dir = rq_dma_dir(req);
@@ -864,22 +876,25 @@ static void nvme_free_sgls(struct request *req, struct nvme_sgl_desc *sge,
 	unsigned int i;
 
 	if (sge->type == (NVME_SGL_FMT_DATA_DESC << 4)) {
-		dma_unmap_page(dma_dev, le64_to_cpu(sge->addr), len, dir);
+		dma_unmap_phys(dma_dev, le64_to_cpu(sge->addr), len, dir,
+			       attrs);
 		return;
 	}
 
 	for (i = 0; i < len / sizeof(*sg_list); i++)
-		dma_unmap_page(dma_dev, le64_to_cpu(sg_list[i].addr),
-			le32_to_cpu(sg_list[i].length), dir);
+		dma_unmap_phys(dma_dev, le64_to_cpu(sg_list[i].addr),
+			le32_to_cpu(sg_list[i].length), dir, attrs);
 }
 
 static void nvme_unmap_metadata(struct request *req)
 {
 	struct nvme_queue *nvmeq = req->mq_hctx->driver_data;
+	enum pci_p2pdma_map_type map = PCI_P2PDMA_MAP_NONE;
 	enum dma_data_direction dir = rq_dma_dir(req);
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 	struct device *dma_dev = nvmeq->dev->dev;
 	struct nvme_sgl_desc *sge = iod->meta_descriptor;
+	unsigned int attrs = 0;
 
 	if (iod->flags & IOD_SINGLE_META_SEGMENT) {
 		dma_unmap_page(dma_dev, iod->meta_dma,
@@ -888,13 +903,20 @@ static void nvme_unmap_metadata(struct request *req)
 		return;
 	}
 
-	if (!blk_rq_integrity_dma_unmap(req, dma_dev, &iod->meta_dma_state,
-					iod->meta_total_len)) {
+	if (iod->flags & IOD_META_P2P)
+		map = PCI_P2PDMA_MAP_BUS_ADDR;
+	else if (iod->flags & IOD_META_MMIO) {
+		map = PCI_P2PDMA_MAP_THRU_HOST_BRIDGE;
+		attrs |= DMA_ATTR_MMIO;
+	}
+
+	if (!blk_rq_dma_unmap(req, dma_dev, &iod->meta_dma_state,
+			      iod->meta_total_len, map)) {
 		if (nvme_pci_cmd_use_meta_sgl(&iod->cmd))
-			nvme_free_sgls(req, sge, &sge[1]);
+			nvme_free_sgls(req, sge, &sge[1], attrs);
 		else
-			dma_unmap_page(dma_dev, iod->meta_dma,
-				       iod->meta_total_len, dir);
+			dma_unmap_phys(dma_dev, iod->meta_dma,
+				       iod->meta_total_len, dir, attrs);
 	}
 
 	if (iod->meta_descriptor)
@@ -904,9 +926,11 @@ static void nvme_unmap_metadata(struct request *req)
 
 static void nvme_unmap_data(struct request *req)
 {
+	enum pci_p2pdma_map_type map = PCI_P2PDMA_MAP_NONE;
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 	struct nvme_queue *nvmeq = req->mq_hctx->driver_data;
 	struct device *dma_dev = nvmeq->dev->dev;
+	unsigned int attrs = 0;
 
 	if (iod->flags & IOD_SINGLE_SEGMENT) {
 		static_assert(offsetof(union nvme_data_ptr, prp1) ==
@@ -916,12 +940,20 @@ static void nvme_unmap_data(struct request *req)
 		return;
 	}
 
-	if (!blk_rq_dma_unmap(req, dma_dev, &iod->dma_state, iod->total_len)) {
+	if (iod->flags & IOD_DATA_P2P)
+		map = PCI_P2PDMA_MAP_BUS_ADDR;
+	else if (iod->flags & IOD_DATA_MMIO) {
+		map = PCI_P2PDMA_MAP_THRU_HOST_BRIDGE;
+		attrs |= DMA_ATTR_MMIO;
+	}
+
+	if (!blk_rq_dma_unmap(req, dma_dev, &iod->dma_state, iod->total_len,
+			      map)) {
 		if (nvme_pci_cmd_use_sgl(&iod->cmd))
 			nvme_free_sgls(req, &iod->cmd.common.dptr.sgl,
-			               iod->descriptors[0]);
+			               iod->descriptors[0], attrs);
 		else
-			nvme_free_prps(req);
+			nvme_free_prps(req, attrs);
 	}
 
 	if (iod->nr_descriptors)
@@ -934,7 +966,8 @@ static bool nvme_pci_prp_save_mapping(struct request *req,
 {
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 
-	if (dma_use_iova(&iod->dma_state) || !dma_need_unmap(dma_dev))
+	if (dma_use_iova(&iod->dma_state) || !dma_need_unmap(dma_dev) ||
+	    (iod->flags & IOD_DATA_P2P))
 		return true;
 
 	if (!iod->nr_dma_vecs) {
@@ -966,6 +999,23 @@ static bool nvme_pci_prp_iter_next(struct request *req, struct device *dma_dev,
 	return nvme_pci_prp_save_mapping(req, dma_dev, iter);
 }
 
+static void nvme_unmap_iter(struct request *req, struct blk_dma_iter *iter,
+			    struct dma_iova_state *state)
+{
+	struct nvme_queue *nvmeq = req->mq_hctx->driver_data;
+	struct device *dev = nvmeq->dev->dev;
+
+	if (!blk_rq_dma_unmap(req, dev, state, iter->len, iter->p2pdma.map)) {
+		unsigned int attrs = 0;
+
+		if (iter->p2pdma.map == PCI_P2PDMA_MAP_THRU_HOST_BRIDGE)
+			attrs |= DMA_ATTR_MMIO;
+
+		dma_unmap_phys(dev, iter->addr, iter->len, rq_dma_dir(req),
+			       attrs);
+	}
+}
+
 static blk_status_t nvme_pci_setup_data_prp(struct request *req,
 		struct blk_dma_iter *iter)
 {
@@ -976,8 +1026,10 @@ static blk_status_t nvme_pci_setup_data_prp(struct request *req,
 	unsigned int prp_len, i;
 	__le64 *prp_list;
 
-	if (!nvme_pci_prp_save_mapping(req, nvmeq->dev->dev, iter))
+	if (!nvme_pci_prp_save_mapping(req, nvmeq->dev->dev, iter)) {
+		nvme_unmap_iter(req, iter, &iod->dma_state);
 		return iter->status;
+	}
 
 	/*
 	 * PRP1 always points to the start of the DMA transfers.
@@ -1082,6 +1134,7 @@ bad_sgl:
 	dev_err_once(nvmeq->dev->dev,
 		"Incorrectly formed request for payload:%d nents:%d\n",
 		blk_rq_payload_bytes(req), blk_rq_nr_phys_segments(req));
+	nvme_unmap_data(req);
 	return BLK_STS_IOERR;
 }
 
@@ -1125,8 +1178,11 @@ static blk_status_t nvme_pci_setup_data_sgl(struct request *req,
 
 	sg_list = dma_pool_alloc(nvme_dma_pool(nvmeq, iod), GFP_ATOMIC,
 			&sgl_dma);
-	if (!sg_list)
+	if (!sg_list) {
+		nvme_unmap_iter(req, iter, &iod->dma_state);
 		return BLK_STS_RESOURCE;
+	}
+
 	iod->descriptors[iod->nr_descriptors++] = sg_list;
 
 	do {
@@ -1206,6 +1262,19 @@ static blk_status_t nvme_map_data(struct request *req)
 	if (!blk_rq_dma_map_iter_start(req, dev->dev, &iod->dma_state, &iter))
 		return iter.status;
 
+	switch (iter.p2pdma.map) {
+	case PCI_P2PDMA_MAP_BUS_ADDR:
+		iod->flags |= IOD_DATA_P2P;
+		break;
+	case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
+		iod->flags |= IOD_DATA_MMIO;
+		break;
+	case PCI_P2PDMA_MAP_NONE:
+		break;
+	default:
+		return BLK_STS_RESOURCE;
+	}
+
 	if (use_sgl == SGL_FORCED ||
 	    (use_sgl == SGL_SUPPORTED &&
 	     (sgl_threshold && nvme_pci_avg_seg_size(req) >= sgl_threshold)))
@@ -1227,6 +1296,19 @@ static blk_status_t nvme_pci_setup_meta_sgls(struct request *req)
 	if (!blk_rq_integrity_dma_map_iter_start(req, dev->dev,
 						&iod->meta_dma_state, &iter))
 		return iter.status;
+
+	switch (iter.p2pdma.map) {
+	case PCI_P2PDMA_MAP_BUS_ADDR:
+		iod->flags |= IOD_META_P2P;
+		break;
+	case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
+		iod->flags |= IOD_META_MMIO;
+		break;
+	case PCI_P2PDMA_MAP_NONE:
+		break;
+	default:
+		return BLK_STS_RESOURCE;
+	}
 
 	if (blk_rq_dma_map_coalesce(&iod->meta_dma_state))
 		entries = 1;
@@ -1254,8 +1336,10 @@ static blk_status_t nvme_pci_setup_meta_sgls(struct request *req)
 
 	sg_list = dma_pool_alloc(nvmeq->descriptor_pools.small, GFP_ATOMIC,
 			&sgl_dma);
-	if (!sg_list)
+	if (!sg_list) {
+		nvme_unmap_iter(req, &iter, &iod->meta_dma_state);
 		return BLK_STS_RESOURCE;
+	}
 
 	iod->meta_descriptor = sg_list;
 	iod->meta_dma = sgl_dma;
