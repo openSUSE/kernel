@@ -1618,6 +1618,10 @@ char *cifs_sanitize_prepath(char *prepath, gfp_t gfp)
 	while (IS_DELIM(*cursor1))
 		cursor1++;
 
+       /* exit in case of only delimiters */
+       if (!*cursor1)
+               return ERR_PTR(-EINVAL);
+
 	/* copy the first letter */
 	*cursor2 = *cursor1;
 
@@ -1647,6 +1651,7 @@ cifs_parse_devname(const char *devname, struct smb_vol *vol)
 	char *pos;
 	const char *delims = "/\\";
 	size_t len;
+       int rc;
 
 	if (unlikely(!devname || !*devname)) {
 		cifs_dbg(VFS, "Device name not specified.\n");
@@ -1692,6 +1697,11 @@ cifs_parse_devname(const char *devname, struct smb_vol *vol)
 	vol->prepath = cifs_sanitize_prepath(pos, GFP_KERNEL);
 	if (!vol->prepath)
 		return -ENOMEM;
+       else if (IS_ERR(vol->prepath)) {
+               rc = PTR_ERR(vol->prepath);
+               vol->prepath = NULL;
+               return rc;
+       }
 
 	return 0;
 }
