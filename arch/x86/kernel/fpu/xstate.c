@@ -1069,6 +1069,7 @@ static void copy_feature(bool from_xstate, struct membuf *to, void *xstate,
  * __copy_xstate_to_uabi_buf - Copy kernel saved xstate to a UABI buffer
  * @to:		membuf descriptor
  * @fpstate:	The fpstate buffer from which to copy
+ * @xfeatures:	The mask of xfeatures to save (XSAVE mode only)
  * @pkru_val:	The PKRU value to store in the PKRU component
  * @copy_mode:	The requested copy mode
  *
@@ -1079,7 +1080,8 @@ static void copy_feature(bool from_xstate, struct membuf *to, void *xstate,
  * It supports partial copy but @to.pos always starts from zero.
  */
 void __copy_xstate_to_uabi_buf(struct membuf to, struct fpstate *fpstate,
-			       u32 pkru_val, enum xstate_copy_mode copy_mode)
+			       u64 xfeatures, u32 pkru_val,
+			       enum xstate_copy_mode copy_mode)
 {
 	const unsigned int off_mxcsr = offsetof(struct fxregs_state, mxcsr);
 	struct xregs_state *xinit = &init_fpstate.regs.xsave;
@@ -1103,7 +1105,7 @@ void __copy_xstate_to_uabi_buf(struct membuf to, struct fpstate *fpstate,
 		break;
 
 	case XSTATE_COPY_XSAVE:
-		header.xfeatures &= fpstate->user_xfeatures;
+		header.xfeatures &= fpstate->user_xfeatures & xfeatures;
 		break;
 	}
 
@@ -1205,6 +1207,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 			     enum xstate_copy_mode copy_mode)
 {
 	__copy_xstate_to_uabi_buf(to, tsk->thread.fpu.fpstate,
+				  tsk->thread.fpu.fpstate->user_xfeatures,
 				  tsk->thread.pkru, copy_mode);
 }
 

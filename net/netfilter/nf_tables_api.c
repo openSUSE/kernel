@@ -7714,6 +7714,7 @@ static int nf_tables_newflowtable(struct sk_buff *skb,
 
 	return 0;
 err5:
+	synchronize_rcu();
 	list_for_each_entry_safe(hook, next, &flowtable->hook_list, list) {
 		nft_unregister_flowtable_hook(net, flowtable, hook);
 		list_del_rcu(&hook->list);

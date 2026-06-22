@@ -1682,9 +1682,15 @@ static void io_kbuf_recycle(struct io_kiocb *req, unsigned issue_flags)
 
 	buf = req->kbuf;
 	bl = io_buffer_get_list(ctx, buf->bgid);
-	list_add(&buf->list, &bl->buf_list);
+
+	if (bl && !bl->buf_nr_pages)
+		list_add(&buf->list, &bl->buf_list);
+	else
+		kfree(buf);
+
 	req->flags &= ~REQ_F_BUFFER_SELECTED;
 	req->buf_index = buf->bgid;
+	req->kbuf = NULL;
 
 	io_ring_submit_unlock(ctx, issue_flags);
 }
