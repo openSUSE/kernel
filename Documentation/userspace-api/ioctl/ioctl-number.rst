@@ -270,7 +270,6 @@ Code  Seq#    Include File                                             Comments
 'm'   00-09  linux/mmtimer.h                                           conflict!
 'm'   all    linux/mtio.h                                              conflict!
 'm'   all    linux/soundcard.h                                         conflict!
-'m'   all    linux/synclink.h                                          conflict!
 'm'   00-19  drivers/message/fusion/mptctl.h                           conflict!
 'm'   00     drivers/scsi/megaraid/megaraid_ioctl.h                    conflict!
 'n'   00-7F  linux/ncp_fs.h and fs/ncpfs/ioctl.c
