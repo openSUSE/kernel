@@ -1767,6 +1767,8 @@ static void process_fw_events_work(struct work_struct *work)
 
 /**
  * panthor_sched_report_fw_events() - Report FW events to the scheduler.
+ * @ptdev: Device.
+ * @events: Bitmask of pending FW events to report.
  */
 void panthor_sched_report_fw_events(struct panthor_device *ptdev, u32 events)
 {
@@ -2681,6 +2683,7 @@ static void panthor_sched_immediate_tick(struct panthor_device *ptdev)
 
 /**
  * panthor_sched_report_mmu_fault() - Report MMU faults to the scheduler.
+ * @ptdev: Device.
  */
 void panthor_sched_report_mmu_fault(struct panthor_device *ptdev)
 {
