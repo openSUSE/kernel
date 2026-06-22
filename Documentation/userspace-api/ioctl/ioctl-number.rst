@@ -340,7 +340,6 @@ Code  Seq#    Include File                                             Comments
 0xA2  all    uapi/linux/acrn.h                                         ACRN hypervisor
 0xA3  80-8F                                                            Port ACL  in development:
                                                                        <mailto:tlewis@mindspring.com>
-0xA3  90-9F  linux/dtlk.h
 0xA4  00-1F  uapi/linux/tee.h                                          Generic TEE subsystem
 0xA4  00-1F  uapi/asm/sgx.h                                            <mailto:linux-sgx@vger.kernel.org>
 0xA5  01-05  linux/surface_aggregator/cdev.h                           Microsoft Surface Platform System Aggregator
