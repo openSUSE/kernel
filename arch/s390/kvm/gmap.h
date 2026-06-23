@@ -103,7 +103,7 @@ int gmap_pv_destroy_range(struct gmap *gmap, gfn_t start, gfn_t end, bool interr
 int gmap_insert_rmap(struct gmap *sg, gfn_t p_gfn, gfn_t r_gfn, int level);
 int gmap_protect_rmap(struct kvm_s390_mmu_cache *mc, struct gmap *sg, gfn_t p_gfn, gfn_t r_gfn,
 		      kvm_pfn_t pfn, int level, bool wr);
-void gmap_set_cmma_all_dirty(struct gmap *gmap);
+void _gmap_set_cmma_all(struct gmap *gmap, bool dirty);
 void _gmap_handle_vsie_unshadow_event(struct gmap *parent, gfn_t gfn);
 struct gmap *gmap_create_shadow(struct kvm_s390_mmu_cache *mc, struct gmap *gmap,
 				union asce asce, int edat_level);
@@ -195,6 +195,16 @@ static inline bool pte_needs_unshadow(union pte oldpte, union pte newpte, union 
 	if (pgste.vsie_gmem)
 		return (oldpte.h.p != newpte.h.p) || newpte.h.i;
 	return !newpte.h.p || !newpte.s.pr;
+}
+
+static inline void gmap_set_cmma_all_dirty(struct gmap *gmap)
+{
+	_gmap_set_cmma_all(gmap, true);
+}
+
+static inline void gmap_set_cmma_all_clean(struct gmap *gmap)
+{
+	_gmap_set_cmma_all(gmap, false);
 }
 
 static inline union pgste _gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, union pte newpte,
