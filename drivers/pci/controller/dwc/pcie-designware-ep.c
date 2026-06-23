@@ -585,9 +585,9 @@ static int dw_pcie_ep_set_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
 
 config_atu:
 	if (!(flags & PCI_BASE_ADDRESS_SPACE))
-		type = PCIE_ATU_TYPE_MEM;
+		type = PCIE_TLP_TYPE_MEM_RDWR;
 	else
-		type = PCIE_ATU_TYPE_IO;
+		type = PCIE_TLP_TYPE_IO_RDWR;
 
 	if (epf_bar->num_submap)
 		ret = dw_pcie_ep_ib_atu_addr(ep, func_no, type, epf_bar);
@@ -660,7 +660,7 @@ static int dw_pcie_ep_map_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
 	struct dw_pcie_ob_atu_cfg atu = { 0 };
 
 	atu.func_no = func_no;
-	atu.type = PCIE_ATU_TYPE_MEM;
+	atu.type = PCIE_TLP_TYPE_MEM_RDWR;
 	atu.parent_bus_addr = addr - pci->parent_bus_offset;
 	atu.pci_addr = pci_addr;
 	atu.size = size;
