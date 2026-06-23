@@ -15,6 +15,10 @@
  * Copyright (c) 2026 Meta Platforms, Inc. and affiliates.
  * Copyright (c) 2026 Tejun Heo <tj@kernel.org>
  */
+#include <linux/genalloc.h>
+
+#include "internal.h"
+#include "arena.h"
 
 enum scx_arena_consts {
 	SCX_ARENA_MIN_ORDER		= 3,	/* 8-byte minimum sub-allocation */

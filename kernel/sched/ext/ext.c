@@ -6,6 +6,19 @@
  * Copyright (c) 2022 Tejun Heo <tj@kernel.org>
  * Copyright (c) 2022 David Vernet <dvernet@meta.com>
  */
+#include <linux/bitmap.h>
+#include <linux/btf_ids.h>
+#include <linux/rhashtable.h>
+#include <linux/sched/clock.h>
+#include <linux/sched/isolation.h>
+#include <linux/suspend.h>
+#include <linux/sysrq.h>
+
+#include "../pelt.h"
+#include "internal.h"
+#include "cid.h"
+#include "arena.h"
+#include "idle.h"
 
 static DEFINE_RAW_SPINLOCK(scx_sched_lock);
 
@@ -246,8 +259,6 @@ __printf(5, 6) bool __scx_exit(struct scx_sched *sch,
 	return ret;
 }
 
-#define SCX_HAS_OP(sch, op)	test_bit(SCX_OP_IDX(op), (sch)->has_op)
-
 static long jiffies_delta_msecs(unsigned long at, unsigned long now)
 {
 	if (time_after(at, now))
@@ -262,20 +273,6 @@ static bool u32_before(u32 a, u32 b)
 }
 
 #ifdef CONFIG_EXT_SUB_SCHED
-/**
- * scx_parent - Find the parent sched
- * @sch: sched to find the parent of
- *
- * Returns the parent scheduler or %NULL if @sch is root.
- */
-static struct scx_sched *scx_parent(struct scx_sched *sch)
-{
-	if (sch->level)
-		return sch->ancestors[sch->level - 1];
-	else
-		return NULL;
-}
-
 /**
  * scx_next_descendant_pre - find the next descendant for pre-order walk
  * @pos: the current position (%NULL to initiate traversal)
@@ -323,7 +320,6 @@ static void scx_set_task_sched(struct task_struct *p, struct scx_sched *sch)
 	rcu_assign_pointer(p->scx.sched, sch);
 }
 #else	/* CONFIG_EXT_SUB_SCHED */
-static inline struct scx_sched *scx_parent(struct scx_sched *sch) { return NULL; }
 static inline struct scx_sched *scx_next_descendant_pre(struct scx_sched *pos, struct scx_sched *root) { return pos ? NULL : root; }
 static inline void scx_set_task_sched(struct task_struct *p, struct scx_sched *sch) {}
 #endif	/* CONFIG_EXT_SUB_SCHED */
@@ -483,122 +479,11 @@ static bool rq_is_open(struct rq *rq, u64 enq_flags)
  */
 DEFINE_PER_CPU(struct rq *, scx_locked_rq_state);
 
-static inline void update_locked_rq(struct rq *rq)
-{
-	/*
-	 * Check whether @rq is actually locked. This can help expose bugs
-	 * or incorrect assumptions about the context in which a kfunc or
-	 * callback is executed.
-	 */
-	if (rq)
-		lockdep_assert_rq_held(rq);
-	__this_cpu_write(scx_locked_rq_state, rq);
-}
-
 /*
- * SCX ops can recurse via scx_bpf_sub_dispatch() - the inner call must not
- * clobber the outer's scx_locked_rq_state. Save it on entry, restore on exit.
- */
-#define SCX_CALL_OP(sch, op, locked_rq, args...)				\
-do {										\
-	struct rq *__prev_locked_rq;						\
-										\
-	if (locked_rq) {							\
-		__prev_locked_rq = scx_locked_rq();				\
-		update_locked_rq(locked_rq);					\
-	}									\
-	(sch)->ops.op(args);							\
-	if (locked_rq)								\
-		update_locked_rq(__prev_locked_rq);				\
-} while (0)
-
-/*
- * Flipped on enable per sch->is_cid_type. Declared in ext_internal.h so
+ * Flipped on enable per sch->is_cid_type. Declared in internal.h so
  * subsystem inlines can read it.
  */
 DEFINE_STATIC_KEY_FALSE(__scx_is_cid_type);
-
-/*
- * scx_cpu_arg() wraps a cpu arg being handed to an SCX op. For cid-form
- * schedulers it resolves to the matching cid; for cpu-form it passes @cpu
- * through. scx_cpu_ret() is the inverse for a cpu/cid returned from an op
- * (currently only ops.select_cpu); it validates the BPF-supplied cid and
- * triggers scx_error() on @sch if invalid.
- */
-static s32 scx_cpu_arg(s32 cpu)
-{
-	if (scx_is_cid_type())
-		return __scx_cpu_to_cid(cpu);
-	return cpu;
-}
-
-static s32 scx_cpu_ret(struct scx_sched *sch, s32 cpu_or_cid)
-{
-	if (cpu_or_cid < 0 || !scx_is_cid_type())
-		return cpu_or_cid;
-	return scx_cid_to_cpu(sch, cpu_or_cid);
-}
-
-#define SCX_CALL_OP_RET(sch, op, locked_rq, args...)				\
-({										\
-	struct rq *__prev_locked_rq;						\
-	__typeof__((sch)->ops.op(args)) __ret;					\
-										\
-	if (locked_rq) {							\
-		__prev_locked_rq = scx_locked_rq();				\
-		update_locked_rq(locked_rq);					\
-	}									\
-	__ret = (sch)->ops.op(args);						\
-	if (locked_rq)								\
-		update_locked_rq(__prev_locked_rq);				\
-	__ret;									\
-})
-
-/*
- * SCX_CALL_OP_TASK*() invokes an SCX op that takes one or two task arguments
- * and records them in current->scx.kf_tasks[] for the duration of the call. A
- * kfunc invoked from inside such an op can then use
- * scx_kf_arg_task_ok() to verify that its task argument is one of
- * those subject tasks.
- *
- * Every SCX_CALL_OP_TASK*() call site invokes its op with @p's rq lock held -
- * either via the @locked_rq argument here, or (for ops.select_cpu()) via @p's
- * pi_lock held by try_to_wake_up() with rq tracking via scx_rq.in_select_cpu.
- * So if kf_tasks[] is set, @p's scheduler-protected fields are stable.
- *
- * kf_tasks[] can not stack, so task-based SCX ops must not nest. The
- * WARN_ON_ONCE() in each macro catches a re-entry of any of the three variants
- * while a previous one is still in progress.
- */
-#define SCX_CALL_OP_TASK(sch, op, locked_rq, task, args...)			\
-do {										\
-	WARN_ON_ONCE(current->scx.kf_tasks[0]);					\
-	current->scx.kf_tasks[0] = task;					\
-	SCX_CALL_OP((sch), op, locked_rq, task, ##args);			\
-	current->scx.kf_tasks[0] = NULL;					\
-} while (0)
-
-#define SCX_CALL_OP_TASK_RET(sch, op, locked_rq, task, args...)			\
-({										\
-	__typeof__((sch)->ops.op(task, ##args)) __ret;				\
-	WARN_ON_ONCE(current->scx.kf_tasks[0]);					\
-	current->scx.kf_tasks[0] = task;					\
-	__ret = SCX_CALL_OP_RET((sch), op, locked_rq, task, ##args);		\
-	current->scx.kf_tasks[0] = NULL;					\
-	__ret;									\
-})
-
-#define SCX_CALL_OP_2TASKS_RET(sch, op, locked_rq, task0, task1, args...)	\
-({										\
-	__typeof__((sch)->ops.op(task0, task1, ##args)) __ret;			\
-	WARN_ON_ONCE(current->scx.kf_tasks[0]);					\
-	current->scx.kf_tasks[0] = task0;					\
-	current->scx.kf_tasks[1] = task1;					\
-	__ret = SCX_CALL_OP_RET((sch), op, locked_rq, task0, task1, ##args);	\
-	current->scx.kf_tasks[0] = NULL;					\
-	current->scx.kf_tasks[1] = NULL;					\
-	__ret;									\
-})
 
 /**
  * scx_call_op_set_cpumask - invoke ops.set_cpumask / ops_cid.set_cmask for @task
@@ -608,7 +493,7 @@ do {										\
  * @cpumask: new cpumask
  *
  * For cid-form schedulers, translate @cpumask to a cmask via the per-cpu
- * scratch in ext_cid.c and dispatch through the ops_cid union view. Caller
+ * scratch in cid.c and dispatch through the ops_cid union view. Caller
  * must hold @rq's rq lock so this_cpu_ptr is stable across the call.
  */
 static inline void scx_call_op_set_cpumask(struct scx_sched *sch, struct rq *rq,
@@ -636,19 +521,6 @@ static inline void scx_call_op_set_cpumask(struct scx_sched *sch, struct rq *rq,
 	if (rq)
 		update_locked_rq(NULL);
 	current->scx.kf_tasks[0] = NULL;
-}
-
-/* see SCX_CALL_OP_TASK() */
-static __always_inline bool scx_kf_arg_task_ok(struct scx_sched *sch,
-							struct task_struct *p)
-{
-	if (unlikely((p != current->scx.kf_tasks[0] &&
-		      p != current->scx.kf_tasks[1]))) {
-		scx_error(sch, "called on a task not being operated on");
-		return false;
-	}
-
-	return true;
 }
 
 enum scx_dsq_iter_flags {

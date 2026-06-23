@@ -8,6 +8,12 @@
 #ifndef _KERNEL_SCHED_EXT_TYPES_H
 #define _KERNEL_SCHED_EXT_TYPES_H
 
+#include <linux/types.h>
+#include <linux/jiffies.h>
+#include <linux/overflow.h>
+#include <linux/time64.h>
+#include <linux/sched/topology.h>
+
 enum scx_consts {
 	SCX_DSP_DFL_MAX_BATCH		= 32,
 	SCX_DSP_MAX_LOOPS		= 32,

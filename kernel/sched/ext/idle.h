@@ -10,7 +10,11 @@
 #ifndef _KERNEL_SCHED_EXT_IDLE_H
 #define _KERNEL_SCHED_EXT_IDLE_H
 
+#include <linux/btf_ids.h>
+
+struct cpumask;
 struct sched_ext_ops;
+struct task_struct;
 
 extern struct btf_id_set8 scx_kfunc_ids_idle;
 extern struct btf_id_set8 scx_kfunc_ids_select_cpu;

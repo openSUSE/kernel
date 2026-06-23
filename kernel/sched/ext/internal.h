@@ -5,6 +5,12 @@
  * Copyright (c) 2025 Meta Platforms, Inc. and affiliates.
  * Copyright (c) 2025 Tejun Heo <tj@kernel.org>
  */
+#ifndef _KERNEL_SCHED_EXT_INTERNAL_H
+#define _KERNEL_SCHED_EXT_INTERNAL_H
+
+#include "../sched.h"
+#include "types.h"
+
 #define SCX_OP_IDX(op)		(offsetof(struct sched_ext_ops, op) / sizeof(void (*)(void)))
 #define SCX_MOFF_IDX(moff)	((moff) / sizeof(void (*)(void)))
 
@@ -1547,6 +1553,111 @@ static inline struct rq *scx_locked_rq(void)
 	return __this_cpu_read(scx_locked_rq_state);
 }
 
+static inline void update_locked_rq(struct rq *rq)
+{
+	/*
+	 * Check whether @rq is actually locked. This can help expose bugs
+	 * or incorrect assumptions about the context in which a kfunc or
+	 * callback is executed.
+	 */
+	if (rq)
+		lockdep_assert_rq_held(rq);
+	__this_cpu_write(scx_locked_rq_state, rq);
+}
+
+#define SCX_HAS_OP(sch, op)	test_bit(SCX_OP_IDX(op), (sch)->has_op)
+
+/*
+ * SCX ops can recurse via scx_bpf_sub_dispatch() - the inner call must not
+ * clobber the outer's scx_locked_rq_state. Save it on entry, restore on exit.
+ */
+#define SCX_CALL_OP(sch, op, locked_rq, args...)				\
+do {										\
+	struct rq *__prev_locked_rq;						\
+										\
+	if (locked_rq) {							\
+		__prev_locked_rq = scx_locked_rq();				\
+		update_locked_rq(locked_rq);					\
+	}									\
+	(sch)->ops.op(args);							\
+	if (locked_rq)								\
+		update_locked_rq(__prev_locked_rq);				\
+} while (0)
+
+#define SCX_CALL_OP_RET(sch, op, locked_rq, args...)				\
+({										\
+	struct rq *__prev_locked_rq;						\
+	__typeof__((sch)->ops.op(args)) __ret;					\
+										\
+	if (locked_rq) {							\
+		__prev_locked_rq = scx_locked_rq();				\
+		update_locked_rq(locked_rq);					\
+	}									\
+	__ret = (sch)->ops.op(args);						\
+	if (locked_rq)								\
+		update_locked_rq(__prev_locked_rq);				\
+	__ret;									\
+})
+
+/*
+ * SCX_CALL_OP_TASK*() invokes an SCX op that takes one or two task arguments
+ * and records them in current->scx.kf_tasks[] for the duration of the call. A
+ * kfunc invoked from inside such an op can then use
+ * scx_kf_arg_task_ok() to verify that its task argument is one of
+ * those subject tasks.
+ *
+ * Every SCX_CALL_OP_TASK*() call site invokes its op with @p's rq lock held -
+ * either via the @locked_rq argument here, or (for ops.select_cpu()) via @p's
+ * pi_lock held by try_to_wake_up() with rq tracking via scx_rq.in_select_cpu.
+ * So if kf_tasks[] is set, @p's scheduler-protected fields are stable.
+ *
+ * kf_tasks[] can not stack, so task-based SCX ops must not nest. The
+ * WARN_ON_ONCE() in each macro catches a re-entry of any of the three variants
+ * while a previous one is still in progress.
+ */
+#define SCX_CALL_OP_TASK(sch, op, locked_rq, task, args...)			\
+do {										\
+	WARN_ON_ONCE(current->scx.kf_tasks[0]);					\
+	current->scx.kf_tasks[0] = task;					\
+	SCX_CALL_OP((sch), op, locked_rq, task, ##args);			\
+	current->scx.kf_tasks[0] = NULL;					\
+} while (0)
+
+#define SCX_CALL_OP_TASK_RET(sch, op, locked_rq, task, args...)			\
+({										\
+	__typeof__((sch)->ops.op(task, ##args)) __ret;				\
+	WARN_ON_ONCE(current->scx.kf_tasks[0]);					\
+	current->scx.kf_tasks[0] = task;					\
+	__ret = SCX_CALL_OP_RET((sch), op, locked_rq, task, ##args);		\
+	current->scx.kf_tasks[0] = NULL;					\
+	__ret;									\
+})
+
+#define SCX_CALL_OP_2TASKS_RET(sch, op, locked_rq, task0, task1, args...)	\
+({										\
+	__typeof__((sch)->ops.op(task0, task1, ##args)) __ret;			\
+	WARN_ON_ONCE(current->scx.kf_tasks[0]);					\
+	current->scx.kf_tasks[0] = task0;					\
+	current->scx.kf_tasks[1] = task1;					\
+	__ret = SCX_CALL_OP_RET((sch), op, locked_rq, task0, task1, ##args);	\
+	current->scx.kf_tasks[0] = NULL;					\
+	current->scx.kf_tasks[1] = NULL;					\
+	__ret;									\
+})
+
+/* see SCX_CALL_OP_TASK() */
+static __always_inline bool scx_kf_arg_task_ok(struct scx_sched *sch,
+					       struct task_struct *p)
+{
+	if (unlikely((p != current->scx.kf_tasks[0] &&
+		      p != current->scx.kf_tasks[1]))) {
+		scx_error(sch, "called on a task not being operated on");
+		return false;
+	}
+
+	return true;
+}
+
 static inline bool scx_bypassing(struct scx_sched *sch, s32 cpu)
 {
 	return unlikely(per_cpu_ptr(sch->pcpu, cpu)->flags &
@@ -1627,6 +1738,20 @@ static inline struct scx_sched *scx_prog_sched(const struct bpf_prog_aux *aux)
 
 	return NULL;
 }
+
+/**
+ * scx_parent - Find the parent sched
+ * @sch: sched to find the parent of
+ *
+ * Returns the parent scheduler or %NULL if @sch is root.
+ */
+static inline struct scx_sched *scx_parent(struct scx_sched *sch)
+{
+	if (sch->level)
+		return sch->ancestors[sch->level - 1];
+	else
+		return NULL;
+}
 #else	/* CONFIG_EXT_SUB_SCHED */
 static inline struct scx_sched *scx_task_sched(const struct task_struct *p)
 {
@@ -1650,4 +1775,8 @@ static inline struct scx_sched *scx_prog_sched(const struct bpf_prog_aux *aux)
 {
 	return rcu_dereference_all(scx_root);
 }
+
+static inline struct scx_sched *scx_parent(struct scx_sched *sch) { return NULL; }
 #endif	/* CONFIG_EXT_SUB_SCHED */
+
+#endif /* _KERNEL_SCHED_EXT_INTERNAL_H */

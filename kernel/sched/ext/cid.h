@@ -33,6 +33,8 @@
 #ifndef _KERNEL_SCHED_EXT_CID_H
 #define _KERNEL_SCHED_EXT_CID_H
 
+#include "internal.h"
+
 struct scx_sched;
 
 /*
@@ -43,7 +45,7 @@ struct scx_sched;
  * possible-but-not-online cpus and carries all-(-1) topo info (see
  * scx_cid_topo); callers detect it via the -1 sentinels.
  *
- * See the comment above the table definitions in ext_cid.c for the
+ * See the comment above the table definitions in cid.c for the
  * memory-ordering and visibility contract.
  */
 extern s16 *scx_cid_to_cpu_tbl;
@@ -267,5 +269,26 @@ static inline u32 scx_cmask_nr_used_words(const struct scx_cmask *m)
 		for (u64 __w = READ_ONCE((m)->bits[__wi]);			\
 		     __w && ((cid) = __bs + __wi * 64 + __ffs64(__w), true);	\
 		     __w &= __w - 1)
+
+/*
+ * scx_cpu_arg() wraps a cpu arg being handed to an SCX op. For cid-form
+ * schedulers it resolves to the matching cid; for cpu-form it passes @cpu
+ * through. scx_cpu_ret() is the inverse for a cpu/cid returned from an op
+ * (currently only ops.select_cpu); it validates the BPF-supplied cid and
+ * triggers scx_error() on @sch if invalid.
+ */
+static inline s32 scx_cpu_arg(s32 cpu)
+{
+	if (scx_is_cid_type())
+		return __scx_cpu_to_cid(cpu);
+	return cpu;
+}
+
+static inline s32 scx_cpu_ret(struct scx_sched *sch, s32 cpu_or_cid)
+{
+	if (cpu_or_cid < 0 || !scx_is_cid_type())
+		return cpu_or_cid;
+	return scx_cid_to_cpu(sch, cpu_or_cid);
+}
 
 #endif /* _KERNEL_SCHED_EXT_CID_H */
