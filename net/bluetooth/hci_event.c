@@ -4936,6 +4936,12 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev,
 	struct hci_ev_sync_conn_complete *ev;
 	struct hci_conn *conn;
 
+	ev = hci_ev_skb_pull(hdev, skb, HCI_EV_SYNC_CONN_COMPLETE, sizeof(*ev));
+	if (!ev)
+		return;
+
+	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
+
 	switch (ev->link_type) {
 	case SCO_LINK:
 	case ESCO_LINK:
@@ -4948,12 +4954,6 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev,
 		bt_dev_err(hdev, "Ignoring connect complete event for invalid link type");
 		return;
 	}
-
-	ev = hci_ev_skb_pull(hdev, skb, HCI_EV_SYNC_CONN_COMPLETE, sizeof(*ev));
-	if (!ev)
-		return;
-
-	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
 
 	hci_dev_lock(hdev);
 	hci_store_wake_reason(hdev, &ev->bdaddr, BDADDR_BREDR);
