@@ -60,6 +60,7 @@ enum gmap_flags {
 struct gmap {
 	unsigned long flags;
 	unsigned char edat_level;
+	bool invalidated;
 	struct kvm *kvm;
 	union asce asce;
 	struct list_head list;
@@ -90,7 +91,8 @@ struct gmap *gmap_new(struct kvm *kvm, gfn_t limit);
 struct gmap *gmap_new_child(struct gmap *parent, gfn_t limit);
 void gmap_remove_child(struct gmap *child);
 void gmap_dispose(struct gmap *gmap);
-int gmap_link(struct kvm_s390_mmu_cache *mc, struct gmap *gmap, struct guest_fault *fault);
+int gmap_link(struct kvm_s390_mmu_cache *mc, struct gmap *gmap, struct guest_fault *fault,
+	      struct kvm_memory_slot *slot);
 void gmap_sync_dirty_log(struct gmap *gmap, gfn_t start, gfn_t end);
 int gmap_set_limit(struct gmap *gmap, gfn_t limit);
 int gmap_ucas_translate(struct kvm_s390_mmu_cache *mc, struct gmap *gmap, gpa_t *gaddr);
@@ -165,6 +167,36 @@ static inline bool gmap_unmap_prefix(struct gmap *gmap, gfn_t gfn, gfn_t end)
 	return _gmap_unmap_prefix(gmap, gfn, end, false);
 }
 
+/**
+ * pte_needs_unshadow() -- Check if the pte operations triggers unshadowing.
+ * @oldpte: the previous value for the guest pte.
+ * @newpte: the new pte being set.
+ * @pgste: the pgste for the pte entry.
+ *
+ * If the pgste.vsie_notif bit is not set, return false: the page is not
+ * involved in vsie and thus should not trigger an unshadow operation.
+ *
+ * If the pgste.vsie_gmem bit is set, this pte represents shadowed guest
+ * memory. The access rights on g3's memory should be synchronized with g1's
+ * and g2's. Therefore unshadowing is triggered if the new and old pte
+ * differ in protection, or if the new pte is invalid.
+ *
+ * If the pgste.vsie_gmem bit is not set, this pte maps the g2 dat tables
+ * for g3. If the entry becomes writable or absent, it becomes impossible to
+ * guarantee that the shadow mapping will match g2's mapping. In that case,
+ * trigger an unshadow event.
+ *
+ * Return: true if an unshadow event should be triggered, otherwise false.
+ */
+static inline bool pte_needs_unshadow(union pte oldpte, union pte newpte, union pgste pgste)
+{
+	if (!pgste.vsie_notif)
+		return false;
+	if (pgste.vsie_gmem)
+		return (oldpte.h.p != newpte.h.p) || newpte.h.i;
+	return !newpte.h.p || !newpte.s.pr;
+}
+
 static inline union pgste _gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, union pte newpte,
 					  union pgste pgste, gfn_t gfn, bool needs_lock)
 {
@@ -178,13 +210,17 @@ static inline union pgste _gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, un
 		pgste.prefix_notif = 0;
 		gmap_unmap_prefix(gmap, gfn, gfn + 1);
 	}
-	if (pgste.vsie_notif && (ptep->h.p != newpte.h.p || newpte.h.i)) {
+	if (pte_needs_unshadow(*ptep, newpte, pgste)) {
 		pgste.vsie_notif = 0;
+		pgste.vsie_gmem = 0;
 		if (needs_lock)
 			gmap_handle_vsie_unshadow_event(gmap, gfn);
 		else
 			_gmap_handle_vsie_unshadow_event(gmap, gfn);
 	}
+	if (!ptep->s.d && newpte.s.d && !newpte.s.s)
+		SetPageDirty(pfn_to_page(newpte.h.pfra));
+	pgste.zero = 0;
 	return __dat_ptep_xchg(ptep, pgste, newpte, gfn, gmap->asce, uses_skeys(gmap));
 }
 
@@ -194,35 +230,65 @@ static inline union pgste gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, uni
 	return _gmap_ptep_xchg(gmap, ptep, newpte, pgste, gfn, true);
 }
 
-static inline void _gmap_crstep_xchg(struct gmap *gmap, union crste *crstep, union crste ne,
-				     gfn_t gfn, bool needs_lock)
+/**
+ * crste_needs_unshadow() -- Check if the crste operations triggers unshadowing.
+ * @oldcrste: the previous value for the crste.
+ * @newcrste: the new value for the crste.
+ *
+ * If the old crste did not have the vsie_notif bit set, return false: the
+ * page is not involved in vsie and thus should not trigger an unshadow
+ * operation. Conversely, if the bit is set, it can only be g3 memory, since
+ * dat tables are never mapped using large pages.
+ *
+ * Similar to the pgste.vsie_gmem case of pte_needs_unshadow(), if the
+ * protection bit is changing or the new page is invalid, trigger an
+ * unshadow event. Also trigger an unshadow event if the new crste does not
+ * have the vsie_notif bit set.
+ *
+ * Return: true if an unshadow event should be triggered, otherwise false.
+ */
+static inline bool crste_needs_unshadow(union crste oldcrste, union crste newcrste)
 {
-	unsigned long align = 8 + (is_pmd(*crstep) ? 0 : 11);
+	if (!oldcrste.s.fc1.vsie_notif)
+		return false;
+	return (newcrste.h.p != oldcrste.h.p) || newcrste.h.i || !newcrste.s.fc1.vsie_notif;
+}
+
+static inline bool __must_check _gmap_crstep_xchg_atomic(struct gmap *gmap, union crste *crstep,
+							 union crste oldcrste, union crste newcrste,
+							 gfn_t gfn, bool needs_lock)
+{
+	unsigned long align = is_pmd(newcrste) ? _PAGE_ENTRIES : _PAGE_ENTRIES * _CRST_ENTRIES;
+
+	if (KVM_BUG_ON(crstep->h.tt != oldcrste.h.tt || newcrste.h.tt != oldcrste.h.tt, gmap->kvm))
+		return true;
 
 	lockdep_assert_held(&gmap->kvm->mmu_lock);
 	if (!needs_lock)
 		lockdep_assert_held(&gmap->children_lock);
 
 	gfn = ALIGN_DOWN(gfn, align);
-	if (crste_prefix(*crstep) && (ne.h.p || ne.h.i || !crste_prefix(ne))) {
-		ne.s.fc1.prefix_notif = 0;
+	if (crste_prefix(oldcrste) && (newcrste.h.p || newcrste.h.i || !crste_prefix(newcrste))) {
+		newcrste.s.fc1.prefix_notif = 0;
 		gmap_unmap_prefix(gmap, gfn, gfn + align);
 	}
-	if (crste_leaf(*crstep) && crstep->s.fc1.vsie_notif &&
-	    (ne.h.p || ne.h.i || !ne.s.fc1.vsie_notif)) {
-		ne.s.fc1.vsie_notif = 0;
+	if (crste_leaf(oldcrste) && crste_needs_unshadow(oldcrste, newcrste)) {
+		newcrste.s.fc1.vsie_notif = 0;
 		if (needs_lock)
 			gmap_handle_vsie_unshadow_event(gmap, gfn);
 		else
 			_gmap_handle_vsie_unshadow_event(gmap, gfn);
 	}
-	dat_crstep_xchg(crstep, ne, gfn, gmap->asce);
+	if (!oldcrste.s.fc1.d && newcrste.s.fc1.d && !newcrste.s.fc1.s)
+		SetPageDirty(phys_to_page(crste_origin_large(newcrste)));
+	return dat_crstep_xchg_atomic(crstep, oldcrste, newcrste, gfn, gmap->asce);
 }
 
-static inline void gmap_crstep_xchg(struct gmap *gmap, union crste *crstep, union crste ne,
-				    gfn_t gfn)
+static inline bool __must_check gmap_crstep_xchg_atomic(struct gmap *gmap, union crste *crstep,
+							union crste oldcrste, union crste newcrste,
+							gfn_t gfn)
 {
-	return _gmap_crstep_xchg(gmap, crstep, ne, gfn, true);
+	return _gmap_crstep_xchg_atomic(gmap, crstep, oldcrste, newcrste, gfn, true);
 }
 
 /**

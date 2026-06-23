@@ -6,13 +6,14 @@
 // Copyright (c) 2022 Pengutronix, Oleksij Rempel <kernel@pengutronix.de>
 //
 
-#include "common.h"
-#include "linux/pse-pd/pse.h"
-#include "netlink.h"
 #include <linux/ethtool_netlink.h>
 #include <linux/ethtool.h>
 #include <linux/export.h>
 #include <linux/phy.h>
+
+#include "common.h"
+#include "linux/pse-pd/pse.h"
+#include "netlink.h"
 
 struct pse_req_info {
 	struct ethnl_req_info base;
@@ -61,14 +62,14 @@ static int pse_prepare_data(const struct ethnl_req_info *req_base,
 	struct phy_device *phydev;
 	int ret;
 
-	ret = ethnl_ops_begin(dev);
-	if (ret < 0)
-		return ret;
-
 	phydev = ethnl_req_get_phydev(req_base, tb, ETHTOOL_A_PSE_HEADER,
 				      info->extack);
 	if (IS_ERR(phydev))
-		return -ENODEV;
+		return PTR_ERR(phydev);
+
+	ret = ethnl_ops_begin(dev);
+	if (ret < 0)
+		return ret;
 
 	ret = pse_get_pse_attributes(phydev, info->extack, data);
 

@@ -108,6 +108,7 @@ static const unsigned short normal_i2c[] = { 0x48, 0x49, 0x4a, 0x4b, 0x4c,
 #define PCT2075_REG_IDLE	0x04
 
 struct lm75_data {
+	const char *label;
 	struct regmap			*regmap;
 	u16				orig_conf;
 	u8				resolution;	/* In bits, 9 to 16 */
@@ -136,7 +137,7 @@ static const struct lm75_params device_params[] = {
 	},
 	[as6200] = {
 		.config_reg_16bits = true,
-		.set_mask = 0x94C0,	/* 8 sample/s, 4 CF, positive polarity */
+		.set_mask = 0xC010,	/* 8 sample/s, 4 CF */
 		.default_resolution = 12,
 		.default_sample_time = 125,
 		.num_sample_times = 4,
@@ -285,8 +286,8 @@ static const struct lm75_params device_params[] = {
 	},
 	[tmp112] = {
 		.config_reg_16bits = true,
-		.set_mask = 0x60C0,	/* 12-bit mode, 8 samples / second */
-		.clr_mask = 1 << 15,	/* no one-shot mode*/
+		.set_mask = 0xC060,	/* 12-bit mode, 8 samples / second */
+		.clr_mask = 1 << 7,	/* no one-shot mode*/
 		.default_resolution = 12,
 		.default_sample_time = 125,
 		.num_sample_times = 4,
@@ -352,7 +353,7 @@ static inline int lm75_write_config(struct lm75_data *data, u16 set_mask,
 				    u16 clr_mask)
 {
 	return regmap_update_bits(data->regmap, LM75_REG_CONF,
-				  clr_mask | LM75_SHUTDOWN, set_mask);
+				  clr_mask | set_mask | LM75_SHUTDOWN, set_mask);
 }
 
 static irqreturn_t lm75_alarm_handler(int irq, void *private)
@@ -361,6 +362,16 @@ static irqreturn_t lm75_alarm_handler(int irq, void *private)
 
 	hwmon_notify_event(hwmon_dev, hwmon_temp, hwmon_temp_alarm, 0);
 	return IRQ_HANDLED;
+}
+
+static int lm75_read_string(struct device *dev, enum hwmon_sensor_types type,
+			    u32 attr, int channel, const char **str)
+{
+	struct lm75_data *data = dev_get_drvdata(dev);
+
+	*str = data->label;
+
+	return 0;
 }
 
 static int lm75_read(struct device *dev, enum hwmon_sensor_types type,
@@ -405,7 +416,7 @@ static int lm75_read(struct device *dev, enum hwmon_sensor_types type,
 			switch (data->kind) {
 			case as6200:
 			case tmp112:
-				*val = (regval >> 13) & 0x1;
+				*val = !!(regval & BIT(13)) == !!(regval & BIT(2));
 				break;
 			default:
 				return -EINVAL;
@@ -534,6 +545,9 @@ static umode_t lm75_is_visible(const void *data, enum hwmon_sensor_types type,
 		switch (attr) {
 		case hwmon_temp_input:
 			return 0444;
+		case hwmon_temp_label:
+		/* Hide label node if label is not provided */
+			return config_data->label ? 0444 : 0;
 		case hwmon_temp_max:
 		case hwmon_temp_max_hyst:
 			return 0644;
@@ -553,13 +567,14 @@ static const struct hwmon_channel_info * const lm75_info[] = {
 	HWMON_CHANNEL_INFO(chip,
 			   HWMON_C_REGISTER_TZ | HWMON_C_UPDATE_INTERVAL),
 	HWMON_CHANNEL_INFO(temp,
-			   HWMON_T_INPUT | HWMON_T_MAX | HWMON_T_MAX_HYST |
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_MAX | HWMON_T_MAX_HYST |
 			   HWMON_T_ALARM),
 	NULL
 };
 
 static const struct hwmon_ops lm75_hwmon_ops = {
 	.is_visible = lm75_is_visible,
+	.read_string = lm75_read_string,
 	.read = lm75_read,
 	.write = lm75_write,
 };
@@ -720,6 +735,9 @@ static int lm75_generic_probe(struct device *dev, const char *name,
 
 	/* needed by custom regmap callbacks */
 	dev_set_drvdata(dev, data);
+
+	/* Save the connected input label if available */
+	device_property_read_string(dev, "label", &data->label);
 
 	data->kind = kind;
 	data->regmap = regmap;

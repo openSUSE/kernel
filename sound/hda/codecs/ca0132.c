@@ -3755,22 +3755,12 @@ static void ca0132_gpio_setup(struct hda_codec *codec)
 
 	switch (ca0132_quirk(spec)) {
 	case QUIRK_SBZ:
-		snd_hda_codec_write(codec, 0x01, 0,
-				AC_VERB_SET_GPIO_DIRECTION, 0x07);
-		snd_hda_codec_write(codec, 0x01, 0,
-				AC_VERB_SET_GPIO_MASK, 0x07);
-		snd_hda_codec_write(codec, 0x01, 0,
-				AC_VERB_SET_GPIO_DATA, 0x04);
+		snd_hda_codec_set_gpio(codec, 0x07, 0x07, 0x04, 0);
 		snd_hda_codec_write(codec, 0x01, 0,
 				AC_VERB_SET_GPIO_DATA, 0x06);
 		break;
 	case QUIRK_R3DI:
-		snd_hda_codec_write(codec, 0x01, 0,
-				AC_VERB_SET_GPIO_DIRECTION, 0x1E);
-		snd_hda_codec_write(codec, 0x01, 0,
-				AC_VERB_SET_GPIO_MASK, 0x1F);
-		snd_hda_codec_write(codec, 0x01, 0,
-				AC_VERB_SET_GPIO_DATA, 0x0C);
+		snd_hda_codec_set_gpio(codec, 0x1F, 0x1E, 0x0C, 0);
 		break;
 	default:
 		break;
@@ -5508,6 +5498,30 @@ static int zxr_headphone_gain_set(struct hda_codec *codec, long val)
 	return 0;
 }
 
+/*
+ * Manual output selection (HP/Speaker Playback Switch or alt Output Select)
+ * is meaningful only when HP/Speaker auto-detect is disabled, since the
+ * select_out path always prefers jack presence when auto-detect is on. When
+ * the user explicitly chooses an output, turn auto-detect off so the manual
+ * choice actually takes effect, and notify userspace so the auto-detect
+ * control reflects the new state.
+ */
+static void ca0132_disable_hp_auto_detect(struct hda_codec *codec)
+{
+	struct ca0132_spec *spec = codec->spec;
+	struct snd_kcontrol *kctl;
+
+	if (!spec->vnode_lswitch[VNID_HP_ASEL - VNODE_START_NID])
+		return;
+
+	spec->vnode_lswitch[VNID_HP_ASEL - VNODE_START_NID] = 0;
+	kctl = snd_hda_find_mixer_ctl(codec,
+				      "HP/Speaker Auto Detect Playback Switch");
+	if (kctl)
+		snd_ctl_notify(codec->card, SNDRV_CTL_EVENT_MASK_VALUE,
+			       &kctl->id);
+}
+
 static int ca0132_vnode_switch_set(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
@@ -5520,14 +5534,11 @@ static int ca0132_vnode_switch_set(struct snd_kcontrol *kcontrol,
 	int auto_jack;
 
 	if (nid == VNID_HP_SEL) {
-		auto_jack =
-			spec->vnode_lswitch[VNID_HP_ASEL - VNODE_START_NID];
-		if (!auto_jack) {
-			if (ca0132_use_alt_functions(spec))
-				ca0132_alt_select_out(codec);
-			else
-				ca0132_select_out(codec);
-		}
+		ca0132_disable_hp_auto_detect(codec);
+		if (ca0132_use_alt_functions(spec))
+			ca0132_alt_select_out(codec);
+		else
+			ca0132_select_out(codec);
 		return 1;
 	}
 
@@ -5988,7 +5999,6 @@ static int ca0132_alt_output_select_put(struct snd_kcontrol *kcontrol,
 	struct ca0132_spec *spec = codec->spec;
 	int sel = ucontrol->value.enumerated.item[0];
 	unsigned int items = NUM_OF_OUTPUTS;
-	unsigned int auto_jack;
 
 	if (sel >= items)
 		return 0;
@@ -5998,10 +6008,8 @@ static int ca0132_alt_output_select_put(struct snd_kcontrol *kcontrol,
 
 	spec->out_enum_val = sel;
 
-	auto_jack = spec->vnode_lswitch[VNID_HP_ASEL - VNODE_START_NID];
-
-	if (!auto_jack)
-		ca0132_alt_select_out(codec);
+	ca0132_disable_hp_auto_detect(codec);
+	ca0132_alt_select_out(codec);
 
 	return 1;
 }

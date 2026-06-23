@@ -103,7 +103,7 @@ RUN_ALL=false
 RUN_DESTRUCTIVE=false
 TAP_PREFIX="# "
 
-while getopts "aht:n" OPT; do
+while getopts "aht:nd" OPT; do
 	case ${OPT} in
 		"a") RUN_ALL=true ;;
 		"h") usage ;;
@@ -514,6 +514,8 @@ if [ -n "${MOUNTED_XFS}" ]; then
     rmdir ${SPLIT_HUGE_PAGE_TEST_XFS_PATH}
     rm -f ${XFS_IMG}
 fi
+
+CATEGORY="thp" run_test ./folio_split_race_test
 
 CATEGORY="migration" run_test ./migration
 

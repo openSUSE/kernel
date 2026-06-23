@@ -25,7 +25,7 @@
 #define ST_GPA_BASE		(1 << 30)
 
 static void *st_gva[NR_VCPUS];
-static uint64_t guest_stolen_time[NR_VCPUS];
+static u64 guest_stolen_time[NR_VCPUS];
 
 #if defined(__x86_64__)
 
@@ -42,9 +42,9 @@ static void check_status(struct kvm_steal_time *st)
 static void guest_code(int cpu)
 {
 	struct kvm_steal_time *st = st_gva[cpu];
-	uint32_t version;
+	u32 version;
 
-	GUEST_ASSERT_EQ(rdmsr(MSR_KVM_STEAL_TIME), ((uint64_t)st_gva[cpu] | KVM_MSR_ENABLED));
+	GUEST_ASSERT_EQ(rdmsr(MSR_KVM_STEAL_TIME), ((u64)st_gva[cpu] | KVM_MSR_ENABLED));
 
 	memset(st, 0, sizeof(*st));
 	GUEST_SYNC(0);
@@ -67,22 +67,16 @@ static bool is_steal_time_supported(struct kvm_vcpu *vcpu)
 	return kvm_cpu_has(X86_FEATURE_KVM_STEAL_TIME);
 }
 
-static void steal_time_init(struct kvm_vcpu *vcpu, uint32_t i)
+static void steal_time_init(struct kvm_vcpu *vcpu, u32 i)
 {
-	int ret;
-
 	/* ST_GPA_BASE is identity mapped */
 	st_gva[i] = (void *)(ST_GPA_BASE + i * STEAL_TIME_SIZE);
 	sync_global_to_guest(vcpu->vm, st_gva[i]);
 
-	ret = _vcpu_set_msr(vcpu, MSR_KVM_STEAL_TIME,
-			    (ulong)st_gva[i] | KVM_STEAL_RESERVED_MASK);
-	TEST_ASSERT(ret == 0, "Bad GPA didn't fail");
-
 	vcpu_set_msr(vcpu, MSR_KVM_STEAL_TIME, (ulong)st_gva[i] | KVM_MSR_ENABLED);
 }
 
-static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
+static void steal_time_dump(struct kvm_vm *vm, u32 vcpu_idx)
 {
 	struct kvm_steal_time *st = addr_gva2hva(vm, (ulong)st_gva[vcpu_idx]);
 
@@ -99,6 +93,21 @@ static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
 			st->pad[8], st->pad[9], st->pad[10]);
 }
 
+static void check_steal_time_uapi(void)
+{
+	struct kvm_vm *vm;
+	struct kvm_vcpu *vcpu;
+	int ret;
+
+	vm = vm_create_with_one_vcpu(&vcpu, NULL);
+
+	ret = _vcpu_set_msr(vcpu, MSR_KVM_STEAL_TIME,
+			    (ulong)ST_GPA_BASE | KVM_STEAL_RESERVED_MASK);
+	TEST_ASSERT(ret == 0, "Bad GPA didn't fail");
+
+	kvm_vm_free(vm);
+}
+
 #elif defined(__aarch64__)
 
 /* PV_TIME_ST must have 64-byte alignment */
@@ -109,12 +118,12 @@ static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
 #define PV_TIME_ST		0xc5000021
 
 struct st_time {
-	uint32_t rev;
-	uint32_t attr;
-	uint64_t st_time;
+	u32 rev;
+	u32 attr;
+	u64 st_time;
 };
 
-static int64_t smccc(uint32_t func, uint64_t arg)
+static s64 smccc(u32 func, u64 arg)
 {
 	struct arm_smccc_res res;
 
@@ -131,7 +140,7 @@ static void check_status(struct st_time *st)
 static void guest_code(int cpu)
 {
 	struct st_time *st;
-	int64_t status;
+	s64 status;
 
 	status = smccc(SMCCC_ARCH_FEATURES, PV_TIME_FEATURES);
 	GUEST_ASSERT_EQ(status, 0);
@@ -166,36 +175,26 @@ static bool is_steal_time_supported(struct kvm_vcpu *vcpu)
 	return !__vcpu_ioctl(vcpu, KVM_HAS_DEVICE_ATTR, &dev);
 }
 
-static void steal_time_init(struct kvm_vcpu *vcpu, uint32_t i)
+static void steal_time_init(struct kvm_vcpu *vcpu, u32 i)
 {
 	struct kvm_vm *vm = vcpu->vm;
-	uint64_t st_ipa;
-	int ret;
+	u64 st_ipa;
 
 	struct kvm_device_attr dev = {
 		.group = KVM_ARM_VCPU_PVTIME_CTRL,
 		.attr = KVM_ARM_VCPU_PVTIME_IPA,
-		.addr = (uint64_t)&st_ipa,
+		.addr = (u64)&st_ipa,
 	};
-
-	vcpu_ioctl(vcpu, KVM_HAS_DEVICE_ATTR, &dev);
 
 	/* ST_GPA_BASE is identity mapped */
 	st_gva[i] = (void *)(ST_GPA_BASE + i * STEAL_TIME_SIZE);
 	sync_global_to_guest(vm, st_gva[i]);
 
-	st_ipa = (ulong)st_gva[i] | 1;
-	ret = __vcpu_ioctl(vcpu, KVM_SET_DEVICE_ATTR, &dev);
-	TEST_ASSERT(ret == -1 && errno == EINVAL, "Bad IPA didn't report EINVAL");
-
 	st_ipa = (ulong)st_gva[i];
 	vcpu_ioctl(vcpu, KVM_SET_DEVICE_ATTR, &dev);
-
-	ret = __vcpu_ioctl(vcpu, KVM_SET_DEVICE_ATTR, &dev);
-	TEST_ASSERT(ret == -1 && errno == EEXIST, "Set IPA twice without EEXIST");
 }
 
-static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
+static void steal_time_dump(struct kvm_vm *vm, u32 vcpu_idx)
 {
 	struct st_time *st = addr_gva2hva(vm, (ulong)st_gva[vcpu_idx]);
 
@@ -205,22 +204,54 @@ static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
 	ksft_print_msg("    st_time: %ld\n", st->st_time);
 }
 
+static void check_steal_time_uapi(void)
+{
+	struct kvm_vm *vm;
+	struct kvm_vcpu *vcpu;
+	u64 st_ipa;
+	int ret;
+
+	vm = vm_create_with_one_vcpu(&vcpu, NULL);
+
+	struct kvm_device_attr dev = {
+		.group = KVM_ARM_VCPU_PVTIME_CTRL,
+		.attr = KVM_ARM_VCPU_PVTIME_IPA,
+		.addr = (u64)&st_ipa,
+	};
+
+	vcpu_ioctl(vcpu, KVM_HAS_DEVICE_ATTR, &dev);
+	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, ST_GPA_BASE, 1, 1, 0);
+	virt_map(vm, ST_GPA_BASE, ST_GPA_BASE, 1);
+
+	st_ipa = (ulong)ST_GPA_BASE | 1;
+	ret = __vcpu_ioctl(vcpu, KVM_SET_DEVICE_ATTR, &dev);
+	TEST_ASSERT(ret == -1 && errno == EINVAL, "Bad IPA didn't report EINVAL");
+
+	st_ipa = (ulong)ST_GPA_BASE;
+	vcpu_ioctl(vcpu, KVM_SET_DEVICE_ATTR, &dev);
+
+	ret = __vcpu_ioctl(vcpu, KVM_SET_DEVICE_ATTR, &dev);
+	TEST_ASSERT(ret == -1 && errno == EEXIST, "Set IPA twice without EEXIST");
+
+	kvm_vm_free(vm);
+}
+
 #elif defined(__riscv)
 
 /* SBI STA shmem must have 64-byte alignment */
 #define STEAL_TIME_SIZE		((sizeof(struct sta_struct) + 63) & ~63)
 
-static vm_paddr_t st_gpa[NR_VCPUS];
+static gpa_t st_gpa[NR_VCPUS];
 
 struct sta_struct {
-	uint32_t sequence;
-	uint32_t flags;
-	uint64_t steal;
-	uint8_t preempted;
-	uint8_t pad[47];
+	u32 sequence;
+	u32 flags;
+	u64 steal;
+	u8 preempted;
+	u8 pad[47];
 } __packed;
 
-static void sta_set_shmem(vm_paddr_t gpa, unsigned long flags)
+static void sta_set_shmem(gpa_t gpa, unsigned long flags)
 {
 	unsigned long lo = (unsigned long)gpa;
 #if __riscv_xlen == 32
@@ -243,7 +274,7 @@ static void check_status(struct sta_struct *st)
 static void guest_code(int cpu)
 {
 	struct sta_struct *st = st_gva[cpu];
-	uint32_t sequence;
+	u32 sequence;
 	long out_val = 0;
 	bool probe;
 
@@ -268,7 +299,7 @@ static void guest_code(int cpu)
 
 static bool is_steal_time_supported(struct kvm_vcpu *vcpu)
 {
-	uint64_t id = RISCV_SBI_EXT_REG(KVM_RISCV_SBI_EXT_STA);
+	u64 id = RISCV_SBI_EXT_REG(KVM_RISCV_SBI_EXT_STA);
 	unsigned long enabled = vcpu_get_reg(vcpu, id);
 
 	TEST_ASSERT(enabled == 0 || enabled == 1, "Expected boolean result");
@@ -276,16 +307,16 @@ static bool is_steal_time_supported(struct kvm_vcpu *vcpu)
 	return enabled;
 }
 
-static void steal_time_init(struct kvm_vcpu *vcpu, uint32_t i)
+static void steal_time_init(struct kvm_vcpu *vcpu, u32 i)
 {
 	/* ST_GPA_BASE is identity mapped */
 	st_gva[i] = (void *)(ST_GPA_BASE + i * STEAL_TIME_SIZE);
-	st_gpa[i] = addr_gva2gpa(vcpu->vm, (vm_vaddr_t)st_gva[i]);
+	st_gpa[i] = addr_gva2gpa(vcpu->vm, (gva_t)st_gva[i]);
 	sync_global_to_guest(vcpu->vm, st_gva[i]);
 	sync_global_to_guest(vcpu->vm, st_gpa[i]);
 }
 
-static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
+static void steal_time_dump(struct kvm_vm *vm, u32 vcpu_idx)
 {
 	struct sta_struct *st = addr_gva2hva(vm, (ulong)st_gva[vcpu_idx]);
 	int i;
@@ -299,6 +330,41 @@ static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
 	for (i = 0; i < 47; ++i)
 		pr_info("%d", st->pad[i]);
 	pr_info("\n");
+}
+
+static void check_steal_time_uapi(void)
+{
+	struct kvm_vm *vm;
+	struct kvm_vcpu *vcpu;
+	struct kvm_one_reg reg;
+	u64 shmem;
+	int ret;
+
+	vm = vm_create_with_one_vcpu(&vcpu, NULL);
+
+	reg.id = KVM_REG_RISCV |
+			 KVM_REG_SIZE_ULONG |
+			 KVM_REG_RISCV_SBI_STATE |
+			 KVM_REG_RISCV_SBI_STA |
+			 KVM_REG_RISCV_SBI_STA_REG(shmem_lo);
+	reg.addr = (u64)&shmem;
+
+	shmem = ST_GPA_BASE + 1;
+	ret = __vcpu_ioctl(vcpu, KVM_SET_ONE_REG, &reg);
+	TEST_ASSERT(ret == -1 && errno == EINVAL,
+		    "misaligned STA shmem returns -EINVAL");
+
+	shmem = ST_GPA_BASE;
+	ret = __vcpu_ioctl(vcpu, KVM_SET_ONE_REG, &reg);
+	TEST_ASSERT(ret == 0,
+		    "aligned STA shmem succeeds");
+
+	shmem = INVALID_GPA;
+	ret = __vcpu_ioctl(vcpu, KVM_SET_ONE_REG, &reg);
+	TEST_ASSERT(ret == 0,
+		    "all-ones for STA shmem succeeds");
+
+	kvm_vm_free(vm);
 }
 
 #elif defined(__loongarch__)
@@ -324,7 +390,7 @@ static void check_status(struct kvm_steal_time *st)
 
 static void guest_code(int cpu)
 {
-	uint32_t version;
+	u32 version;
 	struct kvm_steal_time *st = st_gva[cpu];
 
 	memset(st, 0, sizeof(*st));
@@ -346,11 +412,11 @@ static void guest_code(int cpu)
 static bool is_steal_time_supported(struct kvm_vcpu *vcpu)
 {
 	int err;
-	uint64_t val;
+	u64 val;
 	struct kvm_device_attr attr = {
 		.group = KVM_LOONGARCH_VCPU_CPUCFG,
 		.attr = CPUCFG_KVM_FEATURE,
-		.addr = (uint64_t)&val,
+		.addr = (u64)&val,
 	};
 
 	err = __vcpu_ioctl(vcpu, KVM_HAS_DEVICE_ATTR, &attr);
@@ -364,15 +430,15 @@ static bool is_steal_time_supported(struct kvm_vcpu *vcpu)
 	return val & BIT(KVM_FEATURE_STEAL_TIME);
 }
 
-static void steal_time_init(struct kvm_vcpu *vcpu, uint32_t i)
+static void steal_time_init(struct kvm_vcpu *vcpu, u32 i)
 {
 	int err;
-	uint64_t st_gpa;
+	u64 st_gpa;
 	struct kvm_vm *vm = vcpu->vm;
 	struct kvm_device_attr attr = {
 		.group = KVM_LOONGARCH_VCPU_PVTIME_CTRL,
 		.attr = KVM_LOONGARCH_VCPU_PVTIME_GPA,
-		.addr = (uint64_t)&st_gpa,
+		.addr = (u64)&st_gpa,
 	};
 
 	/* ST_GPA_BASE is identity mapped */
@@ -387,7 +453,7 @@ static void steal_time_init(struct kvm_vcpu *vcpu, uint32_t i)
 	TEST_ASSERT(err == 0, "Fail to set PV stealtime GPA");
 }
 
-static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
+static void steal_time_dump(struct kvm_vm *vm, u32 vcpu_idx)
 {
 	struct kvm_steal_time *st = addr_gva2hva(vm, (ulong)st_gva[vcpu_idx]);
 
@@ -396,6 +462,11 @@ static void steal_time_dump(struct kvm_vm *vm, uint32_t vcpu_idx)
 	ksft_print_msg("    flags:     %d\n", st->flags);
 	ksft_print_msg("    version:   %d\n", st->version);
 	ksft_print_msg("    preempted: %d\n", st->preempted);
+}
+
+static void check_steal_time_uapi(void)
+{
+
 }
 #endif
 
@@ -464,6 +535,8 @@ int main(int ac, char **av)
 	ksft_print_header();
 	TEST_REQUIRE(is_steal_time_supported(vcpus[0]));
 	ksft_set_plan(NR_VCPUS);
+
+	check_steal_time_uapi();
 
 	/* Run test on each VCPU */
 	for (i = 0; i < NR_VCPUS; ++i) {
