@@ -967,6 +967,8 @@ out:
  * smb2_lease_break_noti() - break lease when a new client request
  *			write lease
  * @opinfo:		contains lease state information
+ * @wait_ack:		wait for lease break acknowledgment from the client
+ * @inc_epoch:		increment the lease epoch before sending the break
  *
  * Return:	0 on success, otherwise error
  */
