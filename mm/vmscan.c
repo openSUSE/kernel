@@ -612,10 +612,37 @@ typedef enum {
 	PAGE_CLEAN,
 } pageout_t;
 
-static pageout_t writeout(struct folio *folio, struct address_space *mapping,
-		struct swap_iocb **plug, struct list_head *folio_list)
+/*
+ * pageout is called by shrink_folio_list() for each dirty folio.
+ */
+static pageout_t pageout(struct folio *folio, struct address_space *mapping,
+			 struct swap_iocb **plug, struct list_head *folio_list)
 {
 	int res;
+
+	/*
+	 * We no longer attempt to writeback filesystem folios here, other
+	 * than tmpfs/shmem.  That's taken care of in page-writeback.
+	 * If we find a dirty filesystem folio at the end of the LRU list,
+	 * typically that means the filesystem is saturating the storage
+	 * with contiguous writes and telling it to write a folio here
+	 * would only make the situation worse by injecting an element
+	 * of random access.
+	 *
+	 * If the folio is swapcache, write it back even if that would
+	 * block, for some throttling. This happens by accident, because
+	 * swap_backing_dev_info is bust: it doesn't reflect the
+	 * congestion state of the swapdevs.  Easy to fix, if needed.
+	 *
+	 * A freeable shmem or swapcache folio is referenced only by the
+	 * caller that isolated the folio and the page cache.
+	 */
+	if (folio_ref_count(folio) != 1 + folio_nr_pages(folio) || !mapping)
+		return PAGE_KEEP;
+	if (!shmem_mapping(mapping) && !folio_test_anon(folio))
+		return PAGE_ACTIVATE;
+	if (!folio_clear_dirty_for_io(folio))
+		return PAGE_CLEAN;
 
 	folio_set_reclaim(folio);
 
@@ -643,38 +670,6 @@ static pageout_t writeout(struct folio *folio, struct address_space *mapping,
 	trace_mm_vmscan_write_folio(folio);
 	node_stat_add_folio(folio, NR_VMSCAN_WRITE);
 	return PAGE_SUCCESS;
-}
-
-/*
- * pageout is called by shrink_folio_list() for each dirty folio.
- */
-static pageout_t pageout(struct folio *folio, struct address_space *mapping,
-			 struct swap_iocb **plug, struct list_head *folio_list)
-{
-	/*
-	 * We no longer attempt to writeback filesystem folios here, other
-	 * than tmpfs/shmem.  That's taken care of in page-writeback.
-	 * If we find a dirty filesystem folio at the end of the LRU list,
-	 * typically that means the filesystem is saturating the storage
-	 * with contiguous writes and telling it to write a folio here
-	 * would only make the situation worse by injecting an element
-	 * of random access.
-	 *
-	 * If the folio is swapcache, write it back even if that would
-	 * block, for some throttling. This happens by accident, because
-	 * swap_backing_dev_info is bust: it doesn't reflect the
-	 * congestion state of the swapdevs.  Easy to fix, if needed.
-	 *
-	 * A freeable shmem or swapcache folio is referenced only by the
-	 * caller that isolated the folio and the page cache.
-	 */
-	if (folio_ref_count(folio) != 1 + folio_nr_pages(folio) || !mapping)
-		return PAGE_KEEP;
-	if (!shmem_mapping(mapping) && !folio_test_anon(folio))
-		return PAGE_ACTIVATE;
-	if (!folio_clear_dirty_for_io(folio))
-		return PAGE_CLEAN;
-	return writeout(folio, mapping, plug, folio_list);
 }
 
 /*
@@ -6711,11 +6706,11 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 		return 1;
 
 	set_task_reclaim_state(current, &sc.reclaim_state);
-	trace_mm_vmscan_direct_reclaim_begin(sc.gfp_mask, order, 0);
+	trace_mm_vmscan_direct_reclaim_begin(sc.gfp_mask, order, NULL);
 
 	nr_reclaimed = do_try_to_free_pages(zonelist, &sc);
 
-	trace_mm_vmscan_direct_reclaim_end(nr_reclaimed, 0);
+	trace_mm_vmscan_direct_reclaim_end(nr_reclaimed, NULL);
 	set_task_reclaim_state(current, NULL);
 
 	return nr_reclaimed;
@@ -7781,7 +7776,7 @@ static unsigned long __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask,
 	delayacct_freepages_end();
 	psi_memstall_leave(&pflags);
 
-	trace_mm_vmscan_node_reclaim_end(sc->nr_reclaimed, 0);
+	trace_mm_vmscan_node_reclaim_end(sc->nr_reclaimed, NULL);
 
 	return sc->nr_reclaimed;
 }
