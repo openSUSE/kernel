@@ -263,8 +263,7 @@ static void mvebu_pcie_setup_hw(struct mvebu_pcie_port *port)
 	 * not set correctly then link with endpoint card is not established.
 	 */
 	lnkcap = mvebu_readl(port, PCIE_CAP_PCIEXP + PCI_EXP_LNKCAP);
-	lnkcap &= ~PCI_EXP_LNKCAP_MLW;
-	lnkcap |= FIELD_PREP(PCI_EXP_LNKCAP_MLW, port->is_x4 ? 4 : 1);
+	FIELD_MODIFY(PCI_EXP_LNKCAP_MLW, &lnkcap, port->is_x4 ? 4 : 1);
 	mvebu_writel(port, lnkcap, PCIE_CAP_PCIEXP + PCI_EXP_LNKCAP);
 
 	/* Disable Root Bridge I/O space, memory space and bus mastering. */
