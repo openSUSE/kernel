@@ -1083,8 +1083,10 @@ static s32 tas2783_sdca_dev_resume(struct device *dev)
 	int ret;
 
 	ret = sdw_slave_wait_for_init(slave, TAS2783_PROBE_TIMEOUT);
-	if (ret)
+	if (ret) {
+		sdw_show_ping_status(slave->bus, true);
 		return ret;
+	}
 
 	regcache_cache_only(tas_dev->regmap, false);
 	regcache_sync(tas_dev->regmap);
