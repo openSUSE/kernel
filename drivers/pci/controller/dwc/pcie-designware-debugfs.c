@@ -306,6 +306,7 @@ static ssize_t err_inj_write(struct file *file, const char __user *buf,
 	u32 val, counter, vc_num, err_group, type_mask;
 	int val_diff = 0;
 	char *kern_buf;
+	int ret;
 
 	err_group = err_inj_list[pdata->idx].err_inj_group;
 	type_mask = err_inj_type_mask[err_group];
@@ -327,10 +328,10 @@ static ssize_t err_inj_write(struct file *file, const char __user *buf,
 			return -EINVAL;
 		}
 	} else {
-		val = kstrtou32(kern_buf, 0, &counter);
-		if (val) {
+		ret = kstrtou32(kern_buf, 0, &counter);
+		if (ret) {
 			kfree(kern_buf);
-			return val;
+			return ret;
 		}
 	}
 
@@ -507,11 +508,6 @@ static int ltssm_status_show(struct seq_file *s, void *v)
 	return 0;
 }
 
-static int ltssm_status_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ltssm_status_show, inode->i_private);
-}
-
 #define dwc_debugfs_create(name)			\
 debugfs_create_file(#name, 0644, rasdes_debug, pci,	\
 			&dbg_ ## name ## _fops)
@@ -548,14 +544,14 @@ static const struct file_operations dwc_pcie_counter_value_ops = {
 	.read = counter_value_read,
 };
 
-static const struct file_operations dwc_pcie_ltssm_status_ops = {
-	.open = ltssm_status_open,
-	.read = seq_read,
-};
+DEFINE_SHOW_ATTRIBUTE(ltssm_status);
 
 static void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
 {
 	struct dwc_pcie_rasdes_info *rinfo = pci->debugfs->rasdes_info;
+
+	if (!rinfo)
+		return;
 
 	mutex_destroy(&rinfo->reg_event_lock);
 }
@@ -642,7 +638,7 @@ err_deinit:
 static void dwc_pcie_ltssm_debugfs_init(struct dw_pcie *pci, struct dentry *dir)
 {
 	debugfs_create_file("ltssm_status", 0444, dir, pci,
-			    &dwc_pcie_ltssm_status_ops);
+			    &ltssm_status_fops);
 }
 
 static int dw_pcie_ptm_check_capability(void *drvdata)
