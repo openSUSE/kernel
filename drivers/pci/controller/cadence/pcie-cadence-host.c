@@ -366,8 +366,10 @@ void cdns_pcie_host_disable(struct cdns_pcie_rc *rc)
 	struct pci_host_bridge *bridge;
 
 	bridge = pci_host_bridge_from_priv(rc);
+	pci_lock_rescan_remove();
 	pci_stop_root_bus(bridge->bus);
 	pci_remove_root_bus(bridge->bus);
+	pci_unlock_rescan_remove();
 
 	cdns_pcie_host_deinit(rc);
 	cdns_pcie_host_link_disable(rc);
