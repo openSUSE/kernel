@@ -4608,7 +4608,7 @@ bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
 	       skb_shinfo(from)->nr_frags * sizeof(skb_frag_t));
 	skb_shinfo(to)->nr_frags += skb_shinfo(from)->nr_frags;
 	if (skb_shinfo(from)->nr_frags)
-		skb_shinfo(to)->tx_flags |= skb_shinfo(to)->tx_flags & SKBTX_SHARED_FRAG;
+		skb_shinfo(to)->tx_flags |= skb_shinfo(from)->tx_flags & SKBTX_SHARED_FRAG;
 
 	if (!skb_cloned(from))
 		skb_shinfo(from)->nr_frags = 0;
