@@ -1368,6 +1368,19 @@ static void qcom_pcie_host_post_init(struct dw_pcie_rp *pp)
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct qcom_pcie *pcie = to_qcom_pcie(pci);
 
+	/*
+	 * During system suspend, the Qcom RC driver may turn off the
+	 * analog circuitry of PHY and remove controller votes to save
+	 * power. If the link is in L1SS and the endpoint asserts CLKREQ#
+	 * to exit L1SS, the time required to wake the system and restore
+	 * the PHY/REFCLK may exceed the L1SS exit timing (L10_REFCLK_ON +
+	 * T_COMMONMODE), resulting in Link Down (LDn) and a reset of the
+	 * endpoint. Set this flag to indicate this limitation to client
+	 * drivers so that they can avoid relying on device state being
+	 * preserved during system suspend.
+	 */
+	pp->bridge->broken_l1ss_resume = true;
+
 	if (pcie->cfg->ops->host_post_init)
 		pcie->cfg->ops->host_post_init(pcie);
 }
