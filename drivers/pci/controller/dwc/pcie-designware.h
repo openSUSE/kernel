@@ -72,6 +72,8 @@
 
 /* Synopsys-specific PCIe configuration registers */
 #define PCIE_PORT_FORCE			0x708
+/* Bit[7:0] LINK_NUM: Link Number. Not used for endpoint */
+#define PORT_LINK_NUM_MASK		GENMASK(7, 0)
 #define PORT_FORCE_DO_DESKEW_FOR_SRIS	BIT(23)
 
 #define PCIE_PORT_AFR			0x70C
@@ -98,6 +100,28 @@
 
 #define PCIE_PORT_LANE_SKEW		0x714
 #define PORT_LANE_SKEW_INSERT_MASK	GENMASK(23, 0)
+
+/*
+ * PCIE_TIMER_CTRL_MAX_FUNC_NUM: Timer Control and Max Function Number
+ * Register.
+ *
+ * This register holds the ack frequency, latency, replay, fast link
+ * scaling timers, and max function number values.
+ *
+ * Bit[30:29] FAST_LINK_SCALING_FACTOR: Fast Link Timer Scaling Factor.
+ *   0x0 (SF_1024): Scaling Factor is 1024 (1ms is 1us).
+ *     When the LTSSM is in Config or L12 Entry State, 1ms
+ *     timer is 2us, 2ms timer is 4us and 3ms timer is 6us.
+ *   0x1 (SF_256): Scaling Factor is 256 (1ms is 4us)
+ *   0x2 (SF_64): Scaling Factor is 64 (1ms is 16us)
+ *   0x3 (SF_16): Scaling Factor is 16 (1ms is 64us)
+ */
+#define PCIE_TIMER_CTRL_MAX_FUNC_NUM	0x718
+#define PORT_FLT_SF_MASK	GENMASK(30, 29)
+#define PORT_FLT_SF_VAL_1024	0x0
+#define PORT_FLT_SF_VAL_256	0x1
+#define PORT_FLT_SF_VAL_64	0x2
+#define PORT_FLT_SF_VAL_16	0x3
 
 #define PCIE_PORT_DEBUG0		0x728
 #define PORT_LOGIC_LTSSM_STATE_MASK	0x3f
