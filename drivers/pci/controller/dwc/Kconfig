@@ -114,6 +114,7 @@ config PCI_IMX6_HOST
 	depends on PCI_MSI
 	select PCIE_DW_HOST
 	select PCI_IMX6
+	select PCI_PWRCTRL_GENERIC
 	help
 	  Enables support for the PCIe controller in the i.MX SoCs to
 	  work in Root Complex mode. The PCI controller on i.MX is based

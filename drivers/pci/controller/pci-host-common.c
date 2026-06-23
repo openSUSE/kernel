@@ -9,6 +9,7 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/gpio/consumer.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_pci.h>
@@ -16,6 +17,174 @@
 #include <linux/platform_device.h>
 
 #include "pci-host-common.h"
+
+/**
+ * pci_host_common_delete_ports - Cleanup function for port list
+ * @data: Pointer to the port list head
+ */
+void pci_host_common_delete_ports(void *data)
+{
+	struct list_head *ports = data;
+	struct pci_host_perst *perst, *tmp_perst;
+	struct pci_host_port *port, *tmp_port;
+
+	list_for_each_entry_safe(port, tmp_port, ports, list) {
+		list_for_each_entry_safe(perst, tmp_perst, &port->perst, list)
+			list_del(&perst->list);
+		list_del(&port->list);
+	}
+}
+EXPORT_SYMBOL_GPL(pci_host_common_delete_ports);
+
+/**
+ * pci_host_common_parse_perst - Parse PERST# from all nodes, depth first
+ * @dev: Device pointer
+ * @port: PCI host port
+ * @np: Device tree node to start parsing from
+ *
+ * Recursively parse PERST# GPIO from all PCIe bridge nodes starting from
+ * @np in a depth-first manner.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+static int pci_host_common_parse_perst(struct device *dev,
+				       struct pci_host_port *port,
+				       struct device_node *np)
+{
+	struct pci_host_perst *perst;
+	struct gpio_desc *reset;
+	int ret;
+
+	if (!of_property_present(np, "reset-gpios"))
+		goto parse_child_node;
+
+	reset = devm_fwnode_gpiod_get(dev, of_fwnode_handle(np), "reset",
+				      GPIOD_ASIS, "PERST#");
+	if (IS_ERR(reset)) {
+		/*
+		 * FIXME: GPIOLIB currently supports exclusive GPIO access only.
+		 * Non exclusive access is broken. But shared PERST# requires
+		 * non-exclusive access. So once GPIOLIB properly supports it,
+		 * implement it here.
+		 */
+		if (PTR_ERR(reset) == -EBUSY)
+			dev_err(dev, "Shared PERST# is not supported\n");
+
+		return PTR_ERR(reset);
+	}
+
+	perst = devm_kzalloc(dev, sizeof(*perst), GFP_KERNEL);
+	if (!perst)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&perst->list);
+	perst->desc = reset;
+	list_add_tail(&perst->list, &port->perst);
+
+parse_child_node:
+	for_each_available_child_of_node_scoped(np, child) {
+		ret = pci_host_common_parse_perst(dev, port, child);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+/**
+ * pci_host_common_parse_port - Parse a single Root Port node
+ * @dev: Device pointer
+ * @bridge: PCI host bridge
+ * @node: Device tree node of the Root Port
+ *
+ * Parse Root Port properties from the device tree.  Currently it only
+ * handles the PERST# GPIO (including PERST# GPIOs from all PCIe bridge
+ * nodes under this Root Port), which is optional.
+ *
+ * NOTE: This helper fetches resources (like PERST# GPIO) optionally.  If a
+ * controller driver has a hard dependency on certain resources (PHY,
+ * clocks, regulators, etc.), those resources MUST be modeled correctly in
+ * the DT binding and validated in DTS. This helper cannot enforce such
+ * dependencies and the driver may fail to operate if required resources
+ * are missing.
+ *
+ * Return: 0 on success, -ENODEV if PERST# found in RC node (legacy binding
+ * should be used), Other negative error codes on failure.
+ */
+static int pci_host_common_parse_port(struct device *dev,
+				      struct pci_host_bridge *bridge,
+				      struct device_node *node)
+{
+	struct pci_host_port *port;
+	int ret;
+
+	port = devm_kzalloc(dev, sizeof(*port), GFP_KERNEL);
+	if (!port)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&port->perst);
+
+	ret = pci_host_common_parse_perst(dev, port, node);
+	if (ret)
+		return ret;
+
+	/*
+	 * 1. PERST# found in RP or its child nodes - list is not empty,
+	 *    continue
+	 *
+	 * 2. PERST# not found in RP/children, but found in RC node -
+	 *    return -ENODEV to fallback legacy binding
+	 *
+	 * 3. PERST# not found anywhere - list is empty, continue (optional
+	 *    PERST#)
+	 */
+	if (list_empty(&port->perst)) {
+		if (of_property_present(dev->of_node, "reset-gpios") ||
+		    of_property_present(dev->of_node, "reset-gpio"))
+			return -ENODEV;
+	}
+
+	INIT_LIST_HEAD(&port->list);
+	list_add_tail(&port->list, &bridge->ports);
+
+	return 0;
+}
+
+/**
+ * pci_host_common_parse_ports - Parse Root Port nodes from device tree
+ * @dev: Device pointer
+ * @bridge: PCI host bridge
+ *
+ * Iterate through child nodes of the host bridge and parse Root Port
+ * properties (currently only reset GPIOs).
+ *
+ * Return: 0 on success, -ENODEV if no ports found or PERST# found in RC
+ * node (legacy binding should be used), Other negative error codes on
+ * failure.
+ */
+int pci_host_common_parse_ports(struct device *dev, struct pci_host_bridge *bridge)
+{
+	int ret = -ENODEV;
+
+	for_each_available_child_of_node_scoped(dev->of_node, of_port) {
+		if (!of_node_is_type(of_port, "pci"))
+			continue;
+		ret = pci_host_common_parse_port(dev, bridge, of_port);
+		if (ret)
+			goto err_cleanup;
+	}
+
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(dev, pci_host_common_delete_ports,
+					&bridge->ports);
+
+err_cleanup:
+	pci_host_common_delete_ports(&bridge->ports);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(pci_host_common_parse_ports);
 
 static void gen_pci_unmap_cfg(void *ptr)
 {
