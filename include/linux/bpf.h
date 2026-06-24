@@ -354,7 +354,10 @@ static inline void __copy_map_value(struct bpf_map *map, void *dst, void *src, b
 		memcpy(dst + curr_off, src + curr_off, next_off - curr_off);
 		curr_off = next_off + map->off_arr->field_sz[i];
 	}
-	memcpy(dst + curr_off, src + curr_off, map->value_size - curr_off);
+	if (long_memcpy)
+		memcpy(dst + curr_off, src + curr_off, round_up(map->value_size, 8) - curr_off);
+	else
+		memcpy(dst + curr_off, src + curr_off, map->value_size - curr_off);
 }
 
 static inline void copy_map_value(struct bpf_map *map, void *dst, void *src)
