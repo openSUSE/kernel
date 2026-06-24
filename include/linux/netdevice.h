@@ -1930,8 +1930,9 @@ enum netdev_reg_state {
  *				has been enabled due to the need to listen to
  *				additional unicast addresses in a device that
  *				does not implement ndo_set_rx_mode()
- *	@rx_mode_node:		List entry for rx_mode work processing
- *	@rx_mode_tracker:	Refcount tracker for rx_mode work
+ *	@work_node:		List entry for async netdev_work processing
+ *	@work_tracker:		Refcount tracker for async netdev_work
+ *	@work_core_pending:	Core-defined pending netdev_work (NETDEV_WORK_*)
  *	@rx_mode_addr_cache:	Recycled snapshot entries for rx_mode work
  *	@rx_mode_retry_timer:	Timer that re-queues rx_mode work after failure
  *	@rx_mode_retry_count:	Number of consecutive retries already scheduled
@@ -2326,8 +2327,9 @@ struct net_device {
 	unsigned int		promiscuity;
 	unsigned int		allmulti;
 	bool			uc_promisc;
-	struct list_head	rx_mode_node;
-	netdevice_tracker	rx_mode_tracker;
+	struct list_head	work_node;
+	netdevice_tracker	work_tracker;
+	unsigned long		work_core_pending;
 	struct netdev_hw_addr_list	rx_mode_addr_cache;
 	struct timer_list	rx_mode_retry_timer;
 	unsigned int		rx_mode_retry_count;
