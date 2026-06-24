@@ -6606,9 +6606,20 @@ void ring_buffer_put(struct perf_buffer *rb)
 	call_rcu(&rb->rcu_head, rb_free_rcu);
 }
 
+typedef void (*mapped_f)(struct perf_event *event, struct mm_struct *mm);
+
+#define get_mapped(event, func)			\
+({						\
+	mapped_f f = NULL;			\
+	if (event->pmu)				\
+		f = event->pmu->func;		\
+	f;					\
+})
+
 static void perf_mmap_open(struct vm_area_struct *vma)
 {
 	struct perf_event *event = vma->vm_file->private_data;
+	mapped_f mapped = get_mapped(event, event_mapped);
 
 	atomic_inc(&event->mmap_count);
 	atomic_inc(&event->rb->mmap_count);
@@ -6616,8 +6627,8 @@ static void perf_mmap_open(struct vm_area_struct *vma)
 	if (vma->vm_pgoff)
 		atomic_inc(&event->rb->aux_mmap_count);
 
-	if (event->pmu->event_mapped)
-		event->pmu->event_mapped(event, vma->vm_mm);
+	if (mapped)
+		mapped(event, vma->vm_mm);
 }
 
 static void perf_pmu_output_stop(struct perf_event *event);
@@ -6633,14 +6644,15 @@ static void perf_pmu_output_stop(struct perf_event *event);
 static void perf_mmap_close(struct vm_area_struct *vma)
 {
 	struct perf_event *event = vma->vm_file->private_data;
+	mapped_f unmapped = get_mapped(event, event_unmapped);
 	struct perf_buffer *rb = ring_buffer_get(event);
 	struct user_struct *mmap_user = rb->mmap_user;
 	int mmap_locked = rb->mmap_locked;
 	unsigned long size = perf_data_size(rb);
 	bool detach_rest = false;
 
-	if (event->pmu->event_unmapped)
-		event->pmu->event_unmapped(event, vma->vm_mm);
+	if (unmapped)
+		unmapped(event, vma->vm_mm);
 
 	/*
 	 * The AUX buffer is strictly a sub-buffer, serialize using aux_mutex
@@ -6843,6 +6855,7 @@ static int perf_mmap(struct file *file, struct vm_area_struct *vma)
 	unsigned long nr_pages;
 	long user_extra = 0, extra = 0;
 	int ret, flags = 0;
+	mapped_f mapped;
 
 	/*
 	 * Don't allow mmap() of inherited per-task counters. This would
@@ -7051,8 +7064,9 @@ aux_unlock:
 	vm_flags_set(vma, VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_ops = &perf_mmap_vmops;
 
-	if (event->pmu->event_mapped)
-		event->pmu->event_mapped(event, vma->vm_mm);
+	mapped = get_mapped(event, event_mapped);
+	if (mapped)
+		mapped(event, vma->vm_mm);
 
 	/*
 	 * Try to map it into the page table. On fail, invoke
