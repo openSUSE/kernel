@@ -2812,6 +2812,7 @@ void amdgpu_vm_manager_fini(struct amdgpu_device *adev)
 	idr_destroy(&adev->vm_manager.pasid_idr);
 
 	amdgpu_vmid_mgr_fini(adev);
+	amdgpu_pasid_mgr_cleanup();
 }
 
 int amdgpu_vm_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
