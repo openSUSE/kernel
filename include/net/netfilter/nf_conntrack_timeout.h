@@ -17,6 +17,11 @@ struct nf_ct_timeout {
 	char			data[];
 };
 
+struct __nf_ct_timeout_wrapper {
+	struct rcu_head rcu;
+	struct nf_ct_timeout base;
+};
+
 struct nf_conn_timeout {
 	struct nf_ct_timeout __rcu *timeout;
 };
