@@ -9822,6 +9822,7 @@ int netif_change_flags(struct net_device *dev, unsigned int flags,
 	__dev_notify_flags(dev, old_flags, changes, 0, NULL);
 	return ret;
 }
+EXPORT_SYMBOL(netif_change_flags);
 
 int __netif_set_mtu(struct net_device *dev, int new_mtu)
 {
