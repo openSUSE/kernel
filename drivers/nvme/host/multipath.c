@@ -1315,7 +1315,7 @@ void nvme_mpath_remove_disk(struct nvme_ns_head *head)
 	 * remove work is pending.
 	 */
 	if (head->delayed_removal_secs && try_module_get(THIS_MODULE)) {
-		queue_delayed_work(nvme_wq, &head->remove_work,
+		mod_delayed_work(nvme_wq, &head->remove_work,
 				head->delayed_removal_secs * HZ);
 	} else {
 		list_del_init(&head->entry);
