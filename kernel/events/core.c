@@ -7062,19 +7062,15 @@ static int perf_mmap(struct file *file, struct vm_area_struct *vma)
 	if (vma_size != PAGE_SIZE * nr_pages)
 		return -EINVAL;
 
-	mutex_lock(&event->mmap_mutex);
-	ret = -EINVAL;
+	scoped_guard (mutex, &event->mmap_mutex) {
 
-	if (vma->vm_pgoff == 0)
-		ret = perf_mmap_rb(vma, event, nr_pages);
-	else
-		ret = perf_mmap_aux(vma, event, nr_pages);
-
-unlock:
-	mutex_unlock(&event->mmap_mutex);
-
-	if (ret)
-		return ret;
+		if (vma->vm_pgoff == 0)
+			ret = perf_mmap_rb(vma, event, nr_pages);
+		else
+			ret = perf_mmap_aux(vma, event, nr_pages);
+		if (ret)
+			return ret;
+	}
 
 	/*
 	 * Since pinned accounting is per vm we cannot allow fork() to copy our
