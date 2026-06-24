@@ -42,6 +42,8 @@
 #include <linux/uuid.h>
 #include <linux/xarray.h>
 
+#include <asm/virt.h>
+
 #include "common.h"
 
 #define FFA_DRIVER_VERSION	FFA_VERSION_1_2
@@ -2096,6 +2098,10 @@ static int __init ffa_init(void)
 	int ret;
 	u32 buf_sz;
 	size_t rxtx_bufsz = SZ_4K;
+
+	if (IS_BUILTIN(CONFIG_ARM_FFA_TRANSPORT) &&
+	    is_protected_kvm_enabled() && !is_pkvm_initialized())
+		return -EPROBE_DEFER;
 
 	ret = ffa_transport_init(&invoke_ffa_fn);
 	if (ret)
