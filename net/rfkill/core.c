@@ -83,11 +83,14 @@ struct rfkill_int_event {
 	struct rfkill_event	ev;
 };
 
+/* Max rfkill events that can be "in-flight" for one data source */
+#define MAX_RFKILL_EVENT	1000
 struct rfkill_data {
 	struct list_head	list;
 	struct list_head	events;
 	struct mutex		mtx;
 	wait_queue_head_t	read_wait;
+	u32			event_count;
 	bool			input_handler;
 };
 
@@ -275,6 +278,12 @@ static void rfkill_send_events(struct rfkill *rfkill, enum rfkill_operation op)
 			continue;
 		rfkill_fill_event(&ev->ev, rfkill, op);
 		mutex_lock(&data->mtx);
+		if (data->event_count++ > MAX_RFKILL_EVENT) {
+			data->event_count--;
+			mutex_unlock(&data->mtx);
+			kfree(ev);
+			continue;
+		}
 		list_add_tail(&ev->list, &data->events);
 		mutex_unlock(&data->mtx);
 		wake_up_interruptible(&data->read_wait);
@@ -1122,6 +1131,11 @@ static int rfkill_fop_open(struct inode *inode, struct file *file)
 		if (!ev)
 			goto free;
 		rfkill_fill_event(&ev->ev, rfkill, RFKILL_OP_ADD);
+		if (data->event_count++ > MAX_RFKILL_EVENT) {
+			data->event_count--;
+			kfree(ev);
+			continue;
+		}
 		list_add_tail(&ev->list, &data->events);
 	}
 	list_add(&data->list, &rfkill_fds);
@@ -1193,6 +1207,7 @@ static ssize_t rfkill_fop_read(struct file *file, char __user *buf,
 		ret = -EFAULT;
 
 	list_del(&ev->list);
+	data->event_count--;
 	kfree(ev);
  out:
 	mutex_unlock(&data->mtx);
