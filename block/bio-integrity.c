@@ -38,6 +38,7 @@ unsigned int __bio_integrity_action(struct bio *bio)
 		}
 		return BI_ACT_BUFFER | BI_ACT_CHECK;
 	case REQ_OP_WRITE:
+	case REQ_OP_ZONE_APPEND:
 		/*
 		 * Flush masquerading as write?
 		 */
