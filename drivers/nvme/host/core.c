@@ -4094,6 +4094,11 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 	list_add_tail_rcu(&ns->siblings, &head->list);
 	ns->head = head;
 	mutex_unlock(&ctrl->subsys->lock);
+
+#ifdef CONFIG_NVME_MULTIPATH
+	if (cancel_delayed_work(&head->remove_work))
+		module_put(THIS_MODULE);
+#endif
 	return 0;
 
 out_put_ns_head:
