@@ -1161,19 +1161,16 @@ int match_target_ip(struct TCP_Server_Info *server,
 
 int cifs_update_super_prepath(struct cifs_sb_info *cifs_sb, char *prefix)
 {
-       int rc;
-
 	kfree(cifs_sb->prepath);
 
 	if (prefix && *prefix) {
 		cifs_sb->prepath = cifs_sanitize_prepath(prefix, GFP_ATOMIC);
 		if (!cifs_sb->prepath)
 			return -ENOMEM;
-               else if (IS_ERR(cifs_sb->prepath)) {
-                       rc = PTR_ERR(cifs_sb->prepath);
-                       cifs_sb->prepath = NULL;
-                       return rc;
-               }
+		if (IS_ERR(cifs_sb->prepath)) {
+		       cifs_sb->prepath = NULL;
+		       return -ENOMEM;
+		}
 
 		convert_delimiter(cifs_sb->prepath, CIFS_DIR_SEP(cifs_sb));
 	} else
