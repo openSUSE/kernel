@@ -2434,6 +2434,8 @@ struct bnxt {
 	u8			cos0_cos1_shared;
 	u8			num_tc;
 
+	u16			max_pfcwd_tmo_ms;
+
 	u8			tph_mode;
 
 	unsigned int		current_interval;
@@ -2726,6 +2728,7 @@ struct bnxt {
 #define BNXT_DUMP_LIVE		0
 #define BNXT_DUMP_CRASH		1
 #define BNXT_DUMP_DRIVER	2
+#define BNXT_DUMP_LIVE_WITH_CTX_L1_CACHE	3
 
 	struct bpf_prog		*xdp_prog;
 

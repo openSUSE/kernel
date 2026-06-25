@@ -4362,7 +4362,7 @@ static void bnxt_alloc_one_rx_ring_page(struct bnxt *bp,
 	for (i = 0; i < bp->rx_agg_ring_size; i++) {
 		if (bnxt_alloc_rx_page(bp, rxr, prod, GFP_KERNEL)) {
 			netdev_warn(bp->dev, "init'ed rx ring %d with %d/%d pages only\n",
-				    ring_nr, i, bp->rx_ring_size);
+				    ring_nr, i, bp->rx_agg_ring_size);
 			break;
 		}
 		prod = NEXT_RX_AGG(prod);
@@ -14763,6 +14763,23 @@ static bool bnxt_fw_pre_resv_vnics(struct bnxt *bp)
 	return false;
 }
 
+static void bnxt_hwrm_pfcwd_qcaps(struct bnxt *bp)
+{
+	struct hwrm_queue_pfcwd_timeout_qcaps_output *resp;
+	struct hwrm_queue_pfcwd_timeout_qcaps_input *req;
+	int rc;
+
+	bp->max_pfcwd_tmo_ms = 0;
+	rc = hwrm_req_init(bp, req, HWRM_QUEUE_PFCWD_TIMEOUT_QCAPS);
+	if (rc)
+		return;
+	resp = hwrm_req_hold(bp, req);
+	rc = hwrm_req_send_silent(bp, req);
+	if (!rc)
+		bp->max_pfcwd_tmo_ms = le16_to_cpu(resp->max_pfcwd_timeout);
+	hwrm_req_drop(bp, req);
+}
+
 static int bnxt_fw_init_one_p1(struct bnxt *bp)
 {
 	int rc;
@@ -14840,6 +14857,7 @@ static int bnxt_fw_init_one_p2(struct bnxt *bp)
 	if (bnxt_fw_pre_resv_vnics(bp))
 		bp->fw_cap |= BNXT_FW_CAP_PRE_RESV_VNICS;
 
+	bnxt_hwrm_pfcwd_qcaps(bp);
 	bnxt_hwrm_func_qcfg(bp);
 	bnxt_hwrm_vnic_qcaps(bp);
 	bnxt_hwrm_port_led_qcaps(bp);
