@@ -2726,6 +2726,7 @@ struct bnxt {
 #define BNXT_DUMP_LIVE		0
 #define BNXT_DUMP_CRASH		1
 #define BNXT_DUMP_DRIVER	2
+#define BNXT_DUMP_LIVE_WITH_CTX_L1_CACHE	3
 
 	struct bpf_prog		*xdp_prog;
 
