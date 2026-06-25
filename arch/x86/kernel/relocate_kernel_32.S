@@ -197,7 +197,8 @@ identity_mapped:
 	movl	%edi, %eax
 	addl	$(virtual_mapped - relocate_kernel), %eax
 	pushl	%eax
-	RET
+	ret
+	int3
 
 virtual_mapped:
 	movl	CR4(%edi), %eax
