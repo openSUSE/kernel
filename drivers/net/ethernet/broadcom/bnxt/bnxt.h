@@ -2434,6 +2434,8 @@ struct bnxt {
 	u8			cos0_cos1_shared;
 	u8			num_tc;
 
+	u16			max_pfcwd_tmo_ms;
+
 	u8			tph_mode;
 
 	unsigned int		current_interval;
