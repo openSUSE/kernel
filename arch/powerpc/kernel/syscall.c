@@ -24,7 +24,7 @@ notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 
 	/* Seccomp or ptrace may have set return value, skip syscall */
 	if (unlikely(r0 == -1L))
-		return regs->gpr[3];
+		return syscall_get_error(current, regs);
 
 	if (unlikely(r0 >= NR_syscalls)) {
 		if (unlikely(trap_is_unsupported_scv(regs))) {
