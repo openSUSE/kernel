@@ -224,8 +224,6 @@ static vm_fault_t fb_deferred_io_fault(struct vm_fault *vmf)
 
 	mutex_unlock(&fbdefio_state->lock);
 
-	mutex_unlock(&fbdefio_state->lock);
-
 	vmf->page = page;
 
 	return 0;
