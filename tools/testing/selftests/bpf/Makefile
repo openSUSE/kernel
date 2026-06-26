@@ -169,7 +169,7 @@ TEST_GEN_PROGS_EXTENDED = \
 	xskxceiver xdp_redirect_multi xdp_synproxy veristat xdp_hw_metadata \
 	xdp_features
 
-TEST_GEN_FILES += liburandom_read.so urandom_read sign-file uprobe_multi
+TEST_GEN_FILES += $(TEST_KMODS) liburandom_read.so urandom_read sign-file uprobe_multi
 
 ifneq ($(V),1)
 submake_extras := feature_display=0
