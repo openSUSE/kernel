@@ -334,7 +334,7 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 {
 	struct in_ifaddr *promote = NULL;
 	struct in_ifaddr *ifa, *ifa1 = *ifap;
-	struct in_ifaddr *last_prim = in_dev->ifa_list;
+	struct in_ifaddr **last_prim = ifap;
 	struct in_ifaddr *prev_prom = NULL;
 	int do_promote = IN_DEV_PROMOTE_SECONDARIES(in_dev);
 
@@ -353,7 +353,7 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 		while ((ifa = *ifap1) != NULL) {
 			if (!(ifa->ifa_flags & IFA_F_SECONDARY) &&
 			    ifa1->ifa_scope <= ifa->ifa_scope)
-				last_prim = ifa;
+				last_prim = &ifa->ifa_next;
 
 			if (!(ifa->ifa_flags & IFA_F_SECONDARY) ||
 			    ifa1->ifa_mask != ifa->ifa_mask ||
@@ -413,8 +413,8 @@ no_promotions:
 
 		if (prev_prom) {
 			prev_prom->ifa_next = promote->ifa_next;
-			promote->ifa_next = last_prim->ifa_next;
-			last_prim->ifa_next = promote;
+			promote->ifa_next = *last_prim;
+			*last_prim = promote;
 		}
 
 		promote->ifa_flags &= ~IFA_F_SECONDARY;
