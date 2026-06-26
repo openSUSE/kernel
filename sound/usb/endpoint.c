@@ -206,8 +206,8 @@ static void retire_inbound_urb(struct snd_usb_endpoint *ep,
 		ep->retire_data_urb(ep->data_subs, urb);
 }
 
-static void prepare_silent_urb(struct snd_usb_endpoint *ep,
-			       struct snd_urb_ctx *ctx)
+static int prepare_silent_urb(struct snd_usb_endpoint *ep,
+			      struct snd_urb_ctx *ctx)
 {
 	struct urb *urb = ctx->urb;
 	unsigned int offs = 0;
@@ -220,9 +220,8 @@ static void prepare_silent_urb(struct snd_usb_endpoint *ep,
 		extra = sizeof(packet_length);
 
 	for (i = 0; i < ctx->packets; ++i) {
-		unsigned int offset;
-		unsigned int length;
 		int counts;
+		int length;
 
 		if (ctx->packet_size[i])
 			counts = ctx->packet_size[i];
@@ -231,29 +230,38 @@ static void prepare_silent_urb(struct snd_usb_endpoint *ep,
 		else
 			counts = snd_usb_endpoint_next_packet_size(ep);
 
+		if (counts < 0)
+			return counts;
+
 		length = counts * ep->stride; /* number of silent bytes */
-		offset = offs * ep->stride + extra * i;
-		urb->iso_frame_desc[i].offset = offset;
+		if (offs + length + extra > ctx->buffer_size)
+			break;
+		urb->iso_frame_desc[i].offset = offs;
 		urb->iso_frame_desc[i].length = length + extra;
 		if (extra) {
 			packet_length = cpu_to_le32(length);
-			memcpy(urb->transfer_buffer + offset,
+			memcpy(urb->transfer_buffer + offs,
 			       &packet_length, sizeof(packet_length));
+			offs += extra;
 		}
-		memset(urb->transfer_buffer + offset + extra,
+		memset(urb->transfer_buffer + offs,
 		       ep->silence_value, length);
-		offs += counts;
+		offs += length;
 	}
 
-	urb->number_of_packets = ctx->packets;
-	urb->transfer_buffer_length = offs * ep->stride + ctx->packets * extra;
+	if (!offs)
+		return -EPIPE;
+
+	urb->number_of_packets = i;
+	urb->transfer_buffer_length = offs;
+	return 0;
 }
 
 /*
  * Prepare a PLAYBACK urb for submission to the bus.
  */
-static void prepare_outbound_urb(struct snd_usb_endpoint *ep,
-				 struct snd_urb_ctx *ctx)
+static int prepare_outbound_urb(struct snd_usb_endpoint *ep,
+				struct snd_urb_ctx *ctx)
 {
 	struct urb *urb = ctx->urb;
 	unsigned char *cp = urb->transfer_buffer;
@@ -264,9 +272,10 @@ static void prepare_outbound_urb(struct snd_usb_endpoint *ep,
 	case SND_USB_ENDPOINT_TYPE_DATA:
 		if (ep->prepare_data_urb) {
 			ep->prepare_data_urb(ep->data_subs, urb);
+			return 0;
 		} else {
 			/* no data provider, so send silence */
-			prepare_silent_urb(ep, ctx);
+			return prepare_silent_urb(ep, ctx);
 		}
 		break;
 
@@ -296,6 +305,8 @@ static void prepare_outbound_urb(struct snd_usb_endpoint *ep,
 
 		break;
 	}
+
+	return 0;
 }
 
 /*
@@ -375,7 +386,13 @@ static void queue_pending_output_urbs(struct snd_usb_endpoint *ep)
 			ctx->packet_size[i] = packet->packet_size[i];
 
 		/* call the data handler to fill in playback data */
-		prepare_outbound_urb(ep, ctx);
+		err = prepare_outbound_urb(ep, ctx);
+		if (err < 0) {
+			usb_audio_err(ep->chip,
+				"Unable to prepare urb #%d: %d\n",
+				ctx->index, err);
+			break;
+		}
 
 		err = usb_submit_urb(ctx->urb, GFP_ATOMIC);
 		if (err < 0)
@@ -425,7 +442,9 @@ static void snd_complete_urb(struct urb *urb)
 			goto exit_clear;
 		}
 
-		prepare_outbound_urb(ep, ctx);
+		err = prepare_outbound_urb(ep, ctx);
+		if (err < 0)
+			goto exit_clear;
 		/* can be stopped during prepare callback */
 		if (unlikely(!test_bit(EP_FLAG_RUNNING, &ep->flags)))
 			goto exit_clear;
@@ -1202,7 +1221,12 @@ int snd_usb_endpoint_start(struct snd_usb_endpoint *ep)
 			goto __error;
 
 		if (usb_pipeout(ep->pipe)) {
-			prepare_outbound_urb(ep, urb->context);
+			err = prepare_outbound_urb(ep, urb->context);
+			if (err < 0) {
+				usb_audio_err(ep->chip,
+					"failed to prepare urb: %d\n", err);
+				goto __error;
+			}
 		} else {
 			prepare_inbound_urb(ep, urb->context);
 		}
