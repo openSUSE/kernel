@@ -23,6 +23,30 @@
 #include <linux/rmap.h>
 #include <linux/pagemap.h>
 
+struct fb_deferred_io_state;
+
+/*
+ * Read/write fbdevio state. We don't use struct fb_deferred_io.lock
+ * any longer. So recycle the memory to store the new state field to
+ * avoid breaking kABI. Store the pointer value, not the actual field
+ * data.
+ */
+
+static struct fb_deferred_io_state *rd_fbdefio_state(const struct fb_deferred_io *fbdefio)
+{
+	struct fb_deferred_io_state *fbdefio_state;
+
+	memcpy(&fbdefio_state, &fbdefio->lock, sizeof(fbdefio_state));
+
+	return fbdefio_state;
+}
+
+static void wr_fbdefio_state(struct fb_deferred_io *fbdefio,
+			     struct fb_deferred_io_state *fbdefio_state)
+{
+	memcpy(&fbdefio->lock, &fbdefio_state, sizeof(fbdefio_state));
+}
+
 /*
  * struct fb_deferred_io_state
  */
@@ -265,13 +289,16 @@ static const struct address_space_operations fb_deferred_io_aops = {
 
 int fb_deferred_io_mmap(struct fb_info *info, struct vm_area_struct *vma)
 {
+	struct fb_deferred_io *fbdefio = info->fbdefio;
+	struct fb_deferred_io_state *fbdefio_state = rd_fbdefio_state(fbdefio);
+
 	vma->vm_ops = &fb_deferred_io_vm_ops;
 	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
 	if (!(info->flags & FBINFO_VIRTFB))
 		vma->vm_flags |= VM_IO;
-	vma->vm_private_data = info->fbdefio_state;
+	vma->vm_private_data = fbdefio_state;
 
-	fb_deferred_io_state_get(info->fbdefio_state); /* released in vma->vm_ops->close() */
+	fb_deferred_io_state_get(fbdefio_state); /* released in vma->vm_ops->close() */
 
 	return 0;
 }
@@ -285,7 +312,7 @@ static void fb_deferred_io_work(struct work_struct *work)
 	struct list_head *node, *next;
 	struct page *cur;
 	struct fb_deferred_io *fbdefio = info->fbdefio;
-	struct fb_deferred_io_state *fbdefio_state = info->fbdefio_state;
+	struct fb_deferred_io_state *fbdefio_state = rd_fbdefio_state(fbdefio);
 
 	/* here we mkclean the pages, then do all deferred IO */
 	mutex_lock(&fbdefio_state->lock);
@@ -323,7 +350,7 @@ void fb_deferred_io_init(struct fb_info *info)
 	if (fbdefio->delay == 0) /* set a default of 1 s */
 		fbdefio->delay = HZ;
 
-	info->fbdefio_state = fbdefio_state;
+	wr_fbdefio_state(fbdefio, fbdefio_state);
 }
 EXPORT_SYMBOL_GPL(fb_deferred_io_init);
 
@@ -338,7 +365,7 @@ EXPORT_SYMBOL_GPL(fb_deferred_io_open);
 void fb_deferred_io_cleanup(struct fb_info *info)
 {
 	struct fb_deferred_io *fbdefio = info->fbdefio;
-	struct fb_deferred_io_state *fbdefio_state = info->fbdefio_state;
+	struct fb_deferred_io_state *fbdefio_state = rd_fbdefio_state(fbdefio);
 	struct page *page;
 	int i;
 
@@ -351,7 +378,7 @@ void fb_deferred_io_cleanup(struct fb_info *info)
 		page->mapping = NULL;
 	}
 
-	info->fbdefio_state = NULL;
+	wr_fbdefio_state(fbdefio, NULL);
 	info->fbops->fb_mmap = NULL;
 
 	mutex_lock(&fbdefio_state->lock);
