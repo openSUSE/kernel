@@ -1023,10 +1023,7 @@ static u8 smp_random(struct smp_chan *smp)
 
 		smp_s1(smp->tfm_aes, smp->tk, smp->prnd, smp->rrnd, stk);
 
-		if (hcon->pending_sec_level == BT_SECURITY_HIGH)
-			auth = 1;
-		else
-			auth = 0;
+		auth = test_bit(SMP_FLAG_MITM_AUTH, &smp->flags) ? 1 : 0;
 
 		/* Even though there's no _SLAVE suffix this is the
 		 * slave STK we're adding for later lookup (the master
