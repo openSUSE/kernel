@@ -39,6 +39,7 @@
 #include <linux/sys_info.h>
 #include <trace/events/error_report.h>
 #include <asm/sections.h>
+#include <kunit/test-bug.h>
 
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
@@ -1129,6 +1130,11 @@ void warn_slowpath_fmt(const char *file, int line, unsigned taint,
 	bool rcu = warn_rcu_enter();
 	struct warn_args args;
 
+	if (kunit_is_suppressed_warning(true)) {
+		warn_rcu_exit(rcu);
+		return;
+	}
+
 	pr_warn(CUT_HERE);
 
 	if (!fmt) {
@@ -1150,6 +1156,11 @@ void __warn_printk(const char *fmt, ...)
 {
 	bool rcu = warn_rcu_enter();
 	va_list args;
+
+	if (kunit_is_suppressed_warning(false)) {
+		warn_rcu_exit(rcu);
+		return;
+	}
 
 	pr_warn(CUT_HERE);
 

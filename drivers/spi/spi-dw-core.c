@@ -1034,6 +1034,8 @@ void dw_spi_remove_controller(struct dw_spi *dws)
 	dw_spi_shutdown_chip(dws);
 
 	free_irq(dws->irq, dws->ctlr);
+
+	spi_controller_put(dws->ctlr);
 }
 EXPORT_SYMBOL_NS_GPL(dw_spi_remove_controller, "SPI_DW_CORE");
 

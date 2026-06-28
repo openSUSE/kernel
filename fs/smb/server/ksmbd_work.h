@@ -13,6 +13,8 @@ struct ksmbd_conn;
 struct ksmbd_session;
 struct ksmbd_tree_connect;
 
+#define KSMBD_WORK_INLINE_IOVS	4
+
 enum {
 	KSMBD_WORK_ACTIVE = 0,
 	KSMBD_WORK_CANCELLED,
@@ -42,6 +44,7 @@ struct ksmbd_work {
 	int				iov_alloc_cnt;
 	int				iov_cnt;
 	int				iov_idx;
+	struct kvec			iov_inline[KSMBD_WORK_INLINE_IOVS];
 
 	/* Next cmd hdr in compound req buf*/
 	int                             next_smb2_rcv_hdr_off;
@@ -57,6 +60,7 @@ struct ksmbd_work {
 	u64				compound_fid;
 	u64				compound_pfid;
 	u64				compound_sid;
+	__le32				compound_status;
 
 	const struct cred		*saved_cred;
 
@@ -67,12 +71,16 @@ struct ksmbd_work {
 	unsigned int                    response_sz;
 
 	void				*tr_buf;
+	/* Contiguous SMB2 compression transform owned by this work item. */
+	void				*compress_buf;
 
 	unsigned char			state;
 	/* No response for cancelled request */
 	bool                            send_no_response:1;
 	/* Request is encrypted */
 	bool                            encrypted:1;
+	/* READ response should be wrapped in a compression transform. */
+	bool                            compress_response:1;
 	/* Is this SYNC or ASYNC ksmbd_work */
 	bool                            asynchronous:1;
 	bool                            need_invalidate_rkey:1;
