@@ -209,10 +209,17 @@ static inline struct uv_hub_info_s *uv_cpu_hub_info(int cpu)
 	return (struct uv_hub_info_s *)uv_cpu_info_per(cpu)->p_uv_hub_info;
 }
 
+#ifdef CONFIG_X86_UV
 static inline int uv_hub_type(void)
 {
 	return uv_hub_info->hub_type;
 }
+#else
+static inline int uv_hub_type(void)
+{
+	return 0;
+}
+#endif
 
 static inline __init void uv_hub_type_set(int uvmask)
 {
