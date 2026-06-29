@@ -42,5 +42,6 @@ static inline __u64 get_time_ns(void)
 
 	return (u64)t.tv_sec * 1000000000 + t.tv_nsec;
 }
+int stack_mprotect(void);
 
 #endif /* __TESTING_HELPERS_H */
