@@ -171,6 +171,16 @@ static inline bool efi_runtime_supported(void)
 
 extern void parse_efi_setup(u64 phys_addr, u32 data_len);
 
+#ifdef CONFIG_EFI_SECRET_KEY
+extern void efi_setup_secret_key(struct boot_params *params);
+extern void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len);
+extern void efi_clean_secret_key(void);
+#else
+static inline void efi_setup_secret_key(struct boot_params *params) {}
+static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
+static inline void efi_clean_secret_key(void) {}
+#endif /* CONFIG_EFI_SECRET_KEY */
+
 extern void efi_thunk_runtime_setup(void);
 efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
 					 unsigned long descriptor_size,
@@ -376,6 +386,9 @@ extern bool efi_is_table_address(unsigned long phys_addr);
 extern void efi_reserve_boot_services(void);
 #else
 static inline void parse_efi_setup(u64 phys_addr, u32 data_len) {}
+static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
+static inline void efi_setup_secret_key(efi_system_table_t *table,
+					struct boot_params *params) {}
 static inline bool efi_reboot_required(void)
 {
 	return false;

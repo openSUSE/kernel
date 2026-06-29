@@ -91,7 +91,7 @@ void set_user_nice(struct task_struct *p, long nice)
 	}
 
 	queued = task_on_rq_queued(p);
-	running = task_current(rq, p);
+	running = task_current_donor(rq, p);
 	if (queued)
 		dequeue_task(rq, p, DEQUEUE_SAVE | DEQUEUE_NOCLOCK);
 	if (running)
@@ -300,20 +300,10 @@ static void __setscheduler_params(struct task_struct *p,
 
 	p->policy = policy;
 
-	if (dl_policy(policy)) {
+	if (dl_policy(policy))
 		__setparam_dl(p, attr);
-	} else if (fair_policy(policy)) {
-		p->static_prio = NICE_TO_PRIO(attr->sched_nice);
-		if (attr->sched_runtime) {
-			p->se.custom_slice = 1;
-			p->se.slice = clamp_t(u64, attr->sched_runtime,
-					      NSEC_PER_MSEC/10,   /* HZ=1000 * 10 */
-					      NSEC_PER_MSEC*100); /* HZ=100  / 10 */
-		} else {
-			p->se.custom_slice = 0;
-			p->se.slice = sysctl_sched_base_slice;
-		}
-	}
+	else if (fair_policy(policy))
+		__setparam_fair(p, attr);
 
 	/* rt-policy tasks do not have a timerslack */
 	if (rt_or_dl_task_policy(p)) {
@@ -713,7 +703,7 @@ change:
 		dequeue_task(rq, p, DEQUEUE_SLEEP | DEQUEUE_DELAYED | DEQUEUE_NOCLOCK);
 
 	queued = task_on_rq_queued(p);
-	running = task_current(rq, p);
+	running = task_current_donor(rq, p);
 	if (queued)
 		dequeue_task(rq, p, queue_flags);
 	if (running)
@@ -885,7 +875,7 @@ do_sched_setscheduler(pid_t pid, int policy, struct sched_param __user *param)
 {
 	struct sched_param lparam;
 
-	if (!param || pid < 0)
+	if (unlikely(!param || pid < 0))
 		return -EINVAL;
 	if (copy_from_user(&lparam, param, sizeof(struct sched_param)))
 		return -EFAULT;
@@ -994,7 +984,7 @@ SYSCALL_DEFINE3(sched_setattr, pid_t, pid, struct sched_attr __user *, uattr,
 	struct sched_attr attr;
 	int retval;
 
-	if (!uattr || pid < 0 || flags)
+	if (unlikely(!uattr || pid < 0 || flags))
 		return -EINVAL;
 
 	retval = sched_copy_attr(uattr, &attr);
@@ -1059,7 +1049,7 @@ SYSCALL_DEFINE2(sched_getparam, pid_t, pid, struct sched_param __user *, param)
 	struct task_struct *p;
 	int retval;
 
-	if (!param || pid < 0)
+	if (unlikely(!param || pid < 0))
 		return -EINVAL;
 
 	scoped_guard (rcu) {
@@ -1081,45 +1071,6 @@ SYSCALL_DEFINE2(sched_getparam, pid_t, pid, struct sched_param __user *, param)
 	return copy_to_user(param, &lp, sizeof(*param)) ? -EFAULT : 0;
 }
 
-/*
- * Copy the kernel size attribute structure (which might be larger
- * than what user-space knows about) to user-space.
- *
- * Note that all cases are valid: user-space buffer can be larger or
- * smaller than the kernel-space buffer. The usual case is that both
- * have the same size.
- */
-static int
-sched_attr_copy_to_user(struct sched_attr __user *uattr,
-			struct sched_attr *kattr,
-			unsigned int usize)
-{
-	unsigned int ksize = sizeof(*kattr);
-
-	if (!access_ok(uattr, usize))
-		return -EFAULT;
-
-	/*
-	 * sched_getattr() ABI forwards and backwards compatibility:
-	 *
-	 * If usize == ksize then we just copy everything to user-space and all is good.
-	 *
-	 * If usize < ksize then we only copy as much as user-space has space for,
-	 * this keeps ABI compatibility as well. We skip the rest.
-	 *
-	 * If usize > ksize then user-space is using a newer version of the ABI,
-	 * which part the kernel doesn't know about. Just ignore it - tooling can
-	 * detect the kernel's knowledge of attributes from the attr->size value
-	 * which is set to ksize in this case.
-	 */
-	kattr->size = min(usize, ksize);
-
-	if (copy_to_user(uattr, kattr, kattr->size))
-		return -EFAULT;
-
-	return 0;
-}
-
 /**
  * sys_sched_getattr - similar to sched_getparam, but with sched_attr
  * @pid: the pid in question.
@@ -1134,8 +1085,8 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 	struct task_struct *p;
 	int retval;
 
-	if (!uattr || pid < 0 || usize > PAGE_SIZE ||
-	    usize < SCHED_ATTR_SIZE_VER0 || flags)
+	if (unlikely(!uattr || pid < 0 || usize > PAGE_SIZE ||
+		      usize < SCHED_ATTR_SIZE_VER0 || flags))
 		return -EINVAL;
 
 	scoped_guard (rcu) {
@@ -1164,7 +1115,8 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 #endif
 	}
 
-	return sched_attr_copy_to_user(uattr, &kattr, usize);
+	kattr.size = min(usize, sizeof(kattr));
+	return copy_struct_to_user(uattr, usize, &kattr, sizeof(kattr), NULL);
 }
 
 #ifdef CONFIG_SMP
@@ -1238,7 +1190,7 @@ int __sched_setaffinity(struct task_struct *p, struct affinity_context *ctx)
 			bool empty = !cpumask_and(new_mask, new_mask,
 						  ctx->user_mask);
 
-			if (WARN_ON_ONCE(empty))
+			if (empty)
 				cpumask_copy(new_mask, cpus_allowed);
 		}
 		__set_cpus_allowed_ptr(p, ctx);
@@ -1471,7 +1423,7 @@ int __sched yield_to(struct task_struct *p, bool preempt)
 	struct rq *rq, *p_rq;
 	int yielded = 0;
 
-	scoped_guard (irqsave) {
+	scoped_guard (raw_spinlock_irqsave, &p->pi_lock) {
 		rq = this_rq();
 
 again:

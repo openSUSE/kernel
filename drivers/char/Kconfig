@@ -238,6 +238,7 @@ config APPLICOM
 config SONYPI
 	tristate "Sony Vaio Programmable I/O Control Device support"
 	depends on X86_32 && PCI && INPUT
+	depends on ACPI_EC || !ACPI
 	help
 	  This driver enables access to the Sony Programmable I/O Control
 	  Device which can be found in many (all ?) Sony Vaio laptops.
@@ -407,6 +408,12 @@ config TELCLOCK
 	  controlling the behavior of this hardware.
 
 source "drivers/s390/char/Kconfig"
+
+config CRASHER
+	tristate "Crasher Module"
+	depends on m
+	help
+	  Slab cache memory tester and crasher on will.
 
 source "drivers/char/xillybus/Kconfig"
 

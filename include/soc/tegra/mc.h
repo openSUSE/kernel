@@ -196,6 +196,7 @@ struct tegra_mc_soc {
 
 	const struct tegra_mc_icc_ops *icc_ops;
 	const struct tegra_mc_ops *ops;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct tegra_mc {

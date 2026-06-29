@@ -2461,7 +2461,8 @@ static void ci_register_patching_mc_arb(struct radeon_device *rdev,
 
 	if (patch &&
 	    ((rdev->pdev->device == 0x67B0) ||
-	     (rdev->pdev->device == 0x67B1))) {
+	     (rdev->pdev->device == 0x67B1)) &&
+	    (rdev->pdev->revision == 0)) {
 		if ((memory_clock > 100000) && (memory_clock <= 125000)) {
 			tmp2 = (((0x31 * engine_clock) / 125000) - 1) & 0xff;
 			*dram_timimg2 &= ~0x00ff0000;
@@ -3302,7 +3303,8 @@ static int ci_populate_all_memory_levels(struct radeon_device *rdev)
 	pi->smc_state_table.MemoryLevel[0].EnabledForActivity = 1;
 
 	if ((dpm_table->mclk_table.count >= 2) &&
-	    ((rdev->pdev->device == 0x67B0) || (rdev->pdev->device == 0x67B1))) {
+	    ((rdev->pdev->device == 0x67B0) || (rdev->pdev->device == 0x67B1)) &&
+	    (rdev->pdev->revision == 0)) {
 		pi->smc_state_table.MemoryLevel[1].MinVddc =
 			pi->smc_state_table.MemoryLevel[0].MinVddc;
 		pi->smc_state_table.MemoryLevel[1].MinVddcPhases =
@@ -3405,11 +3407,7 @@ static int ci_setup_default_dpm_tables(struct radeon_device *rdev)
 		&rdev->pm.dpm.dyn_state.cac_leakage_table;
 	u32 i;
 
-	if (allowed_sclk_vddc_table == NULL)
-		return -EINVAL;
 	if (allowed_sclk_vddc_table->count < 1)
-		return -EINVAL;
-	if (allowed_mclk_table == NULL)
 		return -EINVAL;
 	if (allowed_mclk_table->count < 1)
 		return -EINVAL;
@@ -3468,24 +3466,20 @@ static int ci_setup_default_dpm_tables(struct radeon_device *rdev)
 	pi->dpm_table.vddc_table.count = allowed_sclk_vddc_table->count;
 
 	allowed_mclk_table = &rdev->pm.dpm.dyn_state.vddci_dependency_on_mclk;
-	if (allowed_mclk_table) {
-		for (i = 0; i < allowed_mclk_table->count; i++) {
-			pi->dpm_table.vddci_table.dpm_levels[i].value =
-				allowed_mclk_table->entries[i].v;
-			pi->dpm_table.vddci_table.dpm_levels[i].enabled = true;
-		}
-		pi->dpm_table.vddci_table.count = allowed_mclk_table->count;
+	for (i = 0; i < allowed_mclk_table->count; i++) {
+		pi->dpm_table.vddci_table.dpm_levels[i].value =
+			allowed_mclk_table->entries[i].v;
+		pi->dpm_table.vddci_table.dpm_levels[i].enabled = true;
 	}
+	pi->dpm_table.vddci_table.count = allowed_mclk_table->count;
 
 	allowed_mclk_table = &rdev->pm.dpm.dyn_state.mvdd_dependency_on_mclk;
-	if (allowed_mclk_table) {
-		for (i = 0; i < allowed_mclk_table->count; i++) {
-			pi->dpm_table.mvdd_table.dpm_levels[i].value =
-				allowed_mclk_table->entries[i].v;
-			pi->dpm_table.mvdd_table.dpm_levels[i].enabled = true;
-		}
-		pi->dpm_table.mvdd_table.count = allowed_mclk_table->count;
+	for (i = 0; i < allowed_mclk_table->count; i++) {
+		pi->dpm_table.mvdd_table.dpm_levels[i].value =
+			allowed_mclk_table->entries[i].v;
+		pi->dpm_table.mvdd_table.dpm_levels[i].enabled = true;
 	}
+	pi->dpm_table.mvdd_table.count = allowed_mclk_table->count;
 
 	ci_setup_default_pcie_tables(rdev);
 
@@ -4499,7 +4493,8 @@ static int ci_register_patching_mc_seq(struct radeon_device *rdev,
 
 	if (patch &&
 	    ((rdev->pdev->device == 0x67B0) ||
-	     (rdev->pdev->device == 0x67B1))) {
+	     (rdev->pdev->device == 0x67B1)) &&
+	    (rdev->pdev->revision == 0)) {
 		for (i = 0; i < table->last; i++) {
 			if (table->last >= SMU7_DISCRETE_MC_REGISTER_ARRAY_SIZE)
 				return -EINVAL;
@@ -4880,15 +4875,9 @@ static int ci_set_private_data_variables_based_on_pptable(struct radeon_device *
 	struct radeon_clock_voltage_dependency_table *allowed_mclk_vddci_table =
 		&rdev->pm.dpm.dyn_state.vddci_dependency_on_mclk;
 
-	if (allowed_sclk_vddc_table == NULL)
-		return -EINVAL;
 	if (allowed_sclk_vddc_table->count < 1)
 		return -EINVAL;
-	if (allowed_mclk_vddc_table == NULL)
-		return -EINVAL;
 	if (allowed_mclk_vddc_table->count < 1)
-		return -EINVAL;
-	if (allowed_mclk_vddci_table == NULL)
 		return -EINVAL;
 	if (allowed_mclk_vddci_table->count < 1)
 		return -EINVAL;

@@ -600,7 +600,8 @@ mlx5e_add_sqs_fwd_rules(struct mlx5e_priv *priv)
 			if (c->xdp)
 				sqs[num_sqs++] = c->rq_xdpsq.sqn;
 
-			sqs[num_sqs++] = c->xdpsq.sqn;
+			if (c->xdpsq)
+				sqs[num_sqs++] = c->xdpsq->sqn;
 		}
 	}
 	if (ptp_sq) {
@@ -1492,12 +1493,20 @@ static const struct mlx5e_profile mlx5e_uplink_rep_profile = {
 static int
 mlx5e_vport_uplink_rep_load(struct mlx5_core_dev *dev, struct mlx5_eswitch_rep *rep)
 {
-	struct mlx5e_priv *priv = netdev_priv(mlx5_uplink_netdev_get(dev));
 	struct mlx5e_rep_priv *rpriv = mlx5e_rep_to_rep_priv(rep);
+	struct net_device *netdev;
+	int err;
 
-	rpriv->netdev = priv->netdev;
-	return mlx5e_netdev_change_profile(priv, &mlx5e_uplink_rep_profile,
-					   rpriv);
+	netdev = mlx5_uplink_netdev_get(dev);
+	if (!netdev)
+		return 0;
+
+	/* must not use netdev_priv(netdev), it might not be initialized yet */
+	rpriv->netdev = netdev;
+	err = mlx5e_netdev_change_profile(netdev, dev,
+					  &mlx5e_uplink_rep_profile, rpriv);
+	mlx5_uplink_netdev_put(dev, netdev);
+	return err;
 }
 
 static void
@@ -1508,7 +1517,22 @@ mlx5e_vport_uplink_rep_unload(struct mlx5e_rep_priv *rpriv)
 
 	priv = netdev_priv(netdev);
 
-	mlx5e_netdev_attach_nic_profile(priv);
+	/* This bit is set when using devlink to change eswitch mode from
+	 * switchdev to legacy. As need to keep uplink netdev ifindex, we
+	 * detach uplink representor profile and attach NIC profile only.
+	 * The netdev will be unregistered later when unload NIC auxiliary
+	 * driver for this case.
+	 * We explicitly block devlink eswitch mode change if any IPSec rules
+	 * offloaded, but can't block other cases, such as driver unload
+	 * and devlink reload. We have to unregister netdev before profile
+	 * change for those cases. This is to avoid resource leak because
+	 * the offloaded rules don't have the chance to be unoffloaded before
+	 * cleanup which is triggered by detach uplink representor profile.
+	 */
+	if (!(priv->mdev->priv.flags & MLX5_PRIV_FLAGS_SWITCH_LEGACY))
+		unregister_netdev(netdev);
+
+	mlx5e_netdev_attach_nic_profile(netdev, priv->mdev);
 }
 
 static int
@@ -1574,7 +1598,7 @@ err_cleanup_profile:
 	priv->profile->cleanup(priv);
 
 err_destroy_netdev:
-	mlx5e_destroy_netdev(netdev_priv(netdev));
+	mlx5e_destroy_netdev(netdev);
 	return err;
 }
 
@@ -1609,8 +1633,16 @@ mlx5e_vport_rep_unload(struct mlx5_eswitch_rep *rep)
 {
 	struct mlx5e_rep_priv *rpriv = mlx5e_rep_to_rep_priv(rep);
 	struct net_device *netdev = rpriv->netdev;
-	struct mlx5e_priv *priv = netdev_priv(netdev);
-	void *ppriv = priv->ppriv;
+	struct mlx5e_priv *priv;
+	void *ppriv;
+
+	if (!netdev) {
+		ppriv = rpriv;
+		goto free_ppriv;
+	}
+
+	priv = netdev_priv(netdev);
+	ppriv = priv->ppriv;
 
 	if (rep->vport == MLX5_VPORT_UPLINK) {
 		mlx5e_vport_uplink_rep_unload(rpriv);
@@ -1621,7 +1653,7 @@ mlx5e_vport_rep_unload(struct mlx5_eswitch_rep *rep)
 	mlx5e_rep_vnic_reporter_destroy(priv);
 	mlx5e_detach_netdev(priv);
 	priv->profile->cleanup(priv);
-	mlx5e_destroy_netdev(priv);
+	mlx5e_destroy_netdev(netdev);
 free_ppriv:
 	kvfree(ppriv); /* mlx5e_rep_priv */
 }

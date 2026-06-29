@@ -4,6 +4,7 @@
 
 #include <linux/bio-integrity.h>
 #include <linux/blk-crypto.h>
+#include <linux/lockdep.h>
 #include <linux/memblock.h>	/* for max_pfn/max_low_pfn */
 #include <linux/sched/sysctl.h>
 #include <linux/timekeeping.h>
@@ -12,9 +13,12 @@
 
 struct elevator_type;
 
+#define	BLK_DEV_MAX_SECTORS	(LLONG_MAX >> 9)
+
 /* Max future timer expiry for timeouts */
 #define BLK_MAX_TIMEOUT		(5 * HZ)
 
+extern const struct kobj_type blk_queue_ktype;
 extern struct dentry *blk_debugfs_root;
 
 struct blk_flush_queue {
@@ -34,9 +38,10 @@ struct blk_flush_queue *blk_alloc_flush_queue(int node, int cmd_size,
 					      gfp_t flags);
 void blk_free_flush_queue(struct blk_flush_queue *q);
 
-void blk_freeze_queue(struct request_queue *q);
-void __blk_mq_unfreeze_queue(struct request_queue *q, bool force_atomic);
-void blk_queue_start_drain(struct request_queue *q);
+bool __blk_mq_unfreeze_queue(struct request_queue *q, bool force_atomic);
+bool blk_queue_start_drain(struct request_queue *q);
+bool __blk_freeze_queue_start(struct request_queue *q,
+			      struct task_struct *owner);
 int __bio_queue_enter(struct request_queue *q, struct bio *bio);
 void submit_bio_noacct_nocheck(struct bio *bio);
 void bio_await_chain(struct bio *bio);
@@ -69,8 +74,11 @@ static inline int bio_queue_enter(struct bio *bio)
 {
 	struct request_queue *q = bdev_get_queue(bio->bi_bdev);
 
-	if (blk_try_enter_queue(q, false))
+	if (blk_try_enter_queue(q, false)) {
+		rwsem_acquire_read(&q->io_lockdep_map, 0, 0, _RET_IP_);
+		rwsem_release(&q->io_lockdep_map, _RET_IP_);
 		return 0;
+	}
 	return __bio_queue_enter(q, bio);
 }
 
@@ -405,17 +413,6 @@ void blk_apply_bdi_limits(struct backing_dev_info *bdi,
 		struct queue_limits *lim);
 int blk_dev_init(void);
 
-/*
- * Contribute to IO statistics IFF:
- *
- *	a) it's attached to a gendisk, and
- *	b) the queue had IO stats enabled when this request was started
- */
-static inline bool blk_do_io_stat(struct request *rq)
-{
-	return (rq->rq_flags & RQF_IO_STAT) && !blk_rq_is_passthrough(rq);
-}
-
 void update_io_ticks(struct block_device *part, unsigned long now, bool end);
 unsigned int part_in_flight(struct block_device *part);
 
@@ -463,11 +460,6 @@ static inline bool bio_zone_write_plugging(struct bio *bio)
 {
 	return bio_flagged(bio, BIO_ZONE_WRITE_PLUGGING);
 }
-static inline bool bio_is_zone_append(struct bio *bio)
-{
-	return bio_op(bio) == REQ_OP_ZONE_APPEND ||
-		bio_flagged(bio, BIO_EMULATES_ZONE_APPEND);
-}
 void blk_zone_write_plug_bio_merged(struct bio *bio);
 void blk_zone_write_plug_init_request(struct request *rq);
 static inline void blk_zone_update_request_bio(struct request *rq,
@@ -481,7 +473,8 @@ static inline void blk_zone_update_request_bio(struct request *rq,
 	 * the original BIO sector so that blk_zone_write_plug_bio_endio() can
 	 * lookup the zone write plug.
 	 */
-	if (req_op(rq) == REQ_OP_ZONE_APPEND || bio_zone_write_plugging(bio))
+	if (req_op(rq) == REQ_OP_ZONE_APPEND ||
+	    bio_flagged(bio, BIO_EMULATES_ZONE_APPEND))
 		bio->bi_iter.bi_sector = rq->__sector;
 }
 void blk_zone_write_plug_bio_endio(struct bio *bio);
@@ -513,10 +506,6 @@ static inline void disk_free_zone_resources(struct gendisk *disk)
 {
 }
 static inline bool bio_zone_write_plugging(struct bio *bio)
-{
-	return false;
-}
-static inline bool bio_is_zone_append(struct bio *bio)
 {
 	return false;
 }
@@ -558,6 +547,7 @@ void blk_free_ext_minor(unsigned int minor);
 #define ADDPART_FLAG_NONE	0
 #define ADDPART_FLAG_RAID	1
 #define ADDPART_FLAG_WHOLEDISK	2
+#define ADDPART_FLAG_READONLY	4
 int bdev_add_partition(struct gendisk *disk, int partno, sector_t start,
 		sector_t length);
 int bdev_del_partition(struct gendisk *disk, int partno);
@@ -569,14 +559,6 @@ void bdev_set_nr_sectors(struct block_device *bdev, sector_t sectors);
 
 struct gendisk *__alloc_disk_node(struct request_queue *q, int node_id,
 		struct lock_class_key *lkclass);
-
-int bio_add_hw_page(struct request_queue *q, struct bio *bio,
-		struct page *page, unsigned int len, unsigned int offset,
-		unsigned int max_sectors, bool *same_page);
-
-int bio_add_hw_folio(struct request_queue *q, struct bio *bio,
-		struct folio *folio, size_t len, size_t offset,
-		unsigned int max_sectors, bool *same_page);
 
 /*
  * Clean up a page appropriately, where the page may be pinned, may have a
@@ -733,5 +715,30 @@ void blk_integrity_generate(struct bio *bio);
 void blk_integrity_verify(struct bio *bio);
 void blk_integrity_prepare(struct request *rq);
 void blk_integrity_complete(struct request *rq, unsigned int nr_bytes);
+
+#ifdef CONFIG_LOCKDEP
+static inline void blk_freeze_acquire_lock(struct request_queue *q)
+{
+	if (!q->mq_freeze_disk_dead)
+		rwsem_acquire(&q->io_lockdep_map, 0, 1, _RET_IP_);
+	if (!q->mq_freeze_queue_dying)
+		rwsem_acquire(&q->q_lockdep_map, 0, 1, _RET_IP_);
+}
+
+static inline void blk_unfreeze_release_lock(struct request_queue *q)
+{
+	if (!q->mq_freeze_queue_dying)
+		rwsem_release(&q->q_lockdep_map, _RET_IP_);
+	if (!q->mq_freeze_disk_dead)
+		rwsem_release(&q->io_lockdep_map, _RET_IP_);
+}
+#else
+static inline void blk_freeze_acquire_lock(struct request_queue *q)
+{
+}
+static inline void blk_unfreeze_release_lock(struct request_queue *q)
+{
+}
+#endif
 
 #endif /* BLK_INTERNAL_H */

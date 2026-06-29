@@ -369,7 +369,7 @@ svcxdr_encode_fattr3(struct svc_rqst *rqstp, struct xdr_stream *xdr,
 		fsid ^= ((u64 *)fhp->fh_export->ex_uuid)[1];
 		break;
 	default:
-		fsid = (u64)huge_encode_dev(fhp->fh_dentry->d_sb->s_dev);
+		fsid = (u64)huge_encode_dev(inode_get_dev(d_inode(fhp->fh_dentry)));
 	}
 	p = xdr_encode_hyper(p, fsid);
 

@@ -847,6 +847,8 @@ static bool acpi_info_matches_ids(struct acpi_device_info *info,
 static const char * const acpi_ignore_dep_ids[] = {
 	"PNP0D80", /* Windows-compatible System Power Management Controller */
 	"INT33BD", /* Intel Baytrail Mailbox Device */
+	"INTC10DE", /* Intel CVS LNL */
+	"INTC10E0", /* Intel CVS ARL */
 	"LATT2021", /* Lattice FW Update Client Driver */
 	NULL
 };
@@ -860,6 +862,8 @@ static const char * const acpi_honor_dep_ids[] = {
 	"INTC10CF", /* IVSC (MTL) driver must be loaded to allow i2c access to camera sensors */
 	"RSCV0001", /* RISC-V PLIC */
 	"RSCV0002", /* RISC-V APLIC */
+	"RSCV0005", /* RISC-V SBI MPXY MBOX */
+	"RSCV0006", /* RISC-V RPMI SYSMSI */
 	"PNP0C0F",  /* PCI Link Device */
 	NULL
 };
@@ -1179,19 +1183,19 @@ static void acpi_device_get_busid(struct acpi_device *device)
 	 * TBD: Shouldn't this value be unique (within the ACPI namespace)?
 	 */
 	if (!acpi_dev_parent(device)) {
-		strcpy(device->pnp.bus_id, "ACPI");
+		strscpy(device->pnp.bus_id, "ACPI");
 		return;
 	}
 
 	switch (device->device_type) {
 	case ACPI_BUS_TYPE_POWER_BUTTON:
-		strcpy(device->pnp.bus_id, "PWRF");
+		strscpy(device->pnp.bus_id, "PWRF");
 		break;
 	case ACPI_BUS_TYPE_SLEEP_BUTTON:
-		strcpy(device->pnp.bus_id, "SLPF");
+		strscpy(device->pnp.bus_id, "SLPF");
 		break;
 	case ACPI_BUS_TYPE_ECDT_EC:
-		strcpy(device->pnp.bus_id, "ECDT");
+		strscpy(device->pnp.bus_id, "ECDT");
 		break;
 	default:
 		acpi_get_name(device->handle, ACPI_SINGLE_NAME, &buffer);
@@ -1202,7 +1206,7 @@ static void acpi_device_get_busid(struct acpi_device *device)
 			else
 				break;
 		}
-		strcpy(device->pnp.bus_id, bus_id);
+		strscpy(device->pnp.bus_id, bus_id);
 		break;
 	}
 }
@@ -1453,8 +1457,8 @@ static void acpi_set_pnp_ids(acpi_handle handle, struct acpi_device_pnp *pnp,
 			 acpi_object_is_system_bus(handle)) {
 			/* \_SB, \_TZ, LNXSYBUS */
 			acpi_add_id(pnp, ACPI_BUS_HID);
-			strcpy(pnp->device_name, ACPI_BUS_DEVICE_NAME);
-			strcpy(pnp->device_class, ACPI_BUS_CLASS);
+			strscpy(pnp->device_name, ACPI_BUS_DEVICE_NAME);
+			strscpy(pnp->device_class, ACPI_BUS_CLASS);
 		}
 
 		break;
@@ -1910,7 +1914,7 @@ static int acpi_add_single_object(struct acpi_device **child,
 		result = acpi_device_add(device);
 
 	if (result) {
-		acpi_device_release(&device->dev);
+		acpi_dev_put(device);
 		return result;
 	}
 

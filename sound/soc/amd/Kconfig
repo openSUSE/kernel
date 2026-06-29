@@ -6,7 +6,6 @@ config SND_SOC_AMD_ACP
 
 config SND_SOC_AMD_CZ_DA7219MX98357_MACH
 	tristate "AMD CZ support for DA7219, RT5682 and MAX9835"
-	select CLK_FIXED_FCH
 	select SND_SOC_DA7219
 	select SND_SOC_RT5682_I2C
 	select SND_SOC_MAX98357A
@@ -43,7 +42,6 @@ config SND_SOC_AMD_ACP3x
 
 config SND_SOC_AMD_RV_RT5682_MACH
 	tristate "AMD RV support for RT5682"
-	select CLK_FIXED_FCH
 	select SND_SOC_RT5682_I2C
 	select SND_SOC_MAX98357A
 	select SND_SOC_CROS_EC_CODEC
@@ -105,7 +103,7 @@ config SND_SOC_AMD_ACP6x
 config SND_SOC_AMD_YC_MACH
 	tristate "AMD YC support for DMIC"
 	select SND_SOC_DMIC
-	depends on SND_SOC_AMD_ACP6x
+	depends on SND_SOC_AMD_ACP6x && ACPI
 	help
 	  This option enables machine driver for Yellow Carp platform
 	  using dmic. ACP IP has PDM Decoder block with DMA controller.

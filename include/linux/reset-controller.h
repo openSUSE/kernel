@@ -81,6 +81,7 @@ struct reset_controller_dev {
 	int (*of_xlate)(struct reset_controller_dev *rcdev,
 			const struct of_phandle_args *reset_spec);
 	unsigned int nr_resets;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #if IS_ENABLED(CONFIG_RESET_CONTROLLER)

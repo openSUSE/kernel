@@ -83,6 +83,7 @@ struct page_pool;
 #define MLX5E_SHAMPO_LOG_HEADER_ENTRY_SIZE (8)
 #define MLX5E_SHAMPO_LOG_MAX_HEADER_ENTRY_SIZE (9)
 #define MLX5E_SHAMPO_WQ_HEADER_PER_PAGE (PAGE_SIZE >> MLX5E_SHAMPO_LOG_MAX_HEADER_ENTRY_SIZE)
+#define MLX5E_SHAMPO_LOG_WQ_HEADER_PER_PAGE (PAGE_SHIFT - MLX5E_SHAMPO_LOG_MAX_HEADER_ENTRY_SIZE)
 #define MLX5E_SHAMPO_WQ_BASE_HEAD_ENTRY_SIZE (64)
 #define MLX5E_SHAMPO_WQ_RESRV_SIZE (64 * 1024)
 #define MLX5E_SHAMPO_WQ_BASE_RESRV_SIZE (4096)
@@ -624,16 +625,14 @@ struct mlx5e_dma_info {
 
 struct mlx5e_shampo_hd {
 	u32 mkey;
-	struct mlx5e_dma_info *info;
 	struct mlx5e_frag_page *pages;
-	u16 curr_page_index;
 	u32 hd_per_wq;
 	u16 hd_per_wqe;
+	u16 pages_per_wq;
 	unsigned long *bitmap;
 	u16 pi;
 	u16 ci;
 	__be32 key;
-	u64 last_addr;
 };
 
 struct mlx5e_hw_gro_data {
@@ -755,7 +754,7 @@ struct mlx5e_channel {
 	u8                         lag_port;
 
 	/* XDP_REDIRECT */
-	struct mlx5e_xdpsq         xdpsq;
+	struct mlx5e_xdpsq        *xdpsq;
 
 	/* AF_XDP zero-copy */
 	struct mlx5e_rq            xskrq;
@@ -942,7 +941,7 @@ struct mlx5e_priv {
 };
 
 struct mlx5e_dev {
-	struct mlx5e_priv *priv;
+	struct net_device *netdev;
 	struct devlink_port dl_port;
 };
 
@@ -1216,10 +1215,13 @@ struct net_device *
 mlx5e_create_netdev(struct mlx5_core_dev *mdev, const struct mlx5e_profile *profile);
 int mlx5e_attach_netdev(struct mlx5e_priv *priv);
 void mlx5e_detach_netdev(struct mlx5e_priv *priv);
-void mlx5e_destroy_netdev(struct mlx5e_priv *priv);
-int mlx5e_netdev_change_profile(struct mlx5e_priv *priv,
-				const struct mlx5e_profile *new_profile, void *new_ppriv);
-void mlx5e_netdev_attach_nic_profile(struct mlx5e_priv *priv);
+void mlx5e_destroy_netdev(struct net_device *netdev);
+int mlx5e_netdev_change_profile(struct net_device *netdev,
+				struct mlx5_core_dev *mdev,
+				const struct mlx5e_profile *new_profile,
+				void *new_ppriv);
+void mlx5e_netdev_attach_nic_profile(struct net_device *netdev,
+				     struct mlx5_core_dev *mdev);
 void mlx5e_set_netdev_mtu_boundaries(struct mlx5e_priv *priv);
 void mlx5e_build_nic_params(struct mlx5e_priv *priv, struct mlx5e_xsk *xsk, u16 mtu);
 

@@ -95,7 +95,7 @@
 
 #define CHIPID_AD9434			0x6A
 #define AD9434_DEF_OUTPUT_MODE		0x00
-#define AD9434_REG_VREF_MASK		0xC0
+#define AD9434_REG_VREF_MASK		GENMASK(4, 0)
 
 /*
  * Analog Devices AD9467 16-Bit, 200/250 MSPS ADC
@@ -895,12 +895,20 @@ static int ad9467_update_scan_mode(struct iio_dev *indio_dev,
 	return 0;
 }
 
-static struct iio_info ad9467_info = {
+static const struct iio_info ad9467_info = {
 	.read_raw = ad9467_read_raw,
 	.write_raw = ad9467_write_raw,
 	.update_scan_mode = ad9467_update_scan_mode,
 	.debugfs_reg_access = ad9467_reg_access,
 	.read_avail = ad9467_read_avail,
+};
+
+/* Same as above, but without .read_avail */
+static const struct iio_info ad9467_info_no_read_avail = {
+	.read_raw = ad9467_read_raw,
+	.write_raw = ad9467_write_raw,
+	.update_scan_mode = ad9467_update_scan_mode,
+	.debugfs_reg_access = ad9467_reg_access,
 };
 
 static int ad9467_scale_fill(struct ad9467_state *st)
@@ -1214,11 +1222,12 @@ static int ad9467_probe(struct spi_device *spi)
 	}
 
 	if (st->info->num_scales > 1)
-		ad9467_info.read_avail = ad9467_read_avail;
+		indio_dev->info = &ad9467_info;
+	else
+		indio_dev->info = &ad9467_info_no_read_avail;
 	indio_dev->name = st->info->name;
 	indio_dev->channels = st->info->channels;
 	indio_dev->num_channels = st->info->num_channels;
-	indio_dev->info = &ad9467_info;
 
 	ret = ad9467_iio_backend_get(st);
 	if (ret)

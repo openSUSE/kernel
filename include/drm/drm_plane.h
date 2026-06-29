@@ -260,6 +260,8 @@ struct drm_plane_state {
 	 * flow.
 	 */
 	bool color_mgmt_changed : 1;
+
+	void *suse_kabi_padding;
 };
 
 static inline struct drm_rect
@@ -786,6 +788,8 @@ struct drm_plane {
 	 * @kmsg_panic: Used to register a panic notifier for this plane
 	 */
 	struct kmsg_dumper kmsg_panic;
+
+	void *suse_kabi_padding;
 };
 
 #define obj_to_plane(x) container_of(x, struct drm_plane, base)

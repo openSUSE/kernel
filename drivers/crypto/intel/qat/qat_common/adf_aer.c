@@ -41,8 +41,6 @@ static pci_ers_result_t adf_error_detected(struct pci_dev *pdev,
 	adf_error_notifier(accel_dev);
 	adf_pf2vf_notify_fatal_error(accel_dev);
 	adf_dev_restarting_notify(accel_dev);
-	adf_pf2vf_notify_restarting(accel_dev);
-	adf_pf2vf_wait_for_restarting_complete(accel_dev);
 	pci_clear_master(pdev);
 	adf_dev_down(accel_dev);
 
@@ -229,7 +227,7 @@ const struct pci_error_handlers adf_err_handler = {
 };
 EXPORT_SYMBOL_GPL(adf_err_handler);
 
-int adf_dev_autoreset(struct adf_accel_dev *accel_dev)
+static int adf_dev_autoreset(struct adf_accel_dev *accel_dev)
 {
 	if (accel_dev->autoreset_on_error)
 		return adf_dev_aer_schedule_reset(accel_dev, ADF_DEV_RESET_ASYNC);
@@ -281,8 +279,11 @@ int adf_init_aer(void)
 		return -EFAULT;
 
 	device_sriov_wq = alloc_workqueue("qat_device_sriov_wq", 0, 0);
-	if (!device_sriov_wq)
+	if (!device_sriov_wq) {
+		destroy_workqueue(device_reset_wq);
+		device_reset_wq = NULL;
 		return -EFAULT;
+	}
 
 	return 0;
 }

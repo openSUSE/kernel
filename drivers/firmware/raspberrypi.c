@@ -32,6 +32,7 @@ struct rpi_firmware {
 	u32 enabled;
 
 	struct kref consumers;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static DEFINE_MUTEX(transaction_lock);

@@ -5629,8 +5629,7 @@ _base_static_config_pages(struct MPT3SAS_ADAPTER *ioc)
 	if (!ioc->is_gen35_ioc && ioc->manu_pg11.EEDPTagMode == 0) {
 		pr_err("%s: overriding NVDATA EEDPTagMode setting\n",
 		    ioc->name);
-		ioc->manu_pg11.EEDPTagMode &= ~0x3;
-		ioc->manu_pg11.EEDPTagMode |= 0x1;
+		ioc->manu_pg11.EEDPTagMode = 0x1;
 		mpt3sas_config_set_manufacturing_pg11(ioc, &mpi_reply,
 		    &ioc->manu_pg11);
 	}
@@ -7041,11 +7040,12 @@ _base_handshake_req_reply_wait(struct MPT3SAS_ADAPTER *ioc, int request_bytes,
 	int i;
 	u8 failed;
 	__le32 *mfp;
+	int ret_val;
 
 	/* make sure doorbell is not in use */
 	if ((ioc->base_readl_ext_retry(&ioc->chip->Doorbell) & MPI2_DOORBELL_USED)) {
 		ioc_err(ioc, "doorbell is in use (line=%d)\n", __LINE__);
-		return -EFAULT;
+		goto doorbell_diag_reset;
 	}
 
 	/* clear pending doorbell interrupts from previous state changes */
@@ -7135,6 +7135,10 @@ _base_handshake_req_reply_wait(struct MPT3SAS_ADAPTER *ioc, int request_bytes,
 			    le32_to_cpu(mfp[i]));
 	}
 	return 0;
+
+doorbell_diag_reset:
+	ret_val = _base_diag_reset(ioc);
+	return ret_val;
 }
 
 /**
@@ -8014,7 +8018,7 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 
 	mutex_lock(&ioc->hostdiag_unlock_mutex);
 	if (mpt3sas_base_unlock_and_get_host_diagnostic(ioc, &host_diagnostic))
-		goto out;
+		goto unlock;
 
 	hcb_size = ioc->base_readl(&ioc->chip->HCBSize);
 	drsprintk(ioc, ioc_info(ioc, "diag reset: issued\n"));
@@ -8034,7 +8038,7 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 			ioc_info(ioc,
 			    "Invalid host diagnostic register value\n");
 			_base_dump_reg_set(ioc);
-			goto out;
+			goto unlock;
 		}
 		if (!(host_diagnostic & MPI2_DIAG_RESET_ADAPTER))
 			break;
@@ -8070,17 +8074,19 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 		ioc_err(ioc, "%s: failed going to ready state (ioc_state=0x%x)\n",
 			__func__, ioc_state);
 		_base_dump_reg_set(ioc);
-		goto out;
+		goto fail;
 	}
 
 	pci_cfg_access_unlock(ioc->pdev);
 	ioc_info(ioc, "diag reset: SUCCESS\n");
 	return 0;
 
- out:
+unlock:
+	mutex_unlock(&ioc->hostdiag_unlock_mutex);
+
+fail:
 	pci_cfg_access_unlock(ioc->pdev);
 	ioc_err(ioc, "diag reset: FAILED\n");
-	mutex_unlock(&ioc->hostdiag_unlock_mutex);
 	return -EFAULT;
 }
 

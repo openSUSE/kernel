@@ -1963,7 +1963,7 @@ void sigqueue_free(struct sigqueue *q)
 		__sigqueue_free(q);
 }
 
-int send_sigqueue(struct sigqueue *q, struct pid *pid, enum pid_type type)
+int send_sigqueue(struct sigqueue *q, struct pid *pid, enum pid_type type, int si_private)
 {
 	int sig = q->info.si_signo;
 	struct sigpending *pending;
@@ -1997,6 +1997,14 @@ int send_sigqueue(struct sigqueue *q, struct pid *pid, enum pid_type type)
 		t = current;
 	if (!likely(lock_task_sighand(t, &flags)))
 		goto ret;
+
+	/*
+	 * Update @q::info::si_sys_private for posix timer signals with
+	 * sighand locked to prevent a race against dequeue_signal() which
+	 * decides based on si_sys_private whether to invoke
+	 * posixtimer_rearm() or not.
+	 */
+	q->info.si_sys_private = si_private;
 
 	ret = 1; /* the signal is ignored */
 	result = TRACE_SIGNAL_IGNORED;
@@ -2062,8 +2070,7 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 	WARN_ON_ONCE(!tsk->ptrace &&
 	       (tsk->group_leader != tsk || !thread_group_empty(tsk)));
 	/*
-	 * tsk is a group leader and has no threads, wake up the
-	 * non-PIDFD_THREAD waiters.
+	 * Notify for thread-group leaders without subthreads.
 	 */
 	if (thread_group_empty(tsk))
 		do_notify_pidfd(tsk);
@@ -3909,7 +3916,6 @@ SYSCALL_DEFINE4(pidfd_send_signal, int, pidfd, int, sig,
 		siginfo_t __user *, info, unsigned int, flags)
 {
 	int ret;
-	struct fd f;
 	struct pid *pid;
 	kernel_siginfo_t kinfo;
 	enum pid_type type;
@@ -3922,20 +3928,17 @@ SYSCALL_DEFINE4(pidfd_send_signal, int, pidfd, int, sig,
 	if (hweight32(flags & PIDFD_SEND_SIGNAL_FLAGS) > 1)
 		return -EINVAL;
 
-	f = fdget(pidfd);
-	if (!fd_file(f))
+	CLASS(fd, f)(pidfd);
+	if (fd_empty(f))
 		return -EBADF;
 
 	/* Is this a pidfd? */
 	pid = pidfd_to_pid(fd_file(f));
-	if (IS_ERR(pid)) {
-		ret = PTR_ERR(pid);
-		goto err;
-	}
+	if (IS_ERR(pid))
+		return PTR_ERR(pid);
 
-	ret = -EINVAL;
 	if (!access_pidfd_pidns(pid))
-		goto err;
+		return -EINVAL;
 
 	switch (flags) {
 	case 0:
@@ -3959,28 +3962,23 @@ SYSCALL_DEFINE4(pidfd_send_signal, int, pidfd, int, sig,
 	if (info) {
 		ret = copy_siginfo_from_user_any(&kinfo, info);
 		if (unlikely(ret))
-			goto err;
+			return ret;
 
-		ret = -EINVAL;
 		if (unlikely(sig != kinfo.si_signo))
-			goto err;
+			return -EINVAL;
 
 		/* Only allow sending arbitrary signals to yourself. */
-		ret = -EPERM;
 		if ((task_pid(current) != pid || type > PIDTYPE_TGID) &&
 		    (kinfo.si_code >= 0 || kinfo.si_code == SI_TKILL))
-			goto err;
+			return -EPERM;
 	} else {
 		prepare_kill_siginfo(sig, &kinfo, type);
 	}
 
 	if (type == PIDTYPE_PGID)
-		ret = kill_pgrp_info(sig, &kinfo, pid);
+		return kill_pgrp_info(sig, &kinfo, pid);
 	else
-		ret = kill_pid_info_type(sig, &kinfo, pid, type);
-err:
-	fdput(f);
-	return ret;
+		return kill_pid_info_type(sig, &kinfo, pid, type);
 }
 
 static int

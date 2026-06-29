@@ -66,7 +66,7 @@ enum systems {
 	LENOVO_P8,
 };
 
-static int px_temp_map[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+static int px_temp_map[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 31, 32};
 
 static const char * const lenovo_px_ec_temp_label[] = {
 	"CPU1",
@@ -84,9 +84,29 @@ static const char * const lenovo_px_ec_temp_label[] = {
 	"PCI_Z3",
 	"PCI_Z4",
 	"AMB",
+	"PSU1",
+	"PSU2",
 };
 
-static int gen_temp_map[] = {0, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+static int p8_temp_map[] = {0, 1, 2, 8, 9, 13, 14, 15, 16, 17, 19, 20, 33};
+
+static const char * const lenovo_p8_ec_temp_label[] = {
+	"CPU1",
+	"CPU_DIMM_BANK1",
+	"CPU_DIMM_BANK2",
+	"M2_Z2R",
+	"M2_Z3R",
+	"DIMM_RIGHT",
+	"DIMM_LEFT",
+	"PCI_Z1",
+	"PCI_Z2",
+	"PCI_Z3",
+	"AMB",
+	"REAR_VR",
+	"PSU",
+};
+
+static int gen_temp_map[] = {0, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 31};
 
 static const char * const lenovo_gen_ec_temp_label[] = {
 	"CPU1",
@@ -101,6 +121,7 @@ static const char * const lenovo_gen_ec_temp_label[] = {
 	"PCI_Z3",
 	"PCI_Z4",
 	"AMB",
+	"PSU",
 };
 
 static int px_fan_map[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
@@ -293,6 +314,8 @@ static const struct hwmon_channel_info *lenovo_ec_hwmon_info_px[] = {
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
+			   HWMON_T_INPUT | HWMON_T_LABEL,
+			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL),
 	HWMON_CHANNEL_INFO(fan,
 			   HWMON_F_INPUT | HWMON_F_LABEL | HWMON_F_MAX,
@@ -316,6 +339,7 @@ static const struct hwmon_channel_info *lenovo_ec_hwmon_info_px[] = {
 
 static const struct hwmon_channel_info *lenovo_ec_hwmon_info_p8[] = {
 	HWMON_CHANNEL_INFO(temp,
+			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
@@ -359,6 +383,7 @@ static const struct hwmon_channel_info *lenovo_ec_hwmon_info_p7[] = {
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
+			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL),
 	HWMON_CHANNEL_INFO(fan,
 			   HWMON_F_INPUT | HWMON_F_LABEL | HWMON_F_MAX,
@@ -377,6 +402,7 @@ static const struct hwmon_channel_info *lenovo_ec_hwmon_info_p7[] = {
 
 static const struct hwmon_channel_info *lenovo_ec_hwmon_info_p5[] = {
 	HWMON_CHANNEL_INFO(temp,
+			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
@@ -493,8 +519,8 @@ static int lenovo_ec_probe(struct platform_device *pdev)
 	if (!ec_data)
 		return -ENOMEM;
 
-	if (!request_region(IO_REGION_START, IO_REGION_LENGTH, "LNV-WKS")) {
-		pr_err(":request fail\n");
+	if (!devm_request_region(dev, IO_REGION_START, IO_REGION_LENGTH, "LNV-WKS")) {
+		dev_err(dev, "Failed to request I/O region\n");
 		return -EIO;
 	}
 
@@ -511,13 +537,11 @@ static int lenovo_ec_probe(struct platform_device *pdev)
 	outw_p(MCHP_SING_IDX, MCHP_EMI0_EC_ADDRESS);
 	mutex_unlock(&ec_data->mec_mutex);
 
-	if ((inb_p(MCHP_EMI0_EC_DATA_BYTE0) != 'M') &&
-	    (inb_p(MCHP_EMI0_EC_DATA_BYTE1) != 'C') &&
-	    (inb_p(MCHP_EMI0_EC_DATA_BYTE2) != 'H') &&
-	    (inb_p(MCHP_EMI0_EC_DATA_BYTE3) != 'P')) {
-		release_region(IO_REGION_START, IO_REGION_LENGTH);
+	if ((inb_p(MCHP_EMI0_EC_DATA_BYTE0) != 'M') ||
+	    (inb_p(MCHP_EMI0_EC_DATA_BYTE1) != 'C') ||
+	    (inb_p(MCHP_EMI0_EC_DATA_BYTE2) != 'H') ||
+	    (inb_p(MCHP_EMI0_EC_DATA_BYTE3) != 'P'))
 		return -ENODEV;
-	}
 
 	dmi_id = dmi_first_match(thinkstation_dmi_table);
 
@@ -545,13 +569,12 @@ static int lenovo_ec_probe(struct platform_device *pdev)
 		break;
 	case 3:
 		ec_data->fan_labels = p8_ec_fan_label;
-		ec_data->temp_labels = lenovo_gen_ec_temp_label;
+		ec_data->temp_labels = lenovo_p8_ec_temp_label;
 		ec_data->fan_map = p8_fan_map;
-		ec_data->temp_map = gen_temp_map;
+		ec_data->temp_map = p8_temp_map;
 		lenovo_ec_chip_info.info = lenovo_ec_hwmon_info_p8;
 		break;
 	default:
-		release_region(IO_REGION_START, IO_REGION_LENGTH);
 		return -ENODEV;
 	}
 
@@ -580,10 +603,8 @@ static int __init lenovo_ec_init(void)
 		platform_create_bundle(&lenovo_ec_sensors_platform_driver,
 				       lenovo_ec_probe, NULL, 0, NULL, 0);
 
-	if (IS_ERR(lenovo_ec_sensors_platform_device)) {
-		release_region(IO_REGION_START, IO_REGION_LENGTH);
+	if (IS_ERR(lenovo_ec_sensors_platform_device))
 		return PTR_ERR(lenovo_ec_sensors_platform_device);
-	}
 
 	return 0;
 }
@@ -591,7 +612,6 @@ module_init(lenovo_ec_init);
 
 static void __exit lenovo_ec_exit(void)
 {
-	release_region(IO_REGION_START, IO_REGION_LENGTH);
 	platform_device_unregister(lenovo_ec_sensors_platform_device);
 	platform_driver_unregister(&lenovo_ec_sensors_platform_driver);
 }

@@ -406,29 +406,30 @@ static struct rtnl_link_ops link_ops __read_mostly = {
 	.newlink		= wg_newlink,
 };
 
-static void wg_netns_pre_exit(struct net *net)
+static void __net_exit wg_netns_exit_rtnl(struct list_head *net_exit_list, struct list_head *dev_kill_list)
 {
 	struct wg_device *wg;
 	struct wg_peer *peer;
+	struct net *net;
 
-	rtnl_lock();
 	list_for_each_entry(wg, &device_list, device_list) {
-		if (rcu_access_pointer(wg->creating_net) == net) {
-			pr_debug("%s: Creating namespace exiting\n", wg->dev->name);
-			netif_carrier_off(wg->dev);
-			mutex_lock(&wg->device_update_lock);
-			rcu_assign_pointer(wg->creating_net, NULL);
-			wg_socket_reinit(wg, NULL, NULL);
-			list_for_each_entry(peer, &wg->peer_list, peer_list)
-				wg_socket_clear_peer_endpoint_src(peer);
-			mutex_unlock(&wg->device_update_lock);
+		list_for_each_entry(net, net_exit_list, exit_list) {
+			if (rcu_access_pointer(wg->creating_net) == net) {
+				pr_debug("%s: Creating namespace exiting\n", wg->dev->name);
+				netif_carrier_off(wg->dev);
+				mutex_lock(&wg->device_update_lock);
+				rcu_assign_pointer(wg->creating_net, NULL);
+				wg_socket_reinit(wg, NULL, NULL);
+				list_for_each_entry(peer, &wg->peer_list, peer_list)
+					wg_socket_clear_peer_endpoint_src(peer);
+				mutex_unlock(&wg->device_update_lock);
+			}
 		}
 	}
-	rtnl_unlock();
 }
 
-static struct pernet_operations pernet_ops = {
-	.pre_exit = wg_netns_pre_exit
+static struct pernet_operations pernet_ops __read_mostly = {
+	.exit_batch_rtnl = wg_netns_exit_rtnl
 };
 
 int __init wg_device_init(void)

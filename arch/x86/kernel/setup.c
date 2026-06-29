@@ -25,6 +25,7 @@
 #include <linux/static_call.h>
 #include <linux/swiotlb.h>
 #include <linux/random.h>
+#include <linux/security.h>
 
 #include <uapi/linux/mount.h>
 
@@ -382,10 +383,22 @@ int __init ima_get_kexec_buffer(void **addr, size_t *size)
 }
 #endif
 
+static void __init remove_setup_data(u64 pa_prev, u64 pa_next)
+{
+	struct setup_data *data;
+
+	if (pa_prev) {
+		data = early_memremap(pa_prev, sizeof(*data));
+		data->next = pa_next;
+		early_iounmap(data, sizeof(*data));
+	} else
+		boot_params.hdr.setup_data = pa_next;
+}
+
 static void __init parse_setup_data(void)
 {
 	struct setup_data *data;
-	u64 pa_data, pa_next;
+	u64 pa_data, pa_next, pa_prev = 0;
 
 	pa_data = boot_params.hdr.setup_data;
 	while (pa_data) {
@@ -419,9 +432,14 @@ static void __init parse_setup_data(void)
 			memzero_explicit(&data->len, sizeof(data->len));
 			early_memunmap(data, data_len);
 			break;
+		case SETUP_EFI_SECRET_KEY:
+			parse_efi_secret_key_setup(pa_data, data_len);
+			remove_setup_data(pa_prev, pa_next);
+			break;
 		default:
 			break;
 		}
+		pa_prev = pa_data;
 		pa_data = pa_next;
 	}
 }
@@ -468,7 +486,7 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 
 static void __init arch_reserve_crashkernel(void)
 {
-	unsigned long long crash_base, crash_size, low_size = 0;
+	unsigned long long crash_base, crash_size, low_size = 0, cma_size = 0;
 	char *cmdline = boot_command_line;
 	bool high = false;
 	int ret;
@@ -478,7 +496,7 @@ static void __init arch_reserve_crashkernel(void)
 
 	ret = parse_crashkernel(cmdline, memblock_phys_mem_size(),
 				&crash_size, &crash_base,
-				&low_size, &high);
+				&low_size, &cma_size, &high);
 	if (ret)
 		return;
 
@@ -489,6 +507,7 @@ static void __init arch_reserve_crashkernel(void)
 
 	reserve_crashkernel_generic(cmdline, crash_size, crash_base,
 				    low_size, high);
+	reserve_crashkernel_cma(cma_size);
 }
 
 static struct resource standard_io_resources[] = {
@@ -904,6 +923,13 @@ void __init setup_arch(char **cmdline_p)
 	if (efi_enabled(EFI_BOOT))
 		efi_init();
 
+	efi_set_secure_boot(boot_params.secure_boot);
+
+#ifdef CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT
+	if (efi_enabled(EFI_SECURE_BOOT))
+		security_lock_kernel_down("EFI Secure Boot mode", LOCKDOWN_INTEGRITY_MAX);
+#endif
+
 	reserve_ibft_region();
 	x86_init.resources.dmi_setup();
 
@@ -1069,20 +1095,6 @@ void __init setup_arch(char **cmdline_p)
 #endif
 	/* Allocate bigger log buffer */
 	setup_log_buf(1);
-
-	if (efi_enabled(EFI_BOOT)) {
-		switch (boot_params.secure_boot) {
-		case efi_secureboot_mode_disabled:
-			pr_info("Secure boot disabled\n");
-			break;
-		case efi_secureboot_mode_enabled:
-			pr_info("Secure boot enabled\n");
-			break;
-		default:
-			pr_info("Secure boot could not be determined\n");
-			break;
-		}
-	}
 
 	reserve_initrd();
 

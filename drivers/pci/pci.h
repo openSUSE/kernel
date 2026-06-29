@@ -57,7 +57,7 @@
  *    completes before sending a Configuration Request to the device
  *    immediately below that Port."
  */
-#define PCIE_RESET_CONFIG_DEVICE_WAIT_MS	100
+#define PCIE_RESET_CONFIG_WAIT_MS	100
 
 /* Message Routing (r[2:0]); PCIe r6.0, sec 2.2.8 */
 #define PCIE_MSG_TYPE_R_RC	0
@@ -79,6 +79,13 @@
 #define PCIE_MSG_CODE_DEASSERT_INTB	0x25
 #define PCIE_MSG_CODE_DEASSERT_INTC	0x26
 #define PCIE_MSG_CODE_DEASSERT_INTD	0x27
+
+#define PCI_BUS_BRIDGE_IO_WINDOW	0
+#define PCI_BUS_BRIDGE_MEM_WINDOW	1
+#define PCI_BUS_BRIDGE_PREF_MEM_WINDOW	2
+
+#define PCI_EXP_AER_FLAGS	(PCI_EXP_DEVCTL_CERE | PCI_EXP_DEVCTL_NFERE | \
+				 PCI_EXP_DEVCTL_FERE | PCI_EXP_DEVCTL_URRE)
 
 extern const unsigned char pcie_link_speed[];
 extern bool pci_early_dump;
@@ -104,6 +111,7 @@ bool pci_reset_supported(struct pci_dev *dev);
 void pci_init_reset_methods(struct pci_dev *dev);
 int pci_bridge_secondary_bus_reset(struct pci_dev *dev);
 int pci_bus_error_reset(struct pci_dev *dev);
+int __pci_reset_bus(struct pci_bus *bus);
 
 struct pci_cap_saved_data {
 	u16		cap_nr;
@@ -162,6 +170,22 @@ static inline void pci_wakeup_event(struct pci_dev *dev)
 {
 	/* Wait 100 ms before the system can be put into a sleep state. */
 	pm_wakeup_event(&dev->dev, 100);
+}
+
+/**
+ * pci_bar_index_is_valid - Check whether a BAR index is within valid range
+ * @bar: BAR index
+ *
+ * Protects against overflowing &struct pci_dev.resource array.
+ *
+ * Return: true for valid index, false otherwise.
+ */
+static inline bool pci_bar_index_is_valid(int bar)
+{
+	if (bar >= 0 && bar < PCI_NUM_RESOURCES)
+		return true;
+
+	return false;
 }
 
 static inline bool pci_has_subordinate(struct pci_dev *pci_dev)
@@ -325,6 +349,28 @@ void __pci_bus_assign_resources(const struct pci_bus *bus,
 bool pci_bus_clip_resource(struct pci_dev *dev, int idx);
 
 const char *pci_resource_name(struct pci_dev *dev, unsigned int i);
+
+/**
+ * pci_resource_num - Reverse lookup resource number from device resources
+ * @dev: PCI device
+ * @res: Resource to lookup index for (MUST be a @dev's resource)
+ *
+ * Perform reverse lookup to determine the resource number for @res within
+ * @dev resource array. NOTE: The caller is responsible for ensuring @res is
+ * among @dev's resources!
+ *
+ * Returns: resource number.
+ */
+static inline int pci_resource_num(const struct pci_dev *dev,
+				   const struct resource *res)
+{
+	int resno = res - &dev->resource[0];
+
+	/* Passing a resource that is not among dev's resources? */
+	WARN_ON_ONCE(resno >= PCI_NUM_RESOURCES);
+
+	return resno;
+}
 
 void pci_reassigndev_resource_alignment(struct pci_dev *dev);
 void pci_disable_bridge_window(struct pci_dev *dev);
@@ -597,6 +643,18 @@ static inline int pci_iov_bus_range(struct pci_bus *bus)
 
 #endif /* CONFIG_PCI_IOV */
 
+#ifdef CONFIG_PCIE_TPH
+void pci_restore_tph_state(struct pci_dev *dev);
+void pci_save_tph_state(struct pci_dev *dev);
+void pci_no_tph(void);
+void pci_tph_init(struct pci_dev *dev);
+#else
+static inline void pci_restore_tph_state(struct pci_dev *dev) { }
+static inline void pci_save_tph_state(struct pci_dev *dev) { }
+static inline void pci_no_tph(void) { }
+static inline void pci_tph_init(struct pci_dev *dev) { }
+#endif
+
 #ifdef CONFIG_PCIE_PTM
 void pci_ptm_init(struct pci_dev *dev);
 void pci_save_ptm_state(struct pci_dev *dev);
@@ -617,7 +675,7 @@ static inline resource_size_t pci_resource_alignment(struct pci_dev *dev,
 						     struct resource *res)
 {
 #ifdef CONFIG_PCI_IOV
-	int resno = res - dev->resource;
+	int resno = pci_resource_num(dev, res);
 
 	if (resno >= PCI_IOV_RESOURCES && resno <= PCI_IOV_RESOURCE_END)
 		return pci_sriov_resource_alignment(dev, resno);
@@ -746,6 +804,7 @@ void pci_set_bus_of_node(struct pci_bus *bus);
 void pci_release_bus_of_node(struct pci_bus *bus);
 
 int devm_of_pci_bridge_init(struct device *dev, struct pci_host_bridge *bridge);
+bool of_pci_supply_present(struct device_node *np);
 
 #else
 static inline int
@@ -793,6 +852,10 @@ static inline int devm_of_pci_bridge_init(struct device *dev, struct pci_host_br
 	return 0;
 }
 
+static inline bool of_pci_supply_present(struct device_node *np)
+{
+	return false;
+}
 #endif /* CONFIG_OF */
 
 struct of_changeset;

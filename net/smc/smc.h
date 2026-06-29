@@ -283,10 +283,10 @@ struct smc_connection {
 };
 
 struct smc_sock {				/* smc sock container */
-	struct sock		sk;
-#if IS_ENABLED(CONFIG_IPV6)
-	struct ipv6_pinfo	*pinet6;
-#endif
+	union {
+		struct sock		sk;
+		struct inet_sock	icsk_inet;
+	};
 	struct socket		*clcsock;	/* internal tcp socket */
 	void			(*clcsk_state_change)(struct sock *sk);
 						/* original stat_change fct. */
@@ -344,6 +344,11 @@ static inline struct smc_sock *smc_clcsock_user_data(const struct sock *clcsk)
 {
 	return (struct smc_sock *)
 	       ((uintptr_t)clcsk->sk_user_data & ~SK_USER_DATA_NOCOPY);
+}
+
+static inline struct smc_sock *smc_clcsock_user_data_rcu(const struct sock *clcsk)
+{
+	return (struct smc_sock *)rcu_dereference_sk_user_data(clcsk);
 }
 
 /* save target_cb in saved_cb, and replace target_cb with new_cb */

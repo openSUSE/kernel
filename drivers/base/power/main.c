@@ -65,6 +65,20 @@ static pm_message_t pm_transition;
 
 static int async_error;
 
+/**
+ * pm_hibernate_is_recovering - if recovering from hibernate due to error.
+ *
+ * Used to query if dev_pm_ops.thaw() is called for normal hibernation case or
+ * recovering from some error.
+ *
+ * Return: true for error case, false for normal case.
+ */
+bool pm_hibernate_is_recovering(void)
+{
+	return pm_transition.event == PM_EVENT_RECOVER;
+}
+EXPORT_SYMBOL_GPL(pm_hibernate_is_recovering);
+
 static const char *pm_verb(int event)
 {
 	switch (event) {
@@ -100,7 +114,7 @@ void device_pm_sleep_init(struct device *dev)
 	dev->power.is_noirq_suspended = false;
 	dev->power.is_late_suspended = false;
 	init_completion(&dev->power.completion);
-	complete_all(&dev->power.completion);
+	complete(&dev->power.completion);
 	dev->power.wakeup = NULL;
 	INIT_LIST_HEAD(&dev->power.entry);
 }
@@ -235,6 +249,10 @@ static void initcall_debug_report(struct device *dev, ktime_t calltime,
 static void dpm_wait(struct device *dev, bool async)
 {
 	if (!dev)
+		return;
+
+	/* Devices with no PM support don't use the completion. */
+	if (dev->power.no_pm)
 		return;
 
 	if (async || (pm_async_enabled && dev->power.async_suspend))
@@ -628,8 +646,20 @@ static void device_resume_noirq(struct device *dev, pm_message_t state, bool asy
 	if (dev->power.syscore || dev->power.direct_complete)
 		goto Out;
 
-	if (!dev->power.is_noirq_suspended)
+	if (!dev->power.is_noirq_suspended) {
+		/*
+		 * This means that system suspend has been aborted in the noirq
+		 * phase before invoking the noirq suspend callback for the
+		 * device, so if device_suspend_late() has left it in suspend,
+		 * device_resume_early() should leave it in suspend either in
+		 * case the early resume of it depends on the noirq resume that
+		 * has not run.
+		 */
+		if (dev_pm_skip_suspend(dev))
+			dev->power.must_resume = false;
+
 		goto Out;
+	}
 
 	if (!dpm_wait_for_superior(dev, async))
 		goto Out;
@@ -642,13 +672,15 @@ static void device_resume_noirq(struct device *dev, pm_message_t state, bool asy
 	 * so change its status accordingly.
 	 *
 	 * Otherwise, the device is going to be resumed, so set its PM-runtime
-	 * status to "active", but do that only if DPM_FLAG_SMART_SUSPEND is set
-	 * to avoid confusing drivers that don't use it.
+	 * status to "active" unless its power.set_active flag is clear, in
+	 * which case it is not necessary to update its PM-runtime status.
 	 */
-	if (skip_resume)
+	if (skip_resume) {
 		pm_runtime_set_suspended(dev);
-	else if (dev_pm_skip_suspend(dev))
+	} else if (dev->power.set_active) {
 		pm_runtime_set_active(dev);
+		dev->power.set_active = false;
+	}
 
 	if (dev->pm_domain) {
 		info = "noirq power domain ";
@@ -913,6 +945,11 @@ static void device_resume(struct device *dev, pm_message_t state, bool async)
 	if (dev->power.syscore)
 		goto Complete;
 
+	if (!dev->power.is_suspended)
+		goto Complete;
+
+	dev->power.is_suspended = false;
+
 	if (dev->power.direct_complete) {
 		/* Match the pm_runtime_disable() in __device_suspend(). */
 		pm_runtime_enable(dev);
@@ -930,9 +967,6 @@ static void device_resume(struct device *dev, pm_message_t state, bool async)
 	 * a resumed device, even if the device hasn't been completed yet.
 	 */
 	dev->power.is_prepared = false;
-
-	if (!dev->power.is_suspended)
-		goto Unlock;
 
 	if (dev->pm_domain) {
 		info = "power domain ";
@@ -971,9 +1005,7 @@ static void device_resume(struct device *dev, pm_message_t state, bool async)
 
  End:
 	error = dpm_run_callback(callback, dev, state, info);
-	dev->power.is_suspended = false;
 
- Unlock:
 	device_unlock(dev);
 	dpm_watchdog_clear(&wd);
 
@@ -1254,18 +1286,23 @@ Skip:
 	dev->power.is_noirq_suspended = true;
 
 	/*
-	 * Skipping the resume of devices that were in use right before the
-	 * system suspend (as indicated by their PM-runtime usage counters)
-	 * would be suboptimal.  Also resume them if doing that is not allowed
-	 * to be skipped.
+	 * Devices must be resumed unless they are explicitly allowed to be left
+	 * in suspend, but even in that case skipping the resume of devices that
+	 * were in use right before the system suspend (as indicated by their
+	 * runtime PM usage counters and child counters) would be suboptimal.
 	 */
-	if (atomic_read(&dev->power.usage_count) > 1 ||
-	    !(dev_pm_test_driver_flags(dev, DPM_FLAG_MAY_SKIP_RESUME) &&
-	      dev->power.may_skip_resume))
+	if (!(dev_pm_test_driver_flags(dev, DPM_FLAG_MAY_SKIP_RESUME) &&
+	      dev->power.may_skip_resume) || !pm_runtime_need_not_resume(dev))
 		dev->power.must_resume = true;
 
-	if (dev->power.must_resume)
+	if (dev->power.must_resume) {
+		if (dev_pm_test_driver_flags(dev, DPM_FLAG_SMART_SUSPEND)) {
+			dev->power.set_active = true;
+			if (dev->parent && !dev->parent->power.ignore_children)
+				dev->parent->power.set_active = true;
+		}
 		dpm_superior_set_must_resume(dev);
+	}
 
 Complete:
 	complete_all(&dev->power.completion);
@@ -1628,6 +1665,7 @@ static int device_suspend(struct device *dev, pm_message_t state, bool async)
 			pm_runtime_disable(dev);
 			if (pm_runtime_status_suspended(dev)) {
 				pm_dev_dbg(dev, state, "direct-complete ");
+				dev->power.is_suspended = true;
 				goto Complete;
 			}
 

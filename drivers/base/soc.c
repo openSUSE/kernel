@@ -26,6 +26,7 @@ struct soc_device {
 	struct device dev;
 	struct soc_device_attribute *attr;
 	int soc_dev_num;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static const struct bus_type soc_bus_type = {

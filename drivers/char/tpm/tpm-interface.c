@@ -58,6 +58,30 @@ unsigned long tpm_calc_ordinal_duration(struct tpm_chip *chip, u32 ordinal)
 }
 EXPORT_SYMBOL_GPL(tpm_calc_ordinal_duration);
 
+static void tpm_chip_cancel(struct tpm_chip *chip)
+{
+	if (!chip->ops->cancel)
+		return;
+
+	chip->ops->cancel(chip);
+}
+
+static u8 tpm_chip_status(struct tpm_chip *chip)
+{
+	if (!chip->ops->status)
+		return 0;
+
+	return chip->ops->status(chip);
+}
+
+static bool tpm_chip_req_canceled(struct tpm_chip *chip, u8 status)
+{
+	if (!chip->ops->req_canceled)
+		return false;
+
+	return chip->ops->req_canceled(chip, status);
+}
+
 static ssize_t tpm_try_transmit(struct tpm_chip *chip, void *buf, size_t bufsiz)
 {
 	struct tpm_header *header = buf;
@@ -104,12 +128,12 @@ static ssize_t tpm_try_transmit(struct tpm_chip *chip, void *buf, size_t bufsiz)
 
 	stop = jiffies + tpm_calc_ordinal_duration(chip, ordinal);
 	do {
-		u8 status = chip->ops->status(chip);
+		u8 status = tpm_chip_status(chip);
 		if ((status & chip->ops->req_complete_mask) ==
 		    chip->ops->req_complete_val)
 			goto out_recv;
 
-		if (chip->ops->req_canceled(chip, status)) {
+		if (tpm_chip_req_canceled(chip, status)) {
 			dev_err(&chip->dev, "Operation Canceled\n");
 			return -ECANCELED;
 		}
@@ -118,7 +142,7 @@ static ssize_t tpm_try_transmit(struct tpm_chip *chip, void *buf, size_t bufsiz)
 		rmb();
 	} while (time_before(jiffies, stop));
 
-	chip->ops->cancel(chip);
+	tpm_chip_cancel(chip);
 	dev_err(&chip->dev, "Operation Timed out\n");
 	return -ETIME;
 
@@ -306,14 +330,37 @@ EXPORT_SYMBOL_GPL(tpm_pcr_read);
  * @chip:	a &struct tpm_chip instance, %NULL for the default chip
  * @pcr_idx:	the PCR to be retrieved
  * @digests:	array of tpm_digest structures used to extend PCRs
+ * @banks_skip_mask:	pcr banks to skip
  *
  * Note: callers must pass a digest for every allocated PCR bank, in the same
- * order of the banks in chip->allocated_banks.
+ * order of the banks in chip->allocated_banks, independent of the value of
+ * @banks_skip_mask.
  *
  * Return: same as with tpm_transmit_cmd()
  */
 int tpm_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 		   struct tpm_digest *digests)
+{
+  return tpm_pcr_extend_sel(chip, pcr_idx, digests, 0);
+}
+EXPORT_SYMBOL_GPL(tpm_pcr_extend);
+
+/**
+ * tpm_pcr_extend_sel - selectively extend a PCR value in SHA1 bank.
+ * @chip:	a &struct tpm_chip instance, %NULL for the default chip
+ * @pcr_idx:	the PCR to be retrieved
+ * @digests:	array of tpm_digest structures used to extend PCRs
+ * @banks_skip_mask:	pcr banks to skip
+ *
+ * Note: callers must pass a digest for every allocated PCR bank, in the same
+ * order of the banks in chip->allocated_banks, independent of the value of
+ * @banks_skip_mask.
+ *
+ * Return: same as with tpm_transmit_cmd()
+ */
+int tpm_pcr_extend_sel(struct tpm_chip *chip, u32 pcr_idx,
+		       struct tpm_digest *digests,
+		       unsigned long banks_skip_mask)
 {
 	int rc;
 	int i;
@@ -330,7 +377,13 @@ int tpm_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 	}
 
 	if (chip->flags & TPM_CHIP_FLAG_TPM2) {
-		rc = tpm2_pcr_extend(chip, pcr_idx, digests);
+		rc = tpm2_pcr_extend(chip, pcr_idx, digests, banks_skip_mask);
+		goto out;
+	}
+
+	/* There's only one SHA1 bank with TPM 1. */
+	if (banks_skip_mask & 1) {
+		rc = 0;
 		goto out;
 	}
 
@@ -341,7 +394,6 @@ out:
 	tpm_put_ops(chip);
 	return rc;
 }
-EXPORT_SYMBOL_GPL(tpm_pcr_extend);
 
 int tpm_auto_startup(struct tpm_chip *chip)
 {
@@ -445,18 +497,11 @@ int tpm_get_random(struct tpm_chip *chip, u8 *out, size_t max)
 	if (!chip)
 		return -ENODEV;
 
-	/* Give back zero bytes, as TPM chip has not yet fully resumed: */
-	if (chip->flags & TPM_CHIP_FLAG_SUSPENDED) {
-		rc = 0;
-		goto out;
-	}
-
 	if (chip->flags & TPM_CHIP_FLAG_TPM2)
 		rc = tpm2_get_random(chip, out, max);
 	else
 		rc = tpm1_get_random(chip, out, max);
 
-out:
 	tpm_put_ops(chip);
 	return rc;
 }

@@ -20,6 +20,8 @@ struct phy_companion {
 
 	/* for B devices only:  start session with A-Host */
 	int	(*start_srp)(struct phy_companion *x);
+
+	void *suse_kabi_padding;
 };
 
 #endif /* __DRIVERS_PHY_COMPANION_H */

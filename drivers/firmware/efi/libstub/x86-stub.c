@@ -537,7 +537,6 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 	efi_guid_t proto = LOADED_IMAGE_PROTOCOL_GUID;
 	struct boot_params *boot_params;
 	struct setup_header *hdr;
-	int options_size = 0;
 	efi_status_t status;
 	unsigned long alloc;
 	char *cmdline_ptr;
@@ -569,7 +568,7 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 	hdr->initrd_addr_max = INT_MAX;
 
 	/* Convert unicode cmdline to ascii */
-	cmdline_ptr = efi_convert_cmdline(image, &options_size);
+	cmdline_ptr = efi_convert_cmdline(image);
 	if (!cmdline_ptr) {
 		efi_free(PARAM_SIZE, alloc);
 		efi_exit(handle, EFI_OUT_OF_RESOURCES);
@@ -1039,6 +1038,14 @@ void __noreturn efi_stub_entry(efi_handle_t handle,
 	setup_graphics(boot_params);
 
 	setup_efi_pci(boot_params);
+
+	/* EFI secret key is no longer safe when EFI secure boot is
+	 * disabled. So we removed it. User should trigger key
+	 * re-generate when secure boot be enabled again */
+	if (boot_params->secure_boot == efi_secureboot_mode_enabled)
+		efi_setup_secret_key(boot_params);
+	else
+		efi_clean_secret_key();
 
 	setup_quirks(boot_params);
 

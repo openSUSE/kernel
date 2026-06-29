@@ -94,7 +94,7 @@ static int mv_cesa_std_process(struct mv_cesa_engine *engine, u32 status)
 
 static int mv_cesa_int_process(struct mv_cesa_engine *engine, u32 status)
 {
-	if (engine->chain.first && engine->chain.last)
+	if (engine->chain_hw.first && engine->chain_hw.last)
 		return mv_cesa_tdma_process(engine, status);
 
 	return mv_cesa_std_process(engine, status);
@@ -604,7 +604,7 @@ MODULE_DEVICE_TABLE(platform, mv_cesa_plat_id_table);
 
 static struct platform_driver marvell_cesa = {
 	.probe		= mv_cesa_probe,
-	.remove_new	= mv_cesa_remove,
+	.remove		= mv_cesa_remove,
 	.id_table	= mv_cesa_plat_id_table,
 	.driver		= {
 		.name	= "marvell-cesa",

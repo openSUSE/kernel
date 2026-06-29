@@ -190,6 +190,8 @@ struct irq_domain {
 #endif
 	void				(*exit)(struct irq_domain *d);
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	/* reverse map data. The linear map gets appended to the irq_domain */
 	irq_hw_number_t			hwirq_max;
 	unsigned int			revmap_size;

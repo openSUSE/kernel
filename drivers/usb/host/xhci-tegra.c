@@ -26,6 +26,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
+#include <linux/string_choices.h>
 #include <linux/usb/otg.h>
 #include <linux/usb/phy.h>
 #include <linux/usb/role.h>
@@ -724,7 +725,7 @@ static void tegra_xusb_mbox_handle(struct tegra_xusb *tegra,
 		if (err < 0) {
 			dev_err(dev,
 				"failed to %s LFPS detection on USB3#%u: %d\n",
-				enable ? "enable" : "disable", port, err);
+				str_enable_disable(enable), port, err);
 			rsp.cmd = MBOX_CMD_NAK;
 		} else {
 			rsp.cmd = MBOX_CMD_ACK;
@@ -1349,7 +1350,7 @@ static void tegra_xhci_id_work(struct work_struct *work)
 	u32 status;
 	int ret;
 
-	dev_dbg(tegra->dev, "host mode %s\n", tegra->host_mode ? "on" : "off");
+	dev_dbg(tegra->dev, "host mode %s\n", str_on_off(tegra->host_mode));
 
 	mutex_lock(&tegra->lock);
 
@@ -1363,6 +1364,7 @@ static void tegra_xhci_id_work(struct work_struct *work)
 	tegra->otg_usb3_port = tegra_xusb_padctl_get_usb3_companion(tegra->padctl,
 								    tegra->otg_usb2_port);
 
+	pm_runtime_get_sync(tegra->dev);
 	if (tegra->host_mode) {
 		/* switch to host mode */
 		if (tegra->otg_usb3_port >= 0) {
@@ -1392,6 +1394,7 @@ static void tegra_xhci_id_work(struct work_struct *work)
 		}
 
 		tegra_xhci_set_port_power(tegra, true, true);
+		pm_runtime_mark_last_busy(tegra->dev);
 
 	} else {
 		if (tegra->otg_usb3_port >= 0)
@@ -1399,6 +1402,7 @@ static void tegra_xhci_id_work(struct work_struct *work)
 
 		tegra_xhci_set_port_power(tegra, true, false);
 	}
+	pm_runtime_put_autosuspend(tegra->dev);
 }
 
 #if IS_ENABLED(CONFIG_PM) || IS_ENABLED(CONFIG_PM_SLEEP)
@@ -2664,7 +2668,7 @@ MODULE_DEVICE_TABLE(of, tegra_xusb_of_match);
 
 static struct platform_driver tegra_xusb_driver = {
 	.probe = tegra_xusb_probe,
-	.remove_new = tegra_xusb_remove,
+	.remove = tegra_xusb_remove,
 	.shutdown = tegra_xusb_shutdown,
 	.driver = {
 		.name = "tegra-xusb",

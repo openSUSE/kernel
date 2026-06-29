@@ -346,13 +346,6 @@ static void devm_usb_phy_release2(struct device *dev, void *_res)
 	usb_put_phy(res->phy);
 }
 
-static int devm_usb_phy_match(struct device *dev, void *res, void *match_data)
-{
-	struct usb_phy **phy = res;
-
-	return *phy == match_data;
-}
-
 static void usb_charger_init(struct usb_phy *usb_phy)
 {
 	usb_phy->chg_type = UNKNOWN_TYPE;
@@ -615,25 +608,6 @@ struct usb_phy *devm_usb_get_phy_by_phandle(struct device *dev,
 EXPORT_SYMBOL_GPL(devm_usb_get_phy_by_phandle);
 
 /**
- * devm_usb_put_phy - release the USB PHY
- * @dev: device that wants to release this phy
- * @phy: the phy returned by devm_usb_get_phy()
- *
- * destroys the devres associated with this phy and invokes usb_put_phy
- * to release the phy.
- *
- * For use by USB host and peripheral drivers.
- */
-void devm_usb_put_phy(struct device *dev, struct usb_phy *phy)
-{
-	int r;
-
-	r = devres_release(dev, devm_usb_phy_release, devm_usb_phy_match, phy);
-	dev_WARN_ONCE(dev, r, "couldn't find PHY resource\n");
-}
-EXPORT_SYMBOL_GPL(devm_usb_put_phy);
-
-/**
  * usb_put_phy - release the USB PHY
  * @x: the phy returned by usb_get_phy()
  *
@@ -671,6 +645,8 @@ int usb_add_phy(struct usb_phy *x, enum usb_phy_type type)
 		dev_err(x->dev, "not accepting initialized PHY %s\n", x->label);
 		return -EINVAL;
 	}
+
+	INIT_LIST_HEAD(&x->head);
 
 	usb_charger_init(x);
 	ret = usb_add_extcon(x);
@@ -721,6 +697,8 @@ int usb_add_phy_dev(struct usb_phy *x)
 		dev_err(x->dev, "no device provided for PHY\n");
 		return -EINVAL;
 	}
+
+	INIT_LIST_HEAD(&x->head);
 
 	usb_charger_init(x);
 	ret = usb_add_extcon(x);

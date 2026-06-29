@@ -93,7 +93,7 @@ static void dm_bufio_alloc_callback(struct dm_buffer *buf)
  */
 static sector_t verity_map_sector(struct dm_verity *v, sector_t bi_sector)
 {
-	return v->data_start + dm_target_offset(v->ti, bi_sector);
+	return dm_target_offset(v->ti, bi_sector);
 }
 
 /*
@@ -321,7 +321,7 @@ static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 		}
 	} else {
 		data = dm_bufio_read_with_ioprio(v->bufio, hash_block,
-						&buf, bio_prio(bio));
+						&buf, bio->bi_ioprio);
 	}
 
 	if (IS_ERR(data))
@@ -789,11 +789,18 @@ static int verity_map(struct dm_target *ti, struct bio *bio)
 
 	verity_fec_init_io(io);
 
-	verity_submit_prefetch(v, io, bio_prio(bio));
+	verity_submit_prefetch(v, io, bio->bi_ioprio);
 
 	submit_bio_noacct(bio);
 
 	return DM_MAPIO_SUBMITTED;
+}
+
+static void verity_postsuspend(struct dm_target *ti)
+{
+	struct dm_verity *v = ti->private;
+	flush_workqueue(v->verify_wq);
+	dm_bufio_client_reset(v->bufio);
 }
 
 /*
@@ -952,7 +959,7 @@ static int verity_prepare_ioctl(struct dm_target *ti, struct block_device **bdev
 
 	*bdev = v->data_dev->bdev;
 
-	if (v->data_start || ti->len != bdev_nr_sectors(v->data_dev->bdev))
+	if (ti->len != bdev_nr_sectors(v->data_dev->bdev))
 		return 1;
 	return 0;
 }
@@ -962,7 +969,7 @@ static int verity_iterate_devices(struct dm_target *ti,
 {
 	struct dm_verity *v = ti->private;
 
-	return fn(ti, v->data_dev, v->data_start, ti->len, data);
+	return fn(ti, v->data_dev, 0, ti->len, data);
 }
 
 static void verity_io_hints(struct dm_target *ti, struct queue_limits *limits)
@@ -1073,6 +1080,9 @@ static int verity_alloc_most_once(struct dm_verity *v)
 {
 	struct dm_target *ti = v->ti;
 
+	if (v->validated_blocks)
+		return 0;
+
 	/* the bitset can only handle INT_MAX blocks */
 	if (v->data_blocks > INT_MAX) {
 		ti->error = "device too large to use check_at_most_once";
@@ -1095,6 +1105,9 @@ static int verity_alloc_zero_digest(struct dm_verity *v)
 	int r = -ENOMEM;
 	struct dm_verity_io *io;
 	u8 *zero_data;
+
+	if (v->zero_digest)
+		return 0;
 
 	v->zero_digest = kmalloc(v->digest_size, GFP_KERNEL);
 
@@ -1530,7 +1543,7 @@ static int verity_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 			goto bad;
 	}
 
-	/* Root hash signature is  a optional parameter*/
+	/* Root hash signature is an optional parameter */
 	r = verity_verify_root_hash(root_hash_digest_to_validate,
 				    strlen(root_hash_digest_to_validate),
 				    verify_args.sig,
@@ -1761,11 +1774,12 @@ static struct target_type verity_target = {
 	.name		= "verity",
 /* Note: the LSMs depend on the singleton and immutable features */
 	.features	= DM_TARGET_SINGLETON | DM_TARGET_IMMUTABLE,
-	.version	= {1, 10, 0},
+	.version	= {1, 10, 1},
 	.module		= THIS_MODULE,
 	.ctr		= verity_ctr,
 	.dtr		= verity_dtr,
 	.map		= verity_map,
+	.postsuspend	= verity_postsuspend,
 	.status		= verity_status,
 	.prepare_ioctl	= verity_prepare_ioctl,
 	.iterate_devices = verity_iterate_devices,

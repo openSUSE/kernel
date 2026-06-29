@@ -257,11 +257,53 @@ static int io_prep_rw_setup(struct io_kiocb *req, int ddir, bool do_import)
 	return 0;
 }
 
+static inline void io_meta_save_state(struct io_async_rw *io)
+{
+	io->meta_state.seed = io->meta.seed;
+	iov_iter_save_state(&io->meta.iter, &io->meta_state.iter_meta);
+}
+
+static inline void io_meta_restore(struct io_async_rw *io, struct kiocb *kiocb)
+{
+	if (kiocb->ki_flags & IOCB_HAS_METADATA) {
+		io->meta.seed = io->meta_state.seed;
+		iov_iter_restore(&io->meta.iter, &io->meta_state.iter_meta);
+	}
+}
+
+static int io_prep_rw_pi(struct io_kiocb *req, struct io_rw *rw, int ddir,
+			 u64 attr_ptr, u64 attr_type_mask)
+{
+	struct io_uring_attr_pi pi_attr;
+	struct io_async_rw *io;
+	int ret;
+
+	if (copy_from_user(&pi_attr, u64_to_user_ptr(attr_ptr),
+	    sizeof(pi_attr)))
+		return -EFAULT;
+
+	if (pi_attr.rsvd)
+		return -EINVAL;
+
+	io = req->async_data;
+	io->meta.flags = pi_attr.flags;
+	io->meta.app_tag = pi_attr.app_tag;
+	io->meta.seed = pi_attr.seed;
+	ret = import_ubuf(ddir, u64_to_user_ptr(pi_attr.addr),
+			  pi_attr.len, &io->meta.iter);
+	if (unlikely(ret < 0))
+		return ret;
+	req->flags |= REQ_F_HAS_METADATA;
+	io_meta_save_state(io);
+	return ret;
+}
+
 static int io_prep_rw(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 		      int ddir, bool do_import)
 {
 	struct io_rw *rw = io_kiocb_to_cmd(req, struct io_rw);
 	unsigned ioprio;
+	u64 attr_type_mask;
 	int ret;
 
 	rw->kiocb.ki_pos = READ_ONCE(sqe->off);
@@ -279,11 +321,28 @@ static int io_prep_rw(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 		rw->kiocb.ki_ioprio = get_current_ioprio();
 	}
 	rw->kiocb.dio_complete = NULL;
+	rw->kiocb.ki_flags = 0;
 
 	rw->addr = READ_ONCE(sqe->addr);
 	rw->len = READ_ONCE(sqe->len);
 	rw->flags = READ_ONCE(sqe->rw_flags);
-	return io_prep_rw_setup(req, ddir, do_import);
+	ret = io_prep_rw_setup(req, ddir, do_import);
+
+	if (unlikely(ret))
+		return ret;
+
+	attr_type_mask = READ_ONCE(sqe->attr_type_mask);
+	if (attr_type_mask) {
+		u64 attr_ptr;
+
+		/* only PI attribute is supported currently */
+		if (attr_type_mask != IORING_RW_ATTR_FLAG_PI)
+			return -EINVAL;
+
+		attr_ptr = READ_ONCE(sqe->attr_ptr);
+		ret = io_prep_rw_pi(req, rw, ddir, attr_ptr, attr_type_mask);
+	}
+	return ret;
 }
 
 int io_prep_read(struct io_kiocb *req, const struct io_uring_sqe *sqe)
@@ -410,7 +469,9 @@ static inline loff_t *io_kiocb_update_pos(struct io_kiocb *req)
 static void io_resubmit_prep(struct io_kiocb *req)
 {
 	struct io_async_rw *io = req->async_data;
+	struct io_rw *rw = io_kiocb_to_cmd(req, struct io_rw);
 
+	io_meta_restore(io, &rw->kiocb);
 	iov_iter_restore(&io->iter, &io->iter_state);
 }
 
@@ -737,8 +798,11 @@ static bool io_rw_should_retry(struct io_kiocb *req)
 	struct io_rw *rw = io_kiocb_to_cmd(req, struct io_rw);
 	struct kiocb *kiocb = &rw->kiocb;
 
-	/* never retry for NOWAIT, we just complete with -EAGAIN */
-	if (req->flags & REQ_F_NOWAIT)
+	/*
+	 * Never retry for NOWAIT or a request with metadata, we just complete
+	 * with -EAGAIN.
+	 */
+	if (req->flags & (REQ_F_NOWAIT | REQ_F_HAS_METADATA))
 		return false;
 
 	/* Only for buffered IO */
@@ -824,6 +888,19 @@ static int io_rw_init_file(struct io_kiocb *req, fmode_t mode, int rw_type)
 		kiocb->ki_complete = io_complete_rw;
 	}
 
+	if (req->flags & REQ_F_HAS_METADATA) {
+		struct io_async_rw *io = req->async_data;
+
+		/*
+		 * We have a union of meta fields with wpq used for buffered-io
+		 * in io_async_rw, so fail it here.
+		 */
+		if (!(req->file->f_flags & O_DIRECT))
+			return -EOPNOTSUPP;
+		kiocb->ki_flags |= IOCB_HAS_METADATA;
+		kiocb->private = &io->meta;
+	}
+
 	return 0;
 }
 
@@ -862,7 +939,15 @@ static int __io_read(struct io_kiocb *req, unsigned int issue_flags)
 	if (unlikely(ret))
 		return ret;
 
-	ret = io_iter_do_read(rw, &io->iter);
+	if (unlikely(req->opcode == IORING_OP_READ_MULTISHOT)) {
+		void *cb_copy = rw->kiocb.ki_complete;
+
+		rw->kiocb.ki_complete = NULL;
+		ret = io_iter_do_read(rw, &io->iter);
+		rw->kiocb.ki_complete = cb_copy;
+	} else {
+		ret = io_iter_do_read(rw, &io->iter);
+	}
 
 	/*
 	 * Some file systems like to return -EOPNOTSUPP for an IOCB_NOWAIT
@@ -887,7 +972,8 @@ static int __io_read(struct io_kiocb *req, unsigned int issue_flags)
 	} else if (ret == -EIOCBQUEUED) {
 		return IOU_ISSUE_SKIP_COMPLETE;
 	} else if (ret == req->cqe.res || ret <= 0 || !force_nonblock ||
-		   (req->flags & REQ_F_NOWAIT) || !need_complete_io(req)) {
+		   (req->flags & REQ_F_NOWAIT) || !need_complete_io(req) ||
+		   (issue_flags & IO_URING_F_MULTISHOT)) {
 		/* read all, failed, already did sync or don't want to retry */
 		goto done;
 	}
@@ -898,6 +984,7 @@ static int __io_read(struct io_kiocb *req, unsigned int issue_flags)
 	 * manually if we need to.
 	 */
 	iov_iter_restore(&io->iter, &io->iter_state);
+	io_meta_restore(io, kiocb);
 
 	do {
 		/*
@@ -979,6 +1066,8 @@ int io_read_mshot(struct io_kiocb *req, unsigned int issue_flags)
 		io_kbuf_recycle(req, issue_flags);
 		if (ret < 0)
 			req_set_fail(req);
+	} else if (!(req->flags & REQ_F_APOLL_MULTISHOT)) {
+		cflags = io_put_kbuf(req, ret, issue_flags);
 	} else {
 		/*
 		 * Any successful return value will keep the multishot read
@@ -1121,6 +1210,7 @@ done:
 	} else {
 ret_eagain:
 		iov_iter_restore(&io->iter, &io->iter_state);
+		io_meta_restore(io, kiocb);
 		if (kiocb->ki_flags & IOCB_WRITE)
 			io_req_end_write(req);
 		return -EAGAIN;
@@ -1179,12 +1269,12 @@ int io_do_iopoll(struct io_ring_ctx *ctx, bool force_nonspin)
 			poll_flags |= BLK_POLL_ONESHOT;
 
 		/* iopoll may have completed current req */
-		if (!rq_list_empty(iob.req_list) ||
+		if (!rq_list_empty(&iob.req_list) ||
 		    READ_ONCE(req->iopoll_completed))
 			break;
 	}
 
-	if (!rq_list_empty(iob.req_list))
+	if (!rq_list_empty(&iob.req_list))
 		iob.complete(&iob);
 	else if (!pos)
 		return 0;

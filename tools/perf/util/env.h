@@ -176,9 +176,9 @@ const char *perf_env__raw_arch(struct perf_env *env);
 int perf_env__nr_cpus_avail(struct perf_env *env);
 
 void perf_env__init(struct perf_env *env);
-void __perf_env__insert_bpf_prog_info(struct perf_env *env,
+bool __perf_env__insert_bpf_prog_info(struct perf_env *env,
 				      struct bpf_prog_info_node *info_node);
-void perf_env__insert_bpf_prog_info(struct perf_env *env,
+bool perf_env__insert_bpf_prog_info(struct perf_env *env,
 				    struct bpf_prog_info_node *info_node);
 struct bpf_prog_info_node *perf_env__find_bpf_prog_info(struct perf_env *env,
 							__u32 prog_id);
@@ -195,4 +195,8 @@ bool perf_env__has_pmu_mapping(struct perf_env *env, const char *pmu_name);
 void perf_env__find_br_cntr_info(struct perf_env *env,
 				 unsigned int *nr,
 				 unsigned int *width);
+
+bool x86__is_amd_cpu(void);
+bool perf_env__is_x86_amd_cpu(struct perf_env *env);
+
 #endif /* __PERF_ENV_H */

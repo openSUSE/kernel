@@ -436,7 +436,7 @@ static int img_hash_write_via_dma_stop(struct img_hash_dev *hdev)
 	struct img_hash_request_ctx *ctx = ahash_request_ctx(hdev->req);
 
 	if (ctx->flags & DRIVER_FLAGS_SG)
-		dma_unmap_sg(hdev->dev, ctx->sg, ctx->dma_ct, DMA_TO_DEVICE);
+		dma_unmap_sg(hdev->dev, ctx->sg, 1, DMA_TO_DEVICE);
 
 	return 0;
 }
@@ -1084,7 +1084,7 @@ static const struct dev_pm_ops img_hash_pm_ops = {
 
 static struct platform_driver img_hash_driver = {
 	.probe		= img_hash_probe,
-	.remove_new	= img_hash_remove,
+	.remove		= img_hash_remove,
 	.driver		= {
 		.name	= "img-hash-accelerator",
 		.pm	= &img_hash_pm_ops,

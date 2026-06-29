@@ -13,11 +13,11 @@
 #include <linux/mutex.h>
 #include <linux/kobject.h>
 #include <linux/slab.h>
-#include <linux/blk-mq-pci.h>
 #include <linux/refcount.h>
 #include <linux/crash_dump.h>
 #include <linux/trace_events.h>
 #include <linux/trace.h>
+#include <linux/irq.h>
 
 #include <scsi/scsi_tcq.h>
 #include <scsi/scsicam.h>
@@ -177,12 +177,6 @@ MODULE_PARM_DESC(ql2xenablehba_err_chk,
 		"  1 -- Error isolation enabled only for DIX Type 0\n"
 		"  2 -- Error isolation enabled for all Types\n");
 
-int ql2xiidmaenable = 1;
-module_param(ql2xiidmaenable, int, S_IRUGO);
-MODULE_PARM_DESC(ql2xiidmaenable,
-		"Enables iIDMA settings "
-		"Default is 1 - perform iIDMA. 0 - no iIDMA.");
-
 int ql2xmqsupport = 1;
 module_param(ql2xmqsupport, int, S_IRUGO);
 MODULE_PARM_DESC(ql2xmqsupport,
@@ -199,12 +193,6 @@ MODULE_PARM_DESC(ql2xfwloadbin,
 		"      interface.\n"
 		" 1 -- load firmware from flash.\n"
 		" 0 -- use default semantics.\n");
-
-int ql2xetsenable;
-module_param(ql2xetsenable, int, S_IRUGO);
-MODULE_PARM_DESC(ql2xetsenable,
-		"Enables firmware ETS burst."
-		"Default is 0 - skip ETS enablement.");
 
 int ql2xdbwr = 1;
 module_param(ql2xdbwr, int, S_IRUGO|S_IWUSR);
@@ -1195,7 +1183,8 @@ qla2x00_wait_for_hba_ready(scsi_qla_host_t *vha)
 	while ((qla2x00_reset_active(vha) || ha->dpc_active ||
 		ha->flags.mbox_busy) ||
 	       test_bit(FX00_RESET_RECOVERY, &vha->dpc_flags) ||
-	       test_bit(FX00_TARGET_SCAN, &vha->dpc_flags)) {
+	       test_bit(FX00_TARGET_SCAN, &vha->dpc_flags) ||
+	       (vha->scan.scan_flags & SF_SCANNING)) {
 		if (test_bit(UNLOADING, &base_vha->dpc_flags))
 			break;
 		msleep(1000);
@@ -1304,8 +1293,8 @@ qla2xxx_eh_abort(struct scsi_cmnd *cmd)
 	       "Abort command mbx cmd=%p, rval=%x.\n", cmd, rval);
 
 	/* Wait for the command completion. */
-	ratov_j = ha->r_a_tov/10 * 4 * 1000;
-	ratov_j = msecs_to_jiffies(ratov_j);
+	ratov_j = ha->r_a_tov / 10 * 4;
+	ratov_j = secs_to_jiffies(ratov_j);
 	switch (rval) {
 	case QLA_SUCCESS:
 		if (!wait_for_completion_timeout(&comp, ratov_j)) {
@@ -1819,8 +1808,8 @@ static void qla2x00_abort_srb(struct qla_qpair *qp, srb_t *sp, const int res,
 		rval = ha->isp_ops->abort_command(sp);
 		/* Wait for command completion. */
 		ret_cmd = false;
-		ratov_j = ha->r_a_tov/10 * 4 * 1000;
-		ratov_j = msecs_to_jiffies(ratov_j);
+		ratov_j = ha->r_a_tov / 10 * 4;
+		ratov_j = secs_to_jiffies(ratov_j);
 		switch (rval) {
 		case QLA_SUCCESS:
 			if (wait_for_completion_timeout(&comp, ratov_j)) {
@@ -1875,12 +1864,6 @@ __qla2x00_abort_all_cmds(struct qla_qpair *qp, int res)
 	for (cnt = 1; cnt < req->num_outstanding_cmds; cnt++) {
 		sp = req->outstanding_cmds[cnt];
 		if (sp) {
-			if (qla2x00_chip_is_down(vha)) {
-				req->outstanding_cmds[cnt] = NULL;
-				sp->done(sp, res);
-				continue;
-			}
-
 			switch (sp->cmd_type) {
 			case TYPE_SRB:
 				qla2x00_abort_srb(qp, sp, res, &flags);
@@ -1894,10 +1877,26 @@ __qla2x00_abort_all_cmds(struct qla_qpair *qp, int res)
 					continue;
 				}
 				cmd = (struct qla_tgt_cmd *)sp;
-				cmd->aborted = 1;
+
+				if (cmd->sg_mapped)
+					qlt_unmap_sg(vha, cmd);
+
+				if (cmd->state == QLA_TGT_STATE_NEED_DATA) {
+					cmd->aborted = 1;
+					cmd->write_data_transferred = 0;
+					cmd->state = QLA_TGT_STATE_DATA_IN;
+					ha->tgt.tgt_ops->handle_data(cmd);
+				} else {
+					ha->tgt.tgt_ops->free_cmd(cmd);
+				}
 				break;
 			case TYPE_TGT_TMCMD:
-				/* Skip task management functions. */
+				/*
+				 * Currently, only ABTS response gets on the
+				 * outstanding_cmds[]
+				 */
+				qlt_free_ul_mcmd(ha,
+					(struct qla_tgt_mgmt_cmd *) sp);
 				break;
 			default:
 				break;
@@ -1934,7 +1933,7 @@ qla2x00_abort_all_cmds(scsi_qla_host_t *vha, int res)
 }
 
 static int
-qla2xxx_slave_alloc(struct scsi_device *sdev)
+qla2xxx_sdev_init(struct scsi_device *sdev)
 {
 	struct fc_rport *rport = starget_to_rport(scsi_target(sdev));
 
@@ -1947,7 +1946,7 @@ qla2xxx_slave_alloc(struct scsi_device *sdev)
 }
 
 static int
-qla2xxx_slave_configure(struct scsi_device *sdev)
+qla2xxx_sdev_configure(struct scsi_device *sdev, struct queue_limits *lim)
 {
 	scsi_qla_host_t *vha = shost_priv(sdev->host);
 	struct req_que *req = vha->req;
@@ -1957,7 +1956,7 @@ qla2xxx_slave_configure(struct scsi_device *sdev)
 }
 
 static void
-qla2xxx_slave_destroy(struct scsi_device *sdev)
+qla2xxx_sdev_destroy(struct scsi_device *sdev)
 {
 	sdev->hostdata = NULL;
 }
@@ -2918,6 +2917,14 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct rsp_que *rsp = NULL;
 	int i;
 
+	if (pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2532 ||
+	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2031 ||
+	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP8031) {
+		pr_warn("Warning: Unmaintained hardware is detected: %s:%04x:%04x @ %s\n",
+			dev_driver_string(&pdev->dev), pdev->device,
+			pdev->vendor, pci_name(pdev));
+	}
+
 	bars = pci_select_bars(pdev, IORESOURCE_MEM | IORESOURCE_IO);
 	sht = &qla2xxx_driver_template;
 	if (pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2422 ||
@@ -3457,13 +3464,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		ha->mqenable = 0;
 
 	if (ha->mqenable) {
-		bool startit = false;
-
-		if (QLA_TGT_MODE_ENABLED())
-			startit = false;
-
-		if (ql2x_ini_mode == QLA2XXX_INI_MODE_ENABLED)
-			startit = true;
+		bool startit = !!(host->active_mode & MODE_INITIATOR);
 
 		/* Create start of day qpairs for Block MQ */
 		for (i = 0; i < ha->max_qpairs; i++)
@@ -4497,7 +4498,7 @@ fail_lsrjt:
 fail_elsrej:
 	dma_pool_destroy(ha->purex_dma_pool);
 fail_flt:
-	dma_free_coherent(&ha->pdev->dev, SFP_DEV_SIZE,
+	dma_free_coherent(&ha->pdev->dev, sizeof(struct qla_flt_header) + FLT_REGIONS_SIZE,
 	    ha->flt, ha->flt_dma);
 
 fail_flt_buffer:
@@ -6902,11 +6903,14 @@ qla2x00_do_dpc(void *data)
 	set_user_nice(current, MIN_NICE);
 
 	set_current_state(TASK_INTERRUPTIBLE);
-	while (!kthread_should_stop()) {
+	while (1) {
 		ql_dbg(ql_dbg_dpc, base_vha, 0x4000,
 		    "DPC handler sleeping.\n");
 
 		schedule();
+
+		if (kthread_should_stop())
+			break;
 
 		if (test_and_clear_bit(DO_EEH_RECOVERY, &base_vha->dpc_flags))
 			qla_pci_set_eeh_busy(base_vha);
@@ -6920,14 +6924,15 @@ qla2x00_do_dpc(void *data)
 			goto end_loop;
 		}
 
+		if (test_bit(UNLOADING, &base_vha->dpc_flags))
+			/* don't do any work. Wait to be terminated by kthread_stop */
+			goto end_loop;
+
 		ha->dpc_active = 1;
 
 		ql_dbg(ql_dbg_dpc + ql_dbg_verbose, base_vha, 0x4001,
 		    "DPC handler waking up, dpc_flags=0x%lx.\n",
 		    base_vha->dpc_flags);
-
-		if (test_bit(UNLOADING, &base_vha->dpc_flags))
-			break;
 
 		if (IS_P3P_TYPE(ha)) {
 			if (IS_QLA8044(ha)) {
@@ -7241,9 +7246,6 @@ end_loop:
 	 */
 	ha->dpc_active = 0;
 
-	/* Cleanup any residual CTX SRBs. */
-	qla2x00_abort_all_cmds(base_vha, DID_NO_CONNECT << 16);
-
 	return 0;
 }
 
@@ -7256,6 +7258,7 @@ qla2xxx_wake_dpc(struct scsi_qla_host *vha)
 	if (!test_bit(UNLOADING, &vha->dpc_flags) && t)
 		wake_up_process(t);
 }
+EXPORT_SYMBOL(qla2xxx_wake_dpc);
 
 /*
 *  qla2x00_rst_aen
@@ -7783,6 +7786,31 @@ static void qla_pci_error_cleanup(scsi_qla_host_t *vha)
 }
 
 
+/**
+ * qla2xxx_set_affinity_nobalance
+ * @pdev: pci_dev struct for a qla2xxx device
+ * @flag: bool
+ * true: enable "IRQ_NO_BALANCING" bit for msix interrupt
+ * false: disable "IRQ_NO_BALANCING" bit for msix interrupt
+ * Description: This function will be called to disable/enable
+ * "IRQ_NO_BALANCING" to avoid irqbalance daemon
+ * kicking in during adapter reset.
+ **/
+
+static void qla2xxx_set_affinity_nobalance(struct pci_dev *pdev, bool flag)
+{
+	int irq, i;
+
+	for (i = 0; i < QLA_BASE_VECTORS; i++) {
+		irq = pci_irq_vector(pdev, i);
+
+		if (flag)
+			irq_set_status_flags(irq, IRQ_NO_BALANCING);
+		else
+			irq_clear_status_flags(irq, IRQ_NO_BALANCING);
+	}
+}
+
 static pci_ers_result_t
 qla2xxx_pci_error_detected(struct pci_dev *pdev, pci_channel_state_t state)
 {
@@ -7800,6 +7828,8 @@ qla2xxx_pci_error_detected(struct pci_dev *pdev, pci_channel_state_t state)
 		ret = PCI_ERS_RESULT_NEED_RESET;
 		goto out;
 	}
+
+	qla2xxx_set_affinity_nobalance(pdev, false);
 
 	switch (state) {
 	case pci_channel_io_normal:
@@ -7895,11 +7925,6 @@ qla2xxx_pci_slot_reset(struct pci_dev *pdev)
 	       "Slot Reset.\n");
 
 	ha->pci_error_state = QLA_PCI_SLOT_RESET;
-	/* Workaround: qla2xxx driver which access hardware earlier
-	 * needs error state to be pci_channel_io_online.
-	 * Otherwise mailbox command timesout.
-	 */
-	pdev->error_state = pci_channel_io_normal;
 
 	pci_restore_state(pdev);
 
@@ -7946,6 +7971,8 @@ qla2xxx_pci_slot_reset(struct pci_dev *pdev)
 exit_slot_reset:
 	ql_dbg(ql_dbg_aer, base_vha, 0x900e,
 	    "Slot Reset returning %x.\n", ret);
+
+	qla2xxx_set_affinity_nobalance(pdev, true);
 
 	return ret;
 }
@@ -8070,7 +8097,8 @@ static void qla2xxx_map_queues(struct Scsi_Host *shost)
 	if (USER_CTRL_IRQ(vha->hw) || !vha->hw->mqiobase)
 		blk_mq_map_queues(qmap);
 	else
-		blk_mq_pci_map_queues(qmap, vha->hw->pdev, vha->irq_offset);
+		blk_mq_map_hw_queues(qmap, &vha->hw->pdev->dev,
+				       vha->irq_offset);
 }
 
 struct scsi_host_template qla2xxx_driver_template = {
@@ -8086,10 +8114,10 @@ struct scsi_host_template qla2xxx_driver_template = {
 	.eh_bus_reset_handler	= qla2xxx_eh_bus_reset,
 	.eh_host_reset_handler	= qla2xxx_eh_host_reset,
 
-	.slave_configure	= qla2xxx_slave_configure,
+	.sdev_configure		= qla2xxx_sdev_configure,
 
-	.slave_alloc		= qla2xxx_slave_alloc,
-	.slave_destroy		= qla2xxx_slave_destroy,
+	.sdev_init		= qla2xxx_sdev_init,
+	.sdev_destroy		= qla2xxx_sdev_destroy,
 	.scan_finished		= qla2xxx_scan_finished,
 	.scan_start		= qla2xxx_scan_start,
 	.change_queue_depth	= scsi_change_queue_depth,
@@ -8115,7 +8143,7 @@ static const struct pci_error_handlers qla2xxx_err_handler = {
 	.reset_done = qla_pci_reset_done,
 };
 
-static struct pci_device_id qla2xxx_pci_tbl[] = {
+static const struct pci_device_id qla2xxx_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2100) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2200) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_QLOGIC, PCI_DEVICE_ID_QLOGIC_ISP2300) },
@@ -8363,6 +8391,7 @@ module_exit(qla2x00_module_exit);
 MODULE_AUTHOR("QLogic Corporation");
 MODULE_DESCRIPTION("QLogic Fibre Channel HBA Driver");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(QLA2XXX_VERSION);
 MODULE_FIRMWARE(FW_FILE_ISP21XX);
 MODULE_FIRMWARE(FW_FILE_ISP22XX);
 MODULE_FIRMWARE(FW_FILE_ISP2300);

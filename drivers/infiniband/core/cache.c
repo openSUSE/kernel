@@ -582,8 +582,8 @@ static int __ib_cache_gid_add(struct ib_device *ib_dev, u32 port,
 out_unlock:
 	mutex_unlock(&table->lock);
 	if (ret)
-		pr_warn("%s: unable to add gid %pI6 error=%d\n",
-			__func__, gid->raw, ret);
+		pr_warn_ratelimited("%s: unable to add gid %pI6 error=%d\n",
+				    __func__, gid->raw, ret);
 	return ret;
 }
 
@@ -1126,41 +1126,6 @@ err:
 	return ret;
 }
 EXPORT_SYMBOL(ib_find_cached_pkey);
-
-int ib_find_exact_cached_pkey(struct ib_device *device, u32 port_num,
-			      u16 pkey, u16 *index)
-{
-	struct ib_pkey_cache *cache;
-	unsigned long flags;
-	int i;
-	int ret = -ENOENT;
-
-	if (!rdma_is_port_valid(device, port_num))
-		return -EINVAL;
-
-	read_lock_irqsave(&device->cache_lock, flags);
-
-	cache = device->port_data[port_num].cache.pkey;
-	if (!cache) {
-		ret = -EINVAL;
-		goto err;
-	}
-
-	*index = -1;
-
-	for (i = 0; i < cache->table_len; ++i)
-		if (cache->table[i] == pkey) {
-			*index = i;
-			ret = 0;
-			break;
-		}
-
-err:
-	read_unlock_irqrestore(&device->cache_lock, flags);
-
-	return ret;
-}
-EXPORT_SYMBOL(ib_find_exact_cached_pkey);
 
 int ib_get_cached_lmc(struct ib_device *device, u32 port_num, u8 *lmc)
 {

@@ -13,6 +13,7 @@
 #include <linux/slab.h>
 #include <linux/random.h>
 #include <crypto/hash.h>
+#include <crypto/utils.h>
 
 #include "tb.h"
 
@@ -36,7 +37,7 @@ static bool match_service_id(const struct tb_service_id *id,
 			return false;
 	}
 
-	if (id->match_flags & TBSVC_MATCH_PROTOCOL_VERSION) {
+	if (id->match_flags & TBSVC_MATCH_PROTOCOL_REVISION) {
 		if (id->protocol_revision != svc->prtcrevs)
 			return false;
 	}
@@ -748,7 +749,7 @@ int tb_domain_challenge_switch_key(struct tb *tb, struct tb_switch *sw)
 		goto err_free_shash;
 
 	/* The returned HMAC must match the one we calculated */
-	if (memcmp(response, hmac, sizeof(hmac))) {
+	if (crypto_memneq(response, hmac, sizeof(hmac))) {
 		ret = -EKEYREJECTED;
 		goto err_free_shash;
 	}

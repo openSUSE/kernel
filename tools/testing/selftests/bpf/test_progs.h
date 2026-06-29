@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
+#include <regex.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
@@ -124,6 +125,7 @@ struct test_env {
 	int sub_succ_cnt; /* successful sub-tests */
 	int fail_cnt; /* total failed tests + sub-tests */
 	int skip_cnt; /* skipped tests */
+	int not_built_cnt; /* tests not built */
 
 	int saved_netns_fd;
 	int workers; /* number of worker process */
@@ -480,5 +482,21 @@ extern void test_loader_fini(struct test_loader *tester);
 	test_loader__run_subtests(&tester, #skel, skel##__elf_bytes);	       \
 	test_loader_fini(&tester);					       \
 })
+
+struct expect_msg {
+	const char *substr; /* substring match */
+	regex_t regex;
+	bool is_regex;
+	bool on_next_line;
+	bool negative;
+};
+
+struct expected_msgs {
+	struct expect_msg *patterns;
+	size_t cnt;
+};
+
+void validate_msgs(const char *log_buf, struct expected_msgs *msgs,
+		   void (*emit_fn)(const char *buf, bool force));
 
 #endif /* __TEST_PROGS_H */

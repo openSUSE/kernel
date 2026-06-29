@@ -403,12 +403,12 @@ bool usb4_switch_lane_bonding_possible(struct tb_switch *sw)
  * usb4_switch_set_wake() - Enabled/disable wake
  * @sw: USB4 router
  * @flags: Wakeup flags (%0 to disable)
+ * @runtime: Wake is being programmed during system runtime
  *
  * Enables/disables router to wake up from sleep.
  */
-int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags)
+int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags, bool runtime)
 {
-	struct usb4_port *usb4;
 	struct tb_port *port;
 	u64 route = tb_route(sw);
 	u32 val;
@@ -438,13 +438,11 @@ int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags)
 			val |= PORT_CS_19_WOU4;
 		} else {
 			bool configured = val & PORT_CS_19_PC;
-			usb4 = port->usb4;
+			bool wakeup = runtime || device_may_wakeup(&port->usb4->dev);
 
-			if (((flags & TB_WAKE_ON_CONNECT) |
-			      device_may_wakeup(&usb4->dev)) && !configured)
+			if ((flags & TB_WAKE_ON_CONNECT) && wakeup && !configured)
 				val |= PORT_CS_19_WOC;
-			if (((flags & TB_WAKE_ON_DISCONNECT) |
-			      device_may_wakeup(&usb4->dev)) && configured)
+			if ((flags & TB_WAKE_ON_DISCONNECT) && wakeup && configured)
 				val |= PORT_CS_19_WOD;
 			if ((flags & TB_WAKE_ON_USB4) && configured)
 				val |= PORT_CS_19_WOU4;
@@ -1631,11 +1629,12 @@ int usb4_port_asym_start(struct tb_port *port)
  * @target: Sideband target
  * @index: Retimer index if taget is %USB4_SB_TARGET_RETIMER
  * @caps: Array with at least two elements to hold the results
+ * @ncaps: Number of elements in the caps array
  *
  * Reads the USB4 port lane margining capabilities into @caps.
  */
 int usb4_port_margining_caps(struct tb_port *port, enum usb4_sb_target target,
-			     u8 index, u32 *caps)
+			     u8 index, u32 *caps, size_t ncaps)
 {
 	int ret;
 
@@ -1645,7 +1644,7 @@ int usb4_port_margining_caps(struct tb_port *port, enum usb4_sb_target target,
 		return ret;
 
 	return usb4_port_sb_read(port, target, index, USB4_SB_DATA, caps,
-				 sizeof(*caps) * 2);
+				 sizeof(*caps) * ncaps);
 }
 
 /**
@@ -1672,8 +1671,8 @@ int usb4_port_hw_margin(struct tb_port *port, enum usb4_sb_target target,
 	val = params->lanes;
 	if (params->time)
 		val |= USB4_MARGIN_HW_TIME;
-	if (params->right_high)
-		val |= USB4_MARGIN_HW_RH;
+	if (params->right_high || params->upper_eye)
+		val |= USB4_MARGIN_HW_RHU;
 	if (params->ber_level)
 		val |= FIELD_PREP(USB4_MARGIN_HW_BER_MASK, params->ber_level);
 	if (params->optional_voltage_offset_range)
@@ -1722,6 +1721,8 @@ int usb4_port_sw_margin(struct tb_port *port, enum usb4_sb_target target,
 		val |= USB4_MARGIN_SW_OPT_VOLTAGE;
 	if (params->right_high)
 		val |= USB4_MARGIN_SW_RH;
+	if (params->upper_eye)
+		val |= USB4_MARGIN_SW_UPPER_EYE;
 	val |= FIELD_PREP(USB4_MARGIN_SW_COUNTER_MASK, params->error_counter);
 	val |= FIELD_PREP(USB4_MARGIN_SW_VT_MASK, params->voltage_time_offset);
 

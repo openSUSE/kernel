@@ -79,8 +79,8 @@ int btrfs_lookup_data_extent(struct btrfs_fs_info *fs_info, u64 start, u64 len)
 		return -ENOMEM;
 
 	key.objectid = start;
-	key.offset = len;
 	key.type = BTRFS_EXTENT_ITEM_KEY;
+	key.offset = len;
 	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
 	btrfs_free_path(path);
 	return ret;
@@ -125,11 +125,11 @@ int btrfs_lookup_extent_info(struct btrfs_trans_handle *trans,
 
 search_again:
 	key.objectid = bytenr;
-	key.offset = offset;
 	if (metadata)
 		key.type = BTRFS_METADATA_ITEM_KEY;
 	else
 		key.type = BTRFS_EXTENT_ITEM_KEY;
+	key.offset = offset;
 
 	extent_root = btrfs_extent_root(fs_info, bytenr);
 	ret = btrfs_search_slot(NULL, extent_root, &key, path, 0, 0);
@@ -182,7 +182,7 @@ search_again:
 
 	delayed_refs = &trans->transaction->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(fs_info, delayed_refs, bytenr);
 	if (head) {
 		if (!mutex_trylock(&head->mutex)) {
 			refcount_inc(&head->refs);
@@ -479,7 +479,7 @@ again:
 		btrfs_item_key_to_cpu(leaf, &key, path->slots[0]);
 		if (key.objectid != bytenr ||
 		    key.type != BTRFS_EXTENT_DATA_REF_KEY)
-			goto fail;
+			return -ENOENT;
 
 		ref = btrfs_item_ptr(leaf, path->slots[0],
 				     struct btrfs_extent_data_ref);
@@ -495,7 +495,6 @@ again:
 		}
 		path->slots[0]++;
 	}
-fail:
 	return ret;
 }
 
@@ -1664,8 +1663,8 @@ again:
 				metadata = 0;
 
 				key.objectid = head->bytenr;
-				key.offset = head->num_bytes;
 				key.type = BTRFS_EXTENT_ITEM_KEY;
+				key.offset = head->num_bytes;
 				goto again;
 			}
 		} else {
@@ -1807,16 +1806,6 @@ select_delayed_ref(struct btrfs_delayed_ref_head *head)
 	return ref;
 }
 
-static void unselect_delayed_ref_head(struct btrfs_delayed_ref_root *delayed_refs,
-				      struct btrfs_delayed_ref_head *head)
-{
-	spin_lock(&delayed_refs->lock);
-	head->processing = false;
-	delayed_refs->num_heads_ready++;
-	spin_unlock(&delayed_refs->lock);
-	btrfs_delayed_ref_unlock(head);
-}
-
 static struct btrfs_delayed_extent_op *cleanup_extent_op(
 				struct btrfs_delayed_ref_head *head)
 {
@@ -1891,7 +1880,7 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 
 	ret = run_and_cleanup_extent_op(trans, head);
 	if (ret < 0) {
-		unselect_delayed_ref_head(delayed_refs, head);
+		btrfs_unselect_ref_head(delayed_refs, head);
 		btrfs_debug(fs_info, "run_delayed_extent_op returned %d", ret);
 		return ret;
 	} else if (ret) {
@@ -1910,7 +1899,7 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 		spin_unlock(&delayed_refs->lock);
 		return 1;
 	}
-	btrfs_delete_ref_head(delayed_refs, head);
+	btrfs_delete_ref_head(fs_info, delayed_refs, head);
 	spin_unlock(&head->lock);
 	spin_unlock(&delayed_refs->lock);
 
@@ -1933,39 +1922,6 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 	return ret;
 }
 
-static struct btrfs_delayed_ref_head *btrfs_obtain_ref_head(
-					struct btrfs_trans_handle *trans)
-{
-	struct btrfs_delayed_ref_root *delayed_refs =
-		&trans->transaction->delayed_refs;
-	struct btrfs_delayed_ref_head *head = NULL;
-	int ret;
-
-	spin_lock(&delayed_refs->lock);
-	head = btrfs_select_ref_head(delayed_refs);
-	if (!head) {
-		spin_unlock(&delayed_refs->lock);
-		return head;
-	}
-
-	/*
-	 * Grab the lock that says we are going to process all the refs for
-	 * this head
-	 */
-	ret = btrfs_delayed_ref_lock(delayed_refs, head);
-	spin_unlock(&delayed_refs->lock);
-
-	/*
-	 * We may have dropped the spin lock to get the head mutex lock, and
-	 * that might have given someone else time to free the head.  If that's
-	 * true, it has been removed from our list and we can move on.
-	 */
-	if (ret == -EAGAIN)
-		head = ERR_PTR(-EAGAIN);
-
-	return head;
-}
-
 static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 					   struct btrfs_delayed_ref_head *locked_ref,
 					   u64 *bytes_released)
@@ -1986,7 +1942,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		if (ref->seq &&
 		    btrfs_check_delayed_seq(fs_info, ref->seq)) {
 			spin_unlock(&locked_ref->lock);
-			unselect_delayed_ref_head(delayed_refs, locked_ref);
+			btrfs_unselect_ref_head(delayed_refs, locked_ref);
 			return -EAGAIN;
 		}
 
@@ -2009,7 +1965,6 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		default:
 			WARN_ON(1);
 		}
-		atomic_dec(&delayed_refs->num_entries);
 
 		/*
 		 * Record the must_insert_reserved flag before we drop the
@@ -2035,7 +1990,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 
 		btrfs_free_delayed_extent_op(extent_op);
 		if (ret) {
-			unselect_delayed_ref_head(delayed_refs, locked_ref);
+			btrfs_unselect_ref_head(delayed_refs, locked_ref);
 			btrfs_put_delayed_ref(ref);
 			return ret;
 		}
@@ -2073,7 +2028,7 @@ static noinline int __btrfs_run_delayed_refs(struct btrfs_trans_handle *trans,
 
 	do {
 		if (!locked_ref) {
-			locked_ref = btrfs_obtain_ref_head(trans);
+			locked_ref = btrfs_select_ref_head(fs_info, delayed_refs);
 			if (IS_ERR_OR_NULL(locked_ref)) {
 				if (PTR_ERR(locked_ref) == -EAGAIN) {
 					continue;
@@ -2220,7 +2175,7 @@ again:
 		btrfs_create_pending_block_groups(trans);
 
 		spin_lock(&delayed_refs->lock);
-		if (RB_EMPTY_ROOT(&delayed_refs->href_root.rb_root)) {
+		if (xa_empty(&delayed_refs->head_refs)) {
 			spin_unlock(&delayed_refs->lock);
 			return 0;
 		}
@@ -2254,10 +2209,11 @@ int btrfs_set_disk_extent_flags(struct btrfs_trans_handle *trans,
 	return ret;
 }
 
-static noinline int check_delayed_ref(struct btrfs_root *root,
+static noinline int check_delayed_ref(struct btrfs_inode *inode,
 				      struct btrfs_path *path,
-				      u64 objectid, u64 offset, u64 bytenr)
+				      u64 offset, u64 bytenr)
 {
+	struct btrfs_root *root = inode->root;
 	struct btrfs_delayed_ref_head *head;
 	struct btrfs_delayed_ref_node *ref;
 	struct btrfs_delayed_ref_root *delayed_refs;
@@ -2275,7 +2231,7 @@ static noinline int check_delayed_ref(struct btrfs_root *root,
 
 	delayed_refs = &cur_trans->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(root->fs_info, delayed_refs, bytenr);
 	if (!head) {
 		spin_unlock(&delayed_refs->lock);
 		btrfs_put_transaction(cur_trans);
@@ -2331,7 +2287,7 @@ static noinline int check_delayed_ref(struct btrfs_root *root,
 		 * then we have a cross reference.
 		 */
 		if (ref->ref_root != btrfs_root_id(root) ||
-		    ref_owner != objectid || ref_offset != offset) {
+		    ref_owner != btrfs_ino(inode) || ref_offset != offset) {
 			ret = 1;
 			break;
 		}
@@ -2342,11 +2298,53 @@ static noinline int check_delayed_ref(struct btrfs_root *root,
 	return ret;
 }
 
-static noinline int check_committed_ref(struct btrfs_root *root,
+/*
+ * Check if there are references for a data extent other than the one belonging
+ * to the given inode and offset.
+ *
+ * @inode:     The only inode we expect to find associated with the data extent.
+ * @path:      A path to use for searching the extent tree.
+ * @offset:    The only offset we expect to find associated with the data extent.
+ * @bytenr:    The logical address of the data extent.
+ *
+ * When the extent does not have any other references other than the one we
+ * expect to find, we always return a value of 0 with the path having a locked
+ * leaf that contains the extent's extent item - this is necessary to ensure
+ * we don't race with a task running delayed references, and our caller must
+ * have such a path when calling check_delayed_ref() - it must lock a delayed
+ * ref head while holding the leaf locked. In case the extent item is not found
+ * in the extent tree, we return -ENOENT with the path having the leaf (locked)
+ * where the extent item should be, in order to prevent races with another task
+ * running delayed references, so that we don't miss any reference when calling
+ * check_delayed_ref().
+ *
+ * Note: this may return false positives, and this is because we want to be
+ *       quick here as we're called in write paths (when flushing delalloc and
+ *       in the direct IO write path). For example we can have an extent with
+ *       a single reference but that reference is not inlined, or we may have
+ *       many references in the extent tree but we also have delayed references
+ *       that cancel all the reference except the one for our inode and offset,
+ *       but it would be expensive to do such checks and complex due to all
+ *       locking to avoid races between the checks and flushing delayed refs,
+ *       plus non-inline references may be located on leaves other than the one
+ *       that contains the extent item in the extent tree. The important thing
+ *       here is to not return false negatives and that the false positives are
+ *       not very common.
+ *
+ * Returns: 0 if there are no cross references and with the path having a locked
+ *          leaf from the extent tree that contains the extent's extent item.
+ *
+ *          1 if there are cross references (false positives can happen).
+ *
+ *          < 0 in case of an error. In case of -ENOENT the leaf in the extent
+ *          tree where the extent item should be located at is read locked and
+ *          accessible in the given path.
+ */
+static noinline int check_committed_ref(struct btrfs_inode *inode,
 					struct btrfs_path *path,
-					u64 objectid, u64 offset, u64 bytenr,
-					bool strict)
+					u64 offset, u64 bytenr)
 {
+	struct btrfs_root *root = inode->root;
 	struct btrfs_fs_info *fs_info = root->fs_info;
 	struct btrfs_root *extent_root = btrfs_extent_root(fs_info, bytenr);
 	struct extent_buffer *leaf;
@@ -2360,40 +2358,37 @@ static noinline int check_committed_ref(struct btrfs_root *root,
 	int ret;
 
 	key.objectid = bytenr;
-	key.offset = (u64)-1;
 	key.type = BTRFS_EXTENT_ITEM_KEY;
+	key.offset = (u64)-1;
 
 	ret = btrfs_search_slot(NULL, extent_root, &key, path, 0, 0);
 	if (ret < 0)
-		goto out;
+		return ret;
 	if (ret == 0) {
 		/*
 		 * Key with offset -1 found, there would have to exist an extent
 		 * item with such offset, but this is out of the valid range.
 		 */
-		ret = -EUCLEAN;
-		goto out;
+		return -EUCLEAN;
 	}
 
-	ret = -ENOENT;
 	if (path->slots[0] == 0)
-		goto out;
+		return -ENOENT;
 
 	path->slots[0]--;
 	leaf = path->nodes[0];
 	btrfs_item_key_to_cpu(leaf, &key, path->slots[0]);
 
 	if (key.objectid != bytenr || key.type != BTRFS_EXTENT_ITEM_KEY)
-		goto out;
+		return -ENOENT;
 
-	ret = 1;
 	item_size = btrfs_item_size(leaf, path->slots[0]);
 	ei = btrfs_item_ptr(leaf, path->slots[0], struct btrfs_extent_item);
 	expected_size = sizeof(*ei) + btrfs_extent_inline_ref_size(BTRFS_EXTENT_DATA_REF_KEY);
 
 	/* No inline refs; we need to bail before checking for owner ref. */
 	if (item_size == sizeof(*ei))
-		goto out;
+		return 1;
 
 	/* Check for an owner ref; skip over it to the real inline refs. */
 	iref = (struct btrfs_extent_inline_ref *)(ei + 1);
@@ -2401,56 +2396,69 @@ static noinline int check_committed_ref(struct btrfs_root *root,
 	if (btrfs_fs_incompat(fs_info, SIMPLE_QUOTA) && type == BTRFS_EXTENT_OWNER_REF_KEY) {
 		expected_size += btrfs_extent_inline_ref_size(BTRFS_EXTENT_OWNER_REF_KEY);
 		iref = (struct btrfs_extent_inline_ref *)(iref + 1);
+		type = btrfs_get_extent_inline_ref_type(leaf, iref, BTRFS_REF_TYPE_DATA);
 	}
 
 	/* If extent item has more than 1 inline ref then it's shared */
 	if (item_size != expected_size)
-		goto out;
-
-	/*
-	 * If extent created before last snapshot => it's shared unless the
-	 * snapshot has been deleted. Use the heuristic if strict is false.
-	 */
-	if (!strict &&
-	    (btrfs_extent_generation(leaf, ei) <=
-	     btrfs_root_last_snapshot(&root->root_item)))
-		goto out;
+		return 1;
 
 	/* If this extent has SHARED_DATA_REF then it's shared */
-	type = btrfs_get_extent_inline_ref_type(leaf, iref, BTRFS_REF_TYPE_DATA);
 	if (type != BTRFS_EXTENT_DATA_REF_KEY)
-		goto out;
+		return 1;
 
 	ref = (struct btrfs_extent_data_ref *)(&iref->offset);
 	if (btrfs_extent_refs(leaf, ei) !=
 	    btrfs_extent_data_ref_count(leaf, ref) ||
 	    btrfs_extent_data_ref_root(leaf, ref) != btrfs_root_id(root) ||
-	    btrfs_extent_data_ref_objectid(leaf, ref) != objectid ||
+	    btrfs_extent_data_ref_objectid(leaf, ref) != btrfs_ino(inode) ||
 	    btrfs_extent_data_ref_offset(leaf, ref) != offset)
-		goto out;
+		return 1;
 
-	ret = 0;
-out:
-	return ret;
+	return 0;
 }
 
-int btrfs_cross_ref_exist(struct btrfs_root *root, u64 objectid, u64 offset,
-			  u64 bytenr, bool strict, struct btrfs_path *path)
+int btrfs_cross_ref_exist(struct btrfs_inode *inode, u64 offset,
+			  u64 bytenr, struct btrfs_path *path)
 {
 	int ret;
 
 	do {
-		ret = check_committed_ref(root, path, objectid,
-					  offset, bytenr, strict);
+		ret = check_committed_ref(inode, path, offset, bytenr);
 		if (ret && ret != -ENOENT)
 			goto out;
 
-		ret = check_delayed_ref(root, path, objectid, offset, bytenr);
-	} while (ret == -EAGAIN);
+		/*
+		 * The path must have a locked leaf from the extent tree where
+		 * the extent item for our extent is located, in case it exists,
+		 * or where it should be located in case it doesn't exist yet
+		 * because it's new and its delayed ref was not yet flushed.
+		 * We need to lock the delayed ref head at check_delayed_ref(),
+		 * if one exists, while holding the leaf locked in order to not
+		 * race with delayed ref flushing, missing references and
+		 * incorrectly reporting that the extent is not shared.
+		 */
+		if (IS_ENABLED(CONFIG_BTRFS_ASSERT)) {
+			struct extent_buffer *leaf = path->nodes[0];
+
+			ASSERT(leaf != NULL);
+			btrfs_assert_tree_read_locked(leaf);
+
+			if (ret != -ENOENT) {
+				struct btrfs_key key;
+
+				btrfs_item_key_to_cpu(leaf, &key, path->slots[0]);
+				ASSERT(key.objectid == bytenr);
+				ASSERT(key.type == BTRFS_EXTENT_ITEM_KEY);
+			}
+		}
+
+		ret = check_delayed_ref(inode, path, offset, bytenr);
+	} while (ret == -EAGAIN && !path->nowait);
 
 out:
 	btrfs_release_path(path);
-	if (btrfs_is_data_reloc_root(root))
+	if (btrfs_is_data_reloc_root(inode->root))
 		WARN_ON(ret > 0);
 	return ret;
 }
@@ -2897,7 +2905,15 @@ int btrfs_finish_extent_commit(struct btrfs_trans_handle *trans)
 						   block_group->length,
 						   &trimmed);
 
+		/*
+		 * Not strictly necessary to lock, as the block_group should be
+		 * read-only from btrfs_delete_unused_bgs().
+		 */
+		ASSERT(block_group->ro);
+		spin_lock(&fs_info->unused_bgs_lock);
 		list_del_init(&block_group->bg_list);
+		spin_unlock(&fs_info->unused_bgs_lock);
+
 		btrfs_unfreeze_block_group(block_group);
 		btrfs_put_block_group(block_group);
 
@@ -3377,13 +3393,14 @@ out:
 static noinline int check_ref_cleanup(struct btrfs_trans_handle *trans,
 				      u64 bytenr)
 {
+	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_delayed_ref_head *head;
 	struct btrfs_delayed_ref_root *delayed_refs;
 	int ret = 0;
 
 	delayed_refs = &trans->transaction->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(fs_info, delayed_refs, bytenr);
 	if (!head)
 		goto out_delayed_unlock;
 
@@ -3401,7 +3418,7 @@ static noinline int check_ref_cleanup(struct btrfs_trans_handle *trans,
 	if (!mutex_trylock(&head->mutex))
 		goto out;
 
-	btrfs_delete_ref_head(delayed_refs, head);
+	btrfs_delete_ref_head(fs_info, delayed_refs, head);
 	head->processing = false;
 
 	spin_unlock(&head->lock);
@@ -3411,7 +3428,7 @@ static noinline int check_ref_cleanup(struct btrfs_trans_handle *trans,
 	if (head->must_insert_reserved)
 		ret = 1;
 
-	btrfs_cleanup_ref_head_accounting(trans->fs_info, delayed_refs, head);
+	btrfs_cleanup_ref_head_accounting(fs_info, delayed_refs, head);
 	mutex_unlock(&head->mutex);
 	btrfs_put_delayed_ref_head(head);
 	return ret;
@@ -3646,6 +3663,21 @@ btrfs_release_block_group(struct btrfs_block_group *cache,
 	btrfs_put_block_group(cache);
 }
 
+static bool find_free_extent_check_size_class(const struct find_free_extent_ctl *ffe_ctl,
+					      const struct btrfs_block_group *bg)
+{
+	if (ffe_ctl->policy == BTRFS_EXTENT_ALLOC_ZONED)
+		return true;
+	if (!btrfs_block_group_should_use_size_class(bg))
+		return true;
+	if (ffe_ctl->loop >= LOOP_WRONG_SIZE_CLASS)
+		return true;
+	if (ffe_ctl->loop >= LOOP_UNSET_SIZE_CLASS &&
+	    bg->size_class == BTRFS_BG_SZ_NONE)
+		return true;
+	return ffe_ctl->size_class == bg->size_class;
+}
+
 /*
  * Helper function for find_free_extent().
  *
@@ -3667,7 +3699,8 @@ static int find_free_extent_clustered(struct btrfs_block_group *bg,
 	if (!cluster_bg)
 		goto refill_cluster;
 	if (cluster_bg != bg && (cluster_bg->ro ||
-	    !block_group_bits(cluster_bg, ffe_ctl->flags)))
+	    !block_group_bits(cluster_bg, ffe_ctl->flags) ||
+	    !find_free_extent_check_size_class(ffe_ctl, cluster_bg)))
 		goto release_cluster;
 
 	offset = btrfs_alloc_from_cluster(cluster_bg, last_ptr,
@@ -4221,21 +4254,6 @@ static int find_free_extent_update_loop(struct btrfs_fs_info *fs_info,
 		return 1;
 	}
 	return -ENOSPC;
-}
-
-static bool find_free_extent_check_size_class(struct find_free_extent_ctl *ffe_ctl,
-					      struct btrfs_block_group *bg)
-{
-	if (ffe_ctl->policy == BTRFS_EXTENT_ALLOC_ZONED)
-		return true;
-	if (!btrfs_block_group_should_use_size_class(bg))
-		return true;
-	if (ffe_ctl->loop >= LOOP_WRONG_SIZE_CLASS)
-		return true;
-	if (ffe_ctl->loop >= LOOP_UNSET_SIZE_CLASS &&
-	    bg->size_class == BTRFS_BG_SZ_NONE)
-		return true;
-	return ffe_ctl->size_class == bg->size_class;
 }
 
 static int prepare_allocation_clustered(struct btrfs_fs_info *fs_info,
@@ -5308,7 +5326,7 @@ static bool visit_node_for_delete(struct btrfs_root *root, struct walk_control *
 	 * reference to it.
 	 */
 	generation = btrfs_node_ptr_generation(eb, slot);
-	if (!wc->update_ref || generation <= root->root_key.offset)
+	if (!wc->update_ref || generation <= btrfs_root_origin_generation(root))
 		return false;
 
 	/*
@@ -5363,7 +5381,7 @@ static noinline void reada_walk_down(struct btrfs_trans_handle *trans,
 			goto reada;
 
 		if (wc->stage == UPDATE_BACKREF &&
-		    generation <= root->root_key.offset)
+		    generation <= btrfs_root_origin_generation(root))
 			continue;
 
 		/* We don't lock the tree block, it's OK to be racy here */
@@ -5518,7 +5536,7 @@ again:
 	 */
 	delayed_refs = &trans->transaction->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(root->fs_info, delayed_refs, bytenr);
 	if (!head)
 		goto out;
 	if (!mutex_trylock(&head->mutex)) {
@@ -5706,7 +5724,7 @@ static noinline int do_walk_down(struct btrfs_trans_handle *trans,
 	 * for the subtree
 	 */
 	if (wc->stage == UPDATE_BACKREF &&
-	    generation <= root->root_key.offset) {
+	    generation <= btrfs_root_origin_generation(root)) {
 		wc->lookup_info = 1;
 		return 1;
 	}

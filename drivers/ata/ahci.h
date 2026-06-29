@@ -246,6 +246,7 @@ enum {
 	AHCI_HFLAG_NO_SXS		= BIT(26), /* SXS not supported */
 	AHCI_HFLAG_43BIT_ONLY		= BIT(27), /* 43bit DMA addr limit */
 	AHCI_HFLAG_INTEL_PCS_QUIRK	= BIT(28), /* apply Intel PCS quirk */
+	AHCI_HFLAG_ATAPI_DMA_QUIRK	= BIT(29), /* force ATAPI to use DMA */
 
 	/* ap->flags bits */
 
@@ -396,8 +397,8 @@ extern const struct attribute_group *ahci_sdev_groups[];
 	.shost_groups		= ahci_shost_groups,			\
 	.sdev_groups		= ahci_sdev_groups,			\
 	.change_queue_depth     = ata_scsi_change_queue_depth,		\
-	.tag_alloc_policy       = BLK_TAG_ALLOC_RR,             	\
-	.device_configure	= ata_scsi_device_configure
+	.tag_alloc_policy_rr	= true,					\
+	.sdev_configure		= ata_scsi_sdev_configure
 
 extern struct ata_port_operations ahci_ops;
 extern struct ata_port_operations ahci_platform_ops;

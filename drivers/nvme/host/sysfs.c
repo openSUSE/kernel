@@ -258,6 +258,8 @@ static struct attribute *nvme_ns_attrs[] = {
 #ifdef CONFIG_NVME_MULTIPATH
 	&dev_attr_ana_grpid.attr,
 	&dev_attr_ana_state.attr,
+	&dev_attr_queue_depth.attr,
+	&dev_attr_numa_nodes.attr,
 #endif
 	&dev_attr_io_passthru_err_log_enabled.attr,
 	NULL,
@@ -290,6 +292,10 @@ static umode_t nvme_ns_attrs_are_visible(struct kobject *kobj,
 		if (!nvme_ctrl_use_ana(nvme_get_ns_from_dev(dev)->ctrl))
 			return 0;
 	}
+	if (a == &dev_attr_queue_depth.attr || a == &dev_attr_numa_nodes.attr) {
+		if (nvme_disk_is_ns_head(dev_to_disk(dev)))
+			return 0;
+	}
 #endif
 	return a->mode;
 }
@@ -299,8 +305,50 @@ static const struct attribute_group nvme_ns_attr_group = {
 	.is_visible	= nvme_ns_attrs_are_visible,
 };
 
+#ifdef CONFIG_NVME_MULTIPATH
+/*
+ * NOTE: The dummy attribute does not appear in sysfs. It exists solely to allow
+ * control over the visibility of the multipath sysfs node. Without at least one
+ * attribute defined in nvme_ns_mpath_attrs[], the sysfs implementation does not
+ * invoke the multipath_sysfs_group_visible() method. As a result, we would not
+ * be able to control the visibility of the multipath sysfs node.
+ */
+static struct attribute dummy_attr = {
+	.name = "dummy",
+};
+
+static struct attribute *nvme_ns_mpath_attrs[] = {
+	&dummy_attr,
+	NULL,
+};
+
+static bool multipath_sysfs_group_visible(struct kobject *kobj)
+{
+	struct device *dev = container_of(kobj, struct device, kobj);
+
+	return nvme_disk_is_ns_head(dev_to_disk(dev));
+}
+
+static bool multipath_sysfs_attr_visible(struct kobject *kobj,
+		struct attribute *attr, int n)
+{
+	return false;
+}
+
+DEFINE_SYSFS_GROUP_VISIBLE(multipath_sysfs)
+
+const struct attribute_group nvme_ns_mpath_attr_group = {
+	.name           = "multipath",
+	.attrs		= nvme_ns_mpath_attrs,
+	.is_visible     = SYSFS_GROUP_VISIBLE(multipath_sysfs),
+};
+#endif
+
 const struct attribute_group *nvme_ns_attr_groups[] = {
 	&nvme_ns_attr_group,
+#ifdef CONFIG_NVME_MULTIPATH
+	&nvme_ns_mpath_attr_group,
+#endif
 	NULL,
 };
 
@@ -546,6 +594,28 @@ static ssize_t dctype_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(dctype);
 
+static ssize_t quirks_show(struct device *dev, struct device_attribute *attr,
+                char *buf)
+{
+	int count = 0, i;
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	unsigned long quirks = ctrl->quirks;
+
+	if (!quirks)
+		return sysfs_emit(buf, "none\n");
+
+	for (i = 0; quirks; ++i) {
+		if (quirks & 1) {
+			count += sysfs_emit_at(buf, count, "%s\n",
+					nvme_quirk_name(BIT(i)));
+		}
+		quirks >>= 1;
+	}
+
+	return count;
+}
+static DEVICE_ATTR_RO(quirks);
+
 #ifdef CONFIG_NVME_HOST_AUTH
 static ssize_t nvme_ctrl_dhchap_secret_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -687,6 +757,7 @@ static struct attribute *nvme_dev_attrs[] = {
 	&dev_attr_kato.attr,
 	&dev_attr_cntrltype.attr,
 	&dev_attr_dctype.attr,
+	&dev_attr_quirks.attr,
 #ifdef CONFIG_NVME_HOST_AUTH
 	&dev_attr_dhchap_secret.attr,
 	&dev_attr_dhchap_ctrl_secret.attr,
@@ -751,7 +822,49 @@ static ssize_t tls_configured_key_show(struct device *dev,
 
 	return sysfs_emit(buf, "%08x\n", key_serial(key));
 }
-static DEVICE_ATTR_RO(tls_configured_key);
+
+static ssize_t tls_configured_key_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	int error, qid;
+
+	error = kstrtoint(buf, 10, &qid);
+	if (error)
+		return error;
+
+	/*
+	 * We currently only allow userspace to write a `0` indicating
+	 * generate a new key.
+	 */
+	if (qid)
+		return -EINVAL;
+
+	if (!ctrl->opts || !ctrl->opts->concat)
+		return -EOPNOTSUPP;
+
+	error = nvme_auth_negotiate(ctrl, 0);
+	if (error < 0) {
+		nvme_reset_ctrl(ctrl);
+		return error;
+	}
+
+	error = nvme_auth_wait(ctrl, 0);
+	if (error < 0) {
+		nvme_reset_ctrl(ctrl);
+		return error;
+	}
+
+	/*
+	 * We need to reset the TLS connection, so let's just
+	 * reset the controller.
+	 */
+	nvme_reset_ctrl(ctrl);
+
+	return count;
+}
+static DEVICE_ATTR_RW(tls_configured_key);
 
 static ssize_t tls_keyring_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -763,10 +876,26 @@ static ssize_t tls_keyring_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(tls_keyring);
 
+static ssize_t tls_mode_show(struct device *dev,
+			     struct device_attribute *attr, char *buf)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	const char *mode;
+
+	if (ctrl->opts->tls)
+		mode = "tls";
+	else
+		mode = "concat";
+
+	return sysfs_emit(buf, "%s\n", mode);
+}
+static DEVICE_ATTR_RO(tls_mode);
+
 static struct attribute *nvme_tls_attrs[] = {
 	&dev_attr_tls_key.attr,
 	&dev_attr_tls_configured_key.attr,
 	&dev_attr_tls_keyring.attr,
+	&dev_attr_tls_mode.attr,
 	NULL,
 };
 
@@ -780,19 +909,22 @@ static umode_t nvme_tls_attrs_are_visible(struct kobject *kobj,
 		return 0;
 
 	if (a == &dev_attr_tls_key.attr &&
-	    !ctrl->opts->tls)
+	    !ctrl->opts->tls && !ctrl->opts->concat)
 		return 0;
 	if (a == &dev_attr_tls_configured_key.attr &&
-	    !ctrl->opts->tls_key)
+	    !ctrl->opts->concat)
 		return 0;
 	if (a == &dev_attr_tls_keyring.attr &&
 	    !ctrl->opts->keyring)
+		return 0;
+	if (a == &dev_attr_tls_mode.attr &&
+	    !ctrl->opts->tls && !ctrl->opts->concat)
 		return 0;
 
 	return a->mode;
 }
 
-const struct attribute_group nvme_tls_attrs_group = {
+static const struct attribute_group nvme_tls_attrs_group = {
 	.attrs		= nvme_tls_attrs,
 	.is_visible	= nvme_tls_attrs_are_visible,
 };

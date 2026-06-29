@@ -50,6 +50,8 @@ struct fpga_region {
 	struct module *ops_owner;
 	void *priv;
 	int (*get_bridges)(struct fpga_region *region);
+
+	void *suse_kabi_padding;
 };
 
 #define to_fpga_region(d) container_of(d, struct fpga_region, dev)

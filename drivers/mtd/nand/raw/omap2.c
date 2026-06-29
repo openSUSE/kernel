@@ -1963,7 +1963,7 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 		err = rawnand_sw_bch_init(chip);
 		if (err) {
 			dev_err(dev, "Unable to use BCH library\n");
-			return err;
+			goto err_put_elm_dev;
 		}
 		break;
 
@@ -2000,7 +2000,7 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 		err = rawnand_sw_bch_init(chip);
 		if (err) {
 			dev_err(dev, "unable to use BCH library\n");
-			return err;
+			goto err_put_elm_dev;
 		}
 		break;
 
@@ -2038,7 +2038,8 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 		break;
 	default:
 		dev_err(dev, "Invalid or unsupported ECC scheme\n");
-		return -EINVAL;
+		err = -EINVAL;
+		goto err_put_elm_dev;
 	}
 
 	if (elm_bch_strength >= 0) {
@@ -2057,7 +2058,7 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 				 info->nsteps_per_eccpg, chip->ecc.size,
 				 chip->ecc.bytes);
 		if (err < 0)
-			return err;
+			goto err_put_elm_dev;
 	}
 
 	/* Check if NAND device's OOB is enough to store ECC signatures */
@@ -2067,10 +2068,24 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 		dev_err(dev,
 			"Not enough OOB bytes: required = %d, available=%d\n",
 			min_oobbytes, mtd->oobsize);
-		return -EINVAL;
+		err = -EINVAL;
+		goto err_put_elm_dev;
 	}
 
 	return 0;
+
+err_put_elm_dev:
+	put_device(info->elm_dev);
+
+	return err;
+}
+
+static void omap_nand_detach_chip(struct nand_chip *chip)
+{
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	struct omap_nand_info *info = mtd_to_omap(mtd);
+
+	put_device(info->elm_dev);
 }
 
 static void omap_nand_data_in(struct nand_chip *chip, void *buf,
@@ -2171,6 +2186,7 @@ static int omap_nand_exec_op(struct nand_chip *chip,
 
 static const struct nand_controller_ops omap_nand_controller_ops = {
 	.attach_chip = omap_nand_attach_chip,
+	.detach_chip = omap_nand_detach_chip,
 	.exec_op = omap_nand_exec_op,
 };
 

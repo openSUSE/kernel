@@ -22,6 +22,8 @@ struct typec_switch_desc {
 	typec_switch_set_fn_t set;
 	const char *name;
 	void *drvdata;
+
+	void *suse_kabi_padding;
 };
 
 struct typec_switch *fwnode_typec_switch_get(struct fwnode_handle *fwnode);
@@ -46,6 +48,8 @@ struct typec_mux_state {
 	struct typec_altmode *alt;
 	unsigned long mode;
 	void *data;
+
+	void *suse_kabi_padding;
 };
 
 typedef int (*typec_mux_set_fn_t)(struct typec_mux_dev *mux,
@@ -56,6 +60,8 @@ struct typec_mux_desc {
 	typec_mux_set_fn_t set;
 	const char *name;
 	void *drvdata;
+
+	void *suse_kabi_padding;
 };
 
 #if IS_ENABLED(CONFIG_TYPEC)

@@ -10,6 +10,7 @@
 #include <crypto/ecdh.h>
 #include <linux/asn1_decoder.h>
 #include <linux/scatterlist.h>
+#include <linux/fips.h>
 
 #include "ecdsasignature.asn1.h"
 
@@ -36,29 +37,24 @@ static int ecdsa_get_signature_rs(u64 *dest, size_t hdrlen, unsigned char tag,
 				  const void *value, size_t vlen, unsigned int ndigits)
 {
 	size_t bufsize = ndigits * sizeof(u64);
-	ssize_t diff = vlen - bufsize;
 	const char *d = value;
 
-	if (!value || !vlen)
+	if (!value || !vlen || vlen > bufsize + 1)
 		return -EINVAL;
 
-	/* diff = 0: 'value' has exacly the right size
-	 * diff > 0: 'value' has too many bytes; one leading zero is allowed that
-	 *           makes the value a positive integer; error on more
-	 * diff < 0: 'value' is missing leading zeros
+	/*
+	 * vlen may be 1 byte larger than bufsize due to a leading zero byte
+	 * (necessary if the most significant bit of the integer is set).
 	 */
-	if (diff > 0) {
+	if (vlen > bufsize) {
 		/* skip over leading zeros that make 'value' a positive int */
 		if (*d == 0) {
 			vlen -= 1;
-			diff--;
 			d++;
-		}
-		if (diff)
+		} else {
 			return -EINVAL;
+		}
 	}
-	if (-diff >= bufsize)
-		return -EINVAL;
 
 	ecc_digits_from_bytes(d, vlen, dest, ndigits);
 
@@ -181,6 +177,10 @@ static int ecdsa_ecc_ctx_init(struct ecc_ctx *ctx, unsigned int curve_id)
 
 static void ecdsa_ecc_ctx_deinit(struct ecc_ctx *ctx)
 {
+	if (fips_enabled) {
+		memzero_explicit(ctx->x, sizeof(ctx->x));
+		memzero_explicit(ctx->y, sizeof(ctx->y));
+	}
 	ctx->pub_key_set = false;
 }
 

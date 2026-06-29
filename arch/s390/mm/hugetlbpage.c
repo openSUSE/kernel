@@ -17,6 +17,16 @@
 #include <linux/security.h>
 
 /*
+ * SLES-only: Add stub definition for "hugetlb_optimize_vmemmap_key" static
+ * key. It is part of the kABI, and otherwise would break the build with
+ * CONFIG_ARCH_WANT_OPTIMIZE_HUGETLB_VMEMMAP=n.
+ */
+#ifndef CONFIG_ARCH_WANT_OPTIMIZE_HUGETLB_VMEMMAP
+DEFINE_STATIC_KEY_FALSE(hugetlb_optimize_vmemmap_key);
+EXPORT_SYMBOL(hugetlb_optimize_vmemmap_key);
+#endif
+
+/*
  * If the bit selected by single-bit bitmask "a" is set within "x", move
  * it to the position indicated by single-bit bitmask "b".
  */
@@ -174,8 +184,8 @@ pte_t huge_ptep_get(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 	return __rste_to_pte(pte_val(*ptep));
 }
 
-pte_t huge_ptep_get_and_clear(struct mm_struct *mm,
-			      unsigned long addr, pte_t *ptep)
+pte_t __huge_ptep_get_and_clear(struct mm_struct *mm,
+				unsigned long addr, pte_t *ptep)
 {
 	pte_t pte = huge_ptep_get(mm, addr, ptep);
 	pmd_t *pmdp = (pmd_t *) ptep;

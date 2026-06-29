@@ -293,8 +293,8 @@ static int meson_crypto_probe(struct platform_device *pdev)
 	return 0;
 error_alg:
 	meson_unregister_algs(mc);
-error_flow:
 	meson_free_chanlist(mc, MAXFLOW - 1);
+error_flow:
 	clk_disable_unprepare(mc->busclk);
 	return err;
 }
@@ -322,7 +322,7 @@ MODULE_DEVICE_TABLE(of, meson_crypto_of_match_table);
 
 static struct platform_driver meson_crypto_driver = {
 	.probe		 = meson_crypto_probe,
-	.remove_new	 = meson_crypto_remove,
+	.remove		 = meson_crypto_remove,
 	.driver		 = {
 		.name		   = "gxl-crypto",
 		.of_match_table	= meson_crypto_of_match_table,

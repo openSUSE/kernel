@@ -47,7 +47,7 @@ HOSTCFLAGS_sorttable.o += -DMCOUNT_SORT_ENABLED
 endif
 
 # The following programs are only built on demand
-hostprogs += unifdef
+hostprogs += unifdef gen_packed_field_checks
 
 # The module linker script is preprocessed on demand
 targets += module.lds
@@ -56,6 +56,7 @@ subdir-$(CONFIG_GCC_PLUGINS) += gcc-plugins
 subdir-$(CONFIG_MODVERSIONS) += genksyms
 subdir-$(CONFIG_SECURITY_SELINUX) += selinux
 subdir-$(CONFIG_SECURITY_IPE) += ipe
+subdir-$(CONFIG_LIVEPATCH)   += livepatch
 
 # Let clean descend into subdirs
 subdir-	+= basic dtc gdb kconfig mod

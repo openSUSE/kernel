@@ -161,7 +161,7 @@ EXPORT_SYMBOL(ath12k_core_resume);
 
 static int __ath12k_core_create_board_name(struct ath12k_base *ab, char *name,
 					   size_t name_len, bool with_variant,
-					   bool bus_type_mode)
+					   bool bus_type_mode, bool with_default)
 {
 	/* strlen(',variant=') + strlen(ab->qmi.target.bdf_ext) */
 	char variant[9 + ATH12K_QMI_BDF_EXT_STR_LENGTH] = { 0 };
@@ -192,7 +192,9 @@ static int __ath12k_core_create_board_name(struct ath12k_base *ab, char *name,
 			  "bus=%s,qmi-chip-id=%d,qmi-board-id=%d%s",
 			  ath12k_bus_str(ab->hif.bus),
 			  ab->qmi.target.chip_id,
-			  ab->qmi.target.board_id, variant);
+			  with_default ?
+			  ATH12K_BOARD_ID_DEFAULT : ab->qmi.target.board_id,
+			  variant);
 		break;
 	}
 
@@ -204,19 +206,19 @@ static int __ath12k_core_create_board_name(struct ath12k_base *ab, char *name,
 static int ath12k_core_create_board_name(struct ath12k_base *ab, char *name,
 					 size_t name_len)
 {
-	return __ath12k_core_create_board_name(ab, name, name_len, true, false);
+	return __ath12k_core_create_board_name(ab, name, name_len, true, false, false);
 }
 
 static int ath12k_core_create_fallback_board_name(struct ath12k_base *ab, char *name,
 						  size_t name_len)
 {
-	return __ath12k_core_create_board_name(ab, name, name_len, false, false);
+	return __ath12k_core_create_board_name(ab, name, name_len, false, false, true);
 }
 
 static int ath12k_core_create_bus_type_board_name(struct ath12k_base *ab, char *name,
 						  size_t name_len)
 {
-	return __ath12k_core_create_board_name(ab, name, name_len, false, true);
+	return __ath12k_core_create_board_name(ab, name, name_len, false, true, true);
 }
 
 const struct firmware *ath12k_core_firmware_request(struct ath12k_base *ab,
@@ -1002,9 +1004,10 @@ static void ath12k_rfkill_work(struct work_struct *work)
 
 void ath12k_core_halt(struct ath12k *ar)
 {
+	struct list_head *pos, *n;
 	struct ath12k_base *ab = ar->ab;
 
-	lockdep_assert_held(&ar->conf_mutex);
+	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
 	ar->num_created_vdevs = 0;
 	ar->allocated_vdev_map = 0;
@@ -1017,7 +1020,12 @@ void ath12k_core_halt(struct ath12k *ar)
 
 	rcu_assign_pointer(ab->pdevs_active[ar->pdev_idx], NULL);
 	synchronize_rcu();
-	INIT_LIST_HEAD(&ar->arvifs);
+
+	spin_lock_bh(&ar->data_lock);
+	list_for_each_safe(pos, n, &ar->arvifs)
+		list_del_init(pos);
+	spin_unlock_bh(&ar->data_lock);
+
 	idr_init(&ar->txmgmt_idr);
 }
 
@@ -1078,6 +1086,7 @@ static void ath12k_core_post_reconfigure_recovery(struct ath12k_base *ab)
 		if (!ah || ah->state == ATH12K_HW_STATE_OFF)
 			continue;
 
+		wiphy_lock(ah->hw->wiphy);
 		mutex_lock(&ah->hw_mutex);
 
 		switch (ah->state) {
@@ -1086,10 +1095,7 @@ static void ath12k_core_post_reconfigure_recovery(struct ath12k_base *ab)
 
 			for (j = 0; j < ah->num_radio; j++) {
 				ar = &ah->radio[j];
-
-				mutex_lock(&ar->conf_mutex);
 				ath12k_core_halt(ar);
-				mutex_unlock(&ar->conf_mutex);
 			}
 
 			break;
@@ -1110,6 +1116,7 @@ static void ath12k_core_post_reconfigure_recovery(struct ath12k_base *ab)
 		}
 
 		mutex_unlock(&ah->hw_mutex);
+		wiphy_unlock(ah->hw->wiphy);
 	}
 
 	complete(&ab->driver_recovery);
@@ -1188,6 +1195,7 @@ static void ath12k_core_reset(struct work_struct *work)
 	ab->is_reset = true;
 	atomic_set(&ab->recovery_count, 0);
 
+	ath12k_coredump_collect(ab);
 	ath12k_core_pre_reconfigure_recovery(ab);
 
 	ath12k_core_post_reconfigure_recovery(ab);
@@ -1312,6 +1320,7 @@ struct ath12k_base *ath12k_core_alloc(struct device *dev, size_t priv_size,
 	INIT_WORK(&ab->restart_work, ath12k_core_restart);
 	INIT_WORK(&ab->reset_work, ath12k_core_reset);
 	INIT_WORK(&ab->rfkill_work, ath12k_rfkill_work);
+	INIT_WORK(&ab->dump_work, ath12k_coredump_upload);
 
 	timer_setup(&ab->rx_replenish_retry, ath12k_ce_rx_replenish_retry, 0);
 	init_completion(&ab->htc_suspend);

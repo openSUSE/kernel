@@ -56,6 +56,7 @@
 #include <asm/mwait.h>
 #include <asm/spec-ctrl.h>
 #include <asm/fpu/api.h>
+#include <asm/smp.h>
 
 #define INTEL_IDLE_VERSION "0.5.1"
 
@@ -223,6 +224,17 @@ static __cpuidle int intel_idle_s2idle(struct cpuidle_device *dev,
 		fpu_idle_fpregs();
 
 	mwait_idle_with_hints(eax, ecx);
+
+	return 0;
+}
+
+static int intel_idle_enter_dead(struct cpuidle_device *dev, int index)
+{
+	struct cpuidle_driver *drv = cpuidle_get_cpu_driver(dev);
+	struct cpuidle_state *state = &drv->states[index];
+	unsigned long eax = flg2MWAIT(state->flags);
+
+	mwait_play_dead(eax);
 
 	return 0;
 }
@@ -1069,6 +1081,47 @@ static struct cpuidle_state gnr_cstates[] __initdata = {
 		.enter = NULL }
 };
 
+static struct cpuidle_state gnrd_cstates[] __initdata = {
+	{
+		.name = "C1",
+		.desc = "MWAIT 0x00",
+		.flags = MWAIT2flg(0x00),
+		.exit_latency = 1,
+		.target_residency = 1,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C1E",
+		.desc = "MWAIT 0x01",
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 4,
+		.target_residency = 4,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6",
+		.desc = "MWAIT 0x20",
+		.flags = MWAIT2flg(0x20) | CPUIDLE_FLAG_TLB_FLUSHED |
+					   CPUIDLE_FLAG_INIT_XSTATE |
+					   CPUIDLE_FLAG_PARTIAL_HINT_MATCH,
+		.exit_latency = 220,
+		.target_residency = 650,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6P",
+		.desc = "MWAIT 0x21",
+		.flags = MWAIT2flg(0x21) | CPUIDLE_FLAG_TLB_FLUSHED |
+					   CPUIDLE_FLAG_INIT_XSTATE |
+					   CPUIDLE_FLAG_PARTIAL_HINT_MATCH,
+		.exit_latency = 240,
+		.target_residency = 750,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.enter = NULL }
+};
+
 static struct cpuidle_state atom_cstates[] __initdata = {
 	{
 		.name = "C1E",
@@ -1508,6 +1561,12 @@ static const struct idle_cpu idle_cpu_gnr __initconst = {
 	.use_acpi = true,
 };
 
+static const struct idle_cpu idle_cpu_gnrd __initconst = {
+	.state_table = gnrd_cstates,
+	.disable_promotion_to_c1e = true,
+	.use_acpi = true,
+};
+
 static const struct idle_cpu idle_cpu_avn __initconst = {
 	.state_table = avn_cstates,
 	.disable_promotion_to_c1e = true,
@@ -1593,6 +1652,7 @@ static const struct x86_cpu_id intel_idle_ids[] __initconst = {
 	X86_MATCH_VFM(INTEL_SAPPHIRERAPIDS_X,	&idle_cpu_spr),
 	X86_MATCH_VFM(INTEL_EMERALDRAPIDS_X,	&idle_cpu_spr),
 	X86_MATCH_VFM(INTEL_GRANITERAPIDS_X,	&idle_cpu_gnr),
+	X86_MATCH_VFM(INTEL_GRANITERAPIDS_D,	&idle_cpu_gnrd),
 	X86_MATCH_VFM(INTEL_XEON_PHI_KNL,	&idle_cpu_knl),
 	X86_MATCH_VFM(INTEL_XEON_PHI_KNM,	&idle_cpu_knl),
 	X86_MATCH_VFM(INTEL_ATOM_GOLDMONT,	&idle_cpu_bxt),
@@ -1603,6 +1663,7 @@ static const struct x86_cpu_id intel_idle_ids[] __initconst = {
 	X86_MATCH_VFM(INTEL_ATOM_TREMONT_D,	&idle_cpu_snr),
 	X86_MATCH_VFM(INTEL_ATOM_CRESTMONT,	&idle_cpu_grr),
 	X86_MATCH_VFM(INTEL_ATOM_CRESTMONT_X,	&idle_cpu_srf),
+	X86_MATCH_VFM(INTEL_ATOM_DARKMONT_X,	&idle_cpu_srf),
 	{}
 };
 
@@ -1750,6 +1811,7 @@ static void __init intel_idle_init_cstates_acpi(struct cpuidle_driver *drv)
 			state->flags |= CPUIDLE_FLAG_TIMER_STOP;
 
 		state->enter = intel_idle;
+		state->enter_dead = intel_idle_enter_dead;
 		state->enter_s2idle = intel_idle_s2idle;
 	}
 }
@@ -2099,6 +2161,9 @@ static void __init intel_idle_init_cstates_icpu(struct cpuidle_driver *drv)
 		    !cpuidle_state_table[cstate].enter_s2idle)
 			break;
 
+		if (!cpuidle_state_table[cstate].enter_dead)
+			cpuidle_state_table[cstate].enter_dead = intel_idle_enter_dead;
+
 		/* If marked as unusable, skip this state. */
 		if (cpuidle_state_table[cstate].flags & CPUIDLE_FLAG_UNUSABLE) {
 			pr_debug("state %s is disabled\n",
@@ -2321,6 +2386,8 @@ static int __init intel_idle_init(void)
 	pr_debug("Local APIC timer is reliable in %s\n",
 		 boot_cpu_has(X86_FEATURE_ARAT) ? "all C-states" : "C1");
 
+	arch_cpu_rescan_dead_smt_siblings();
+
 	return 0;
 
 hp_setup_fail:
@@ -2331,7 +2398,7 @@ init_driver_fail:
 	return retval;
 
 }
-device_initcall(intel_idle_init);
+subsys_initcall_sync(intel_idle_init);
 
 /*
  * We are not really modular, but we used to support that.  Meaning we also

@@ -409,10 +409,12 @@ static int io_timeout_update(struct io_ring_ctx *ctx, __u64 user_data,
 
 	timeout->off = 0; /* noseq */
 	data = req->async_data;
+	data->ts = *ts;
+
 	list_add_tail(&timeout->list, &ctx->timeout_list);
 	hrtimer_init(&data->timer, io_timeout_get_clock(data), mode);
 	data->timer.function = io_timeout_fn;
-	hrtimer_start(&data->timer, timespec64_to_ktime(*ts), mode);
+	hrtimer_start(&data->timer, timespec64_to_ktime(data->ts), mode);
 	return 0;
 }
 
@@ -421,6 +423,8 @@ int io_timeout_remove_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	struct io_timeout_rem *tr = io_kiocb_to_cmd(req, struct io_timeout_rem);
 
 	if (unlikely(req->flags & (REQ_F_FIXED_FILE | REQ_F_BUFFER_SELECT)))
+		return -EINVAL;
+	if (sqe->addr3 || sqe->__pad2[0])
 		return -EINVAL;
 	if (sqe->buf_index || sqe->len || sqe->splice_fd_in)
 		return -EINVAL;
@@ -494,6 +498,8 @@ static int __io_timeout_prep(struct io_kiocb *req,
 	unsigned flags;
 	u32 off = READ_ONCE(sqe->off);
 
+	if (sqe->addr3 || sqe->__pad2[0])
+		return -EINVAL;
 	if (sqe->buf_index || sqe->len != 1 || sqe->splice_fd_in)
 		return -EINVAL;
 	if (off && is_timeout_link)

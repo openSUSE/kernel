@@ -157,10 +157,7 @@ struct kyber_queue_data {
 	 */
 	struct sbitmap_queue domain_tokens[KYBER_NUM_DOMAINS];
 
-	/*
-	 * Async request percentage, converted to per-word depth for
-	 * sbitmap_get_shallow().
-	 */
+	/* Number of allowed async requests. */
 	unsigned int async_depth;
 
 	struct kyber_cpu_latency __percpu *cpu_latency;
@@ -454,10 +451,8 @@ static void kyber_depth_updated(struct blk_mq_hw_ctx *hctx)
 {
 	struct kyber_queue_data *kqd = hctx->queue->elevator->elevator_data;
 	struct blk_mq_tags *tags = hctx->sched_tags;
-	unsigned int shift = tags->bitmap_tags.sb.shift;
 
-	kqd->async_depth = (1U << shift) * KYBER_ASYNC_PERCENT / 100U;
-
+	kqd->async_depth = hctx->queue->nr_requests * KYBER_ASYNC_PERCENT / 100U;
 	sbitmap_queue_min_shallow_depth(&tags->bitmap_tags, kqd->async_depth);
 }
 
@@ -889,7 +884,7 @@ KYBER_LAT_SHOW_STORE(KYBER_WRITE, write);
 #undef KYBER_LAT_SHOW_STORE
 
 #define KYBER_LAT_ATTR(op) __ATTR(op##_lat_nsec, 0644, kyber_##op##_lat_show, kyber_##op##_lat_store)
-static struct elv_fs_entry kyber_sched_attrs[] = {
+static const struct elv_fs_entry kyber_sched_attrs[] = {
 	KYBER_LAT_ATTR(read),
 	KYBER_LAT_ATTR(write),
 	__ATTR_NULL

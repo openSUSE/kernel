@@ -992,6 +992,8 @@ struct snd_soc_aux_dev {
 
 	/* codec/machine specific init - e.g. add machine controls */
 	int (*init)(struct snd_soc_component *component);
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* SoC card */
@@ -1123,6 +1125,8 @@ struct snd_soc_card {
 	unsigned int component_chaining:1;
 
 	void *drvdata;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 #define for_each_card_prelinks(card, i, link)				\
 	for ((i) = 0;							\
@@ -1209,6 +1213,8 @@ struct snd_soc_pcm_runtime {
 	unsigned int fe_compr:1; /* for Dynamic PCM */
 	unsigned int initialized:1;
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	/* CPU/Codec/Platform */
 	int num_components;
 	struct snd_soc_component *components[] __counted_by(num_components);
@@ -1251,7 +1257,10 @@ void snd_soc_close_delayed_work(struct snd_soc_pcm_runtime *rtd);
 
 /* mixer control */
 struct soc_mixer_control {
-	int min, max, platform_max;
+	/* Minimum and maximum specified as written to the hardware */
+	int min, max;
+	/* Limited maximum value specified as presented through the control */
+	int platform_max;
 	int reg, rreg;
 	unsigned int shift, rshift;
 	unsigned int sign_bit;

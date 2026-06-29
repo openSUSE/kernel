@@ -13,12 +13,12 @@
 #include <linux/hyperv.h>
 #include <net/sock.h>
 #include <net/af_vsock.h>
-#include <asm/hyperv-tlfs.h>
+#include <hyperv/hvhdk.h>
 
 /* Older (VMBUS version 'VERSION_WIN10' or before) Windows hosts have some
  * stricter requirements on the hv_sock ring buffer size of six 4K pages.
- * hyperv-tlfs defines HV_HYP_PAGE_SIZE as 4K. Newer hosts don't have this
- * limitation; but, keep the defaults the same for compat.
+ * HV_HYP_PAGE_SIZE is defined as 4K. Newer hosts don't have this limitation;
+ * but, keep the defaults the same for compat.
  */
 #define RINGBUFFER_HVS_RCV_SIZE (HV_HYP_PAGE_SIZE * 6)
 #define RINGBUFFER_HVS_SND_SIZE (HV_HYP_PAGE_SIZE * 6)
@@ -196,7 +196,7 @@ static int hvs_channel_readable_payload(struct vmbus_channel *chan)
 
 	if (readable > HVS_PKT_LEN(0)) {
 		/* At least we have 1 byte to read. We don't need to return
-		 * the exact readable bytes: see vsock_stream_recvmsg() ->
+		 * the exact readable bytes: see vsock_connectible_recvmsg() ->
 		 * vsock_stream_has_data().
 		 */
 		return 1;
@@ -375,10 +375,10 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 	} else {
 		sndbuf = max_t(int, sk->sk_sndbuf, RINGBUFFER_HVS_SND_SIZE);
 		sndbuf = min_t(int, sndbuf, RINGBUFFER_HVS_MAX_SIZE);
-		sndbuf = ALIGN(sndbuf, HV_HYP_PAGE_SIZE);
+		sndbuf = VMBUS_RING_SIZE(sndbuf);
 		rcvbuf = max_t(int, sk->sk_rcvbuf, RINGBUFFER_HVS_RCV_SIZE);
 		rcvbuf = min_t(int, rcvbuf, RINGBUFFER_HVS_MAX_SIZE);
-		rcvbuf = ALIGN(rcvbuf, HV_HYP_PAGE_SIZE);
+		rcvbuf = VMBUS_RING_SIZE(rcvbuf);
 	}
 
 	chan->max_pkt_size = HVS_MAX_PKT_SIZE;
@@ -549,6 +549,7 @@ static void hvs_destruct(struct vsock_sock *vsk)
 		vmbus_hvsock_device_unregister(chan);
 
 	kfree(hvs);
+	vsk->trans = NULL;
 }
 
 static int hvs_dgram_bind(struct vsock_sock *vsk, struct sockaddr_vm *addr)

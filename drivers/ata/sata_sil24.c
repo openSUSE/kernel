@@ -378,10 +378,9 @@ static const struct scsi_host_template sil24_sht = {
 	.can_queue		= SIL24_MAX_CMDS,
 	.sg_tablesize		= SIL24_MAX_SGE,
 	.dma_boundary		= ATA_DMA_BOUNDARY,
-	.tag_alloc_policy	= BLK_TAG_ALLOC_FIFO,
 	.sdev_groups		= ata_ncq_sdev_groups,
 	.change_queue_depth	= ata_scsi_change_queue_depth,
-	.device_configure	= ata_scsi_device_configure
+	.sdev_configure		= ata_scsi_sdev_configure
 };
 
 static struct ata_port_operations sil24_ops = {

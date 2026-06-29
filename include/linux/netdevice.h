@@ -52,6 +52,7 @@
 #include <net/net_trackers.h>
 #include <net/net_debug.h>
 #include <net/dropreason-core.h>
+#include <net/neighbour_tables.h>
 
 struct netpoll_info;
 struct device;
@@ -62,6 +63,7 @@ struct dsa_port;
 struct ip_tunnel_parm_kern;
 struct macsec_context;
 struct macsec_ops;
+struct netdev_config;
 struct netdev_name_node;
 struct sd_flow_limit;
 struct sfp_bus;
@@ -81,6 +83,7 @@ struct xdp_metadata_ops;
 struct xdp_md;
 struct ethtool_netdev_state;
 struct phy_link_topology;
+struct hwtstamp_provider;
 
 typedef u32 xdp_features_t;
 
@@ -308,13 +311,19 @@ struct header_ops {
 	int	(*create) (struct sk_buff *skb, struct net_device *dev,
 			   unsigned short type, const void *daddr,
 			   const void *saddr, unsigned int len);
-	int	(*parse)(const struct sk_buff *skb, unsigned char *haddr);
+	int	(*parse)(const struct sk_buff *skb,
+			 unsigned char *haddr);
 	int	(*cache)(const struct neighbour *neigh, struct hh_cache *hh, __be16 type);
 	void	(*cache_update)(struct hh_cache *hh,
 				const struct net_device *dev,
 				const unsigned char *haddr);
 	bool	(*validate)(const char *ll_header, unsigned int len);
 	__be16	(*parse_protocol)(const struct sk_buff *skb);
+#ifndef __GENKSYMS__
+	int	(*parse2)(const struct sk_buff *skb,
+			 const struct net_device *dev,
+			 unsigned char *haddr);
+#endif
 };
 
 /* These flag bits are private to the generic network queueing
@@ -341,6 +350,16 @@ struct gro_list {
  * napi_struct::gro_bitmask
  */
 #define GRO_HASH_BUCKETS	8
+
+/*
+ * Structure for per-NAPI config
+ */
+struct napi_config {
+	u64 gro_flush_timeout;
+	u64 irq_suspend_timeout;
+	u32 defer_hard_irqs;
+	unsigned int napi_id;
+};
 
 /*
  * Structure for NAPI scheduling similar to tasklet but with weighting
@@ -370,13 +389,19 @@ struct napi_struct {
 	struct sk_buff		*skb;
 	struct list_head	rx_list; /* Pending GRO_NORMAL skbs */
 	int			rx_count; /* length of rx_list */
-	unsigned int		napi_id;
+	unsigned int		napi_id; /* protected by netdev_lock */
 	struct hrtimer		timer;
 	struct task_struct	*thread;
+	unsigned long		gro_flush_timeout;
+	unsigned long		irq_suspend_timeout;
+	u32			defer_hard_irqs;
+	/* all fields past this point are write-protected by netdev_lock */
 	/* control-path-only fields follow */
 	struct list_head	dev_list;
 	struct hlist_node	napi_hash_node;
 	int			irq;
+	int			index;
+	struct napi_config	*config;
 };
 
 enum {
@@ -553,16 +578,11 @@ static inline bool napi_complete(struct napi_struct *n)
 
 int dev_set_threaded(struct net_device *dev, bool threaded);
 
-/**
- *	napi_disable - prevent NAPI from scheduling
- *	@n: NAPI context
- *
- * Stop NAPI from being scheduled on this context.
- * Waits till any outstanding processing completes.
- */
 void napi_disable(struct napi_struct *n);
+void napi_disable_locked(struct napi_struct *n);
 
 void napi_enable(struct napi_struct *n);
+void napi_enable_locked(struct napi_struct *n);
 
 /**
  *	napi_synchronize - wait until NAPI is not running
@@ -1232,12 +1252,17 @@ struct netdev_net_notifier {
  * int (*ndo_fdb_add)(struct ndmsg *ndm, struct nlattr *tb[],
  *		      struct net_device *dev,
  *		      const unsigned char *addr, u16 vid, u16 flags,
- *		      struct netlink_ext_ack *extack);
+ *		      bool *notified, struct netlink_ext_ack *extack);
  *	Adds an FDB entry to dev for addr.
+ *	Callee shall set *notified to true if it sent any appropriate
+ *	notification(s). Otherwise core will send a generic one.
  * int (*ndo_fdb_del)(struct ndmsg *ndm, struct nlattr *tb[],
  *		      struct net_device *dev,
- *		      const unsigned char *addr, u16 vid)
+ *		      const unsigned char *addr, u16 vid
+ *		      bool *notified, struct netlink_ext_ack *extack);
  *	Deletes the FDB entry from dev corresponding to addr.
+ *	Callee shall set *notified to true if it sent any appropriate
+ *	notification(s). Otherwise core will send a generic one.
  * int (*ndo_fdb_del_bulk)(struct nlmsghdr *nlh, struct net_device *dev,
  *			   struct netlink_ext_ack *extack);
  * int (*ndo_fdb_dump)(struct sk_buff *skb, struct netlink_callback *cb,
@@ -1510,12 +1535,15 @@ struct net_device_ops {
 					       const unsigned char *addr,
 					       u16 vid,
 					       u16 flags,
+					       bool *notified,
 					       struct netlink_ext_ack *extack);
 	int			(*ndo_fdb_del)(struct ndmsg *ndm,
 					       struct nlattr *tb[],
 					       struct net_device *dev,
 					       const unsigned char *addr,
-					       u16 vid, struct netlink_ext_ack *extack);
+					       u16 vid,
+					       bool *notified,
+					       struct netlink_ext_ack *extack);
 	int			(*ndo_fdb_del_bulk)(struct nlmsghdr *nlh,
 						    struct net_device *dev,
 						    struct netlink_ext_ack *extack);
@@ -1603,6 +1631,14 @@ struct net_device_ops {
 	int			(*ndo_hwtstamp_set)(struct net_device *dev,
 						    struct kernel_hwtstamp_config *kernel_config,
 						    struct netlink_ext_ack *extack);
+
+#if IS_ENABLED(CONFIG_NET_SHAPER)
+	/**
+	 * @net_shaper_ops: Device shaping offload operations
+	 * see include/net/net_shapers.h
+	 */
+	const struct net_shaper_ops *net_shaper_ops;
+#endif
 };
 
 /**
@@ -1858,9 +1894,6 @@ enum netdev_reg_state {
  *				allocated at register_netdev() time
  *	@real_num_rx_queues: 	Number of RX queues currently active in device
  *	@xdp_prog:		XDP sockets filter program pointer
- *	@gro_flush_timeout:	timeout for GRO layer in NAPI
- *	@napi_defer_hard_irqs:	If not zero, provides a counter that would
- *				allow to avoid NIC hard IRQ, on busy queues.
  *
  *	@rx_handler:		handler for received packets
  *	@rx_handler_data: 	XXX: need comments on this one
@@ -2009,6 +2042,17 @@ enum netdev_reg_state {
  *	@dpll_pin: Pointer to the SyncE source pin of a DPLL subsystem,
  *		   where the clock is recovered.
  *
+ *	@max_pacing_offload_horizon: max EDT offload horizon in nsec.
+ *	@napi_config: An array of napi_config structures containing per-NAPI
+ *		      settings.
+ *	@gro_flush_timeout:	timeout for GRO layer in NAPI
+ *	@napi_defer_hard_irqs:	If not zero, provides a counter that would
+ *				allow to avoid NIC hard IRQ, on busy queues.
+ *
+ *	@neighbours:	List heads pointing to this device's neighbours'
+ *			dev_list, one per address-family.
+ *	@hwprov: Tracks which PTP performs hardware packet time stamping.
+ *
  *	FIXME: cleanup struct net_device such that network protocol info
  *	moves out.
  */
@@ -2074,8 +2118,6 @@ struct net_device {
 	int			ifindex;
 	unsigned int		real_num_rx_queues;
 	struct netdev_rx_queue	*_rx;
-	unsigned long		gro_flush_timeout;
-	u32			napi_defer_hard_irqs;
 	unsigned int		gro_max_size;
 	unsigned int		gro_ipv4_max_size;
 	rx_handler_func_t __rcu	*rx_handler;
@@ -2209,6 +2251,9 @@ struct net_device {
 
 	/* Protocol-specific pointers */
 	struct in_device __rcu	*ip_ptr;
+	/** @fib_nh_head: nexthops associated with this netdev */
+	struct hlist_head	fib_nh_head;
+
 #if IS_ENABLED(CONFIG_VLAN_8021Q)
 	struct vlan_info __rcu	*vlan_info;
 #endif
@@ -2222,7 +2267,7 @@ struct net_device {
 	void 			*atalk_ptr;
 #endif
 #if IS_ENABLED(CONFIG_AX25)
-	void			*ax25_ptr;
+	struct ax25_dev	__rcu	*ax25_ptr;
 #endif
 #if IS_ENABLED(CONFIG_CFG80211)
 	struct wireless_dev	*ieee80211_ptr;
@@ -2375,6 +2420,14 @@ struct net_device {
 	const struct udp_tunnel_nic_info	*udp_tunnel_nic_info;
 	struct udp_tunnel_nic	*udp_tunnel_nic;
 
+	/** @cfg: net_device queue-related configuration */
+	struct netdev_config	*cfg;
+	/**
+	 * @cfg_pending: same as @cfg but when device is being actively
+	 *	reconfigured includes any changes to the configuration
+	 *	requested by the user, but which may or may not be rejected.
+	 */
+	struct netdev_config	*cfg_pending;
 	struct ethtool_netdev_state *ethtool;
 
 	/* protected by rtnl_lock */
@@ -2398,6 +2451,45 @@ struct net_device {
 
 	/** @irq_moder: dim parameters used if IS_ENABLED(CONFIG_DIMLIB). */
 	struct dim_irq_moder	*irq_moder;
+
+	u64			max_pacing_offload_horizon;
+	struct napi_config	*napi_config;
+	unsigned long		gro_flush_timeout;
+	u32			napi_defer_hard_irqs;
+
+	/**
+	 * @up: copy of @state's IFF_UP, but safe to read with just @lock.
+	 *	May report false negatives while the device is being opened
+	 *	or closed (@lock does not protect .ndo_open, or .ndo_close).
+	 */
+	bool			up;
+
+	/**
+	 * @lock: netdev-scope lock, protects a small selection of fields.
+	 * Should always be taken using netdev_lock() / netdev_unlock() helpers.
+	 * Drivers are free to use it for other protection.
+	 *
+	 * Protects:
+	 *	@napi_list, @net_shaper_hierarchy, @reg_state
+	 *
+	 * Partially protects (writers must hold both @lock and rtnl_lock):
+	 *	@up
+	 *
+	 * Ordering: take after rtnl_lock.
+	 */
+	struct mutex		lock;
+
+#if IS_ENABLED(CONFIG_NET_SHAPER)
+	/**
+	 * @net_shaper_hierarchy: data tracking the current shaper status
+	 *  see include/net/net_shapers.h
+	 */
+	struct net_shaper_hierarchy *net_shaper_hierarchy;
+#endif
+
+	struct hlist_head neighbours[NEIGH_NR_TABLES];
+
+	struct hwtstamp_provider __rcu	*hwprov;
 
 	u8			priv[] ____cacheline_aligned
 				       __counted_by(priv_len);
@@ -2578,6 +2670,12 @@ struct net *dev_net(const struct net_device *dev)
 }
 
 static inline
+struct net *dev_net_rcu(const struct net_device *dev)
+{
+	return read_pnet_rcu(&dev->nd_net);
+}
+
+static inline
 void dev_net_set(struct net_device *dev, struct net *net)
 {
 	write_pnet(&dev->nd_net, net);
@@ -2609,9 +2707,31 @@ void netif_queue_set_napi(struct net_device *dev, unsigned int queue_index,
 			  enum netdev_queue_type type,
 			  struct napi_struct *napi);
 
-static inline void netif_napi_set_irq(struct napi_struct *napi, int irq)
+static inline void netdev_lock(struct net_device *dev)
+{
+	mutex_lock(&dev->lock);
+}
+
+static inline void netdev_unlock(struct net_device *dev)
+{
+	mutex_unlock(&dev->lock);
+}
+
+static inline void netdev_assert_locked(struct net_device *dev)
+{
+	lockdep_assert_held(&dev->lock);
+}
+
+static inline void netif_napi_set_irq_locked(struct napi_struct *napi, int irq)
 {
 	napi->irq = irq;
+}
+
+static inline void netif_napi_set_irq(struct napi_struct *napi, int irq)
+{
+	netdev_lock(napi->dev);
+	netif_napi_set_irq_locked(napi, irq);
+	netdev_unlock(napi->dev);
 }
 
 /* Default NAPI poll() weight
@@ -2619,8 +2739,19 @@ static inline void netif_napi_set_irq(struct napi_struct *napi, int irq)
  */
 #define NAPI_POLL_WEIGHT 64
 
-void netif_napi_add_weight(struct net_device *dev, struct napi_struct *napi,
-			   int (*poll)(struct napi_struct *, int), int weight);
+void netif_napi_add_weight_locked(struct net_device *dev,
+				  struct napi_struct *napi,
+				  int (*poll)(struct napi_struct *, int),
+				  int weight);
+
+static inline void
+netif_napi_add_weight(struct net_device *dev, struct napi_struct *napi,
+		      int (*poll)(struct napi_struct *, int), int weight)
+{
+	netdev_lock(dev);
+	netif_napi_add_weight_locked(dev, napi, poll, weight);
+	netdev_unlock(dev);
+}
 
 /**
  * netif_napi_add() - initialize a NAPI context
@@ -2639,6 +2770,13 @@ netif_napi_add(struct net_device *dev, struct napi_struct *napi,
 }
 
 static inline void
+netif_napi_add_locked(struct net_device *dev, struct napi_struct *napi,
+		      int (*poll)(struct napi_struct *, int))
+{
+	netif_napi_add_weight_locked(dev, napi, poll, NAPI_POLL_WEIGHT);
+}
+
+static inline void
 netif_napi_add_tx_weight(struct net_device *dev,
 			 struct napi_struct *napi,
 			 int (*poll)(struct napi_struct *, int),
@@ -2646,6 +2784,31 @@ netif_napi_add_tx_weight(struct net_device *dev,
 {
 	set_bit(NAPI_STATE_NO_BUSY_POLL, &napi->state);
 	netif_napi_add_weight(dev, napi, poll, weight);
+}
+
+static inline void
+netif_napi_add_config_locked(struct net_device *dev, struct napi_struct *napi,
+			     int (*poll)(struct napi_struct *, int), int index)
+{
+	napi->index = index;
+	napi->config = &dev->napi_config[index];
+	netif_napi_add_weight_locked(dev, napi, poll, NAPI_POLL_WEIGHT);
+}
+
+/**
+ * netif_napi_add_config - initialize a NAPI context with persistent config
+ * @dev: network device
+ * @napi: NAPI context
+ * @poll: polling function
+ * @index: the NAPI index
+ */
+static inline void
+netif_napi_add_config(struct net_device *dev, struct napi_struct *napi,
+		      int (*poll)(struct napi_struct *, int), int index)
+{
+	netdev_lock(dev);
+	netif_napi_add_config_locked(dev, napi, poll, index);
+	netdev_unlock(dev);
 }
 
 /**
@@ -2665,6 +2828,8 @@ static inline void netif_napi_add_tx(struct net_device *dev,
 	netif_napi_add_tx_weight(dev, napi, poll, NAPI_POLL_WEIGHT);
 }
 
+void __netif_napi_del_locked(struct napi_struct *napi);
+
 /**
  *  __netif_napi_del - remove a NAPI context
  *  @napi: NAPI context
@@ -2673,7 +2838,18 @@ static inline void netif_napi_add_tx(struct net_device *dev,
  * containing @napi. Drivers might want to call this helper to combine
  * all the needed RCU grace periods into a single one.
  */
-void __netif_napi_del(struct napi_struct *napi);
+static inline void __netif_napi_del(struct napi_struct *napi)
+{
+	netdev_lock(napi->dev);
+	__netif_napi_del_locked(napi);
+	netdev_unlock(napi->dev);
+}
+
+static inline void netif_napi_del_locked(struct napi_struct *napi)
+{
+	__netif_napi_del_locked(napi);
+	synchronize_net();
+}
 
 /**
  *  netif_napi_del - remove a NAPI context
@@ -3058,6 +3234,8 @@ static inline struct net_device *first_net_device_rcu(struct net *net)
 }
 
 int netdev_boot_setup_check(struct net_device *dev);
+struct net_device *dev_getbyhwaddr(struct net *net, unsigned short type,
+				   const char *hwaddr);
 struct net_device *dev_getbyhwaddr_rcu(struct net *net, unsigned short type,
 				       const char *hwaddr);
 struct net_device *dev_getfirstbyhwtype(struct net *net, unsigned short type);
@@ -3148,6 +3326,8 @@ static inline int dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 	return dev->header_ops->create(skb, dev, type, daddr, saddr, len);
 }
 
+int parse_header_kabi_helper(const struct sk_buff *skb, unsigned char *haddr);
+
 static inline int dev_parse_header(const struct sk_buff *skb,
 				   unsigned char *haddr)
 {
@@ -3155,7 +3335,10 @@ static inline int dev_parse_header(const struct sk_buff *skb,
 
 	if (!dev->header_ops || !dev->header_ops->parse)
 		return 0;
-	return dev->header_ops->parse(skb, haddr);
+	if (dev->header_ops->parse != parse_header_kabi_helper)
+		return dev->header_ops->parse(skb, haddr);
+
+	return dev->header_ops->parse2(skb, dev, haddr);
 }
 
 static inline __be16 dev_parse_header_protocol(const struct sk_buff *skb)
@@ -3248,11 +3431,30 @@ struct softnet_data {
 };
 
 DECLARE_PER_CPU_ALIGNED(struct softnet_data, softnet_data);
+DECLARE_PER_CPU(struct page_pool *, system_page_pool);
+
+#define XMIT_RECURSION_LIMIT	8
 
 #ifndef CONFIG_PREEMPT_RT
 static inline int dev_recursion_level(void)
 {
 	return this_cpu_read(softnet_data.xmit.recursion);
+}
+
+static inline bool dev_xmit_recursion(void)
+{
+	return unlikely(__this_cpu_read(softnet_data.xmit.recursion) >
+			XMIT_RECURSION_LIMIT);
+}
+
+static inline void dev_xmit_recursion_inc(void)
+{
+	__this_cpu_inc(softnet_data.xmit.recursion);
+}
+
+static inline void dev_xmit_recursion_dec(void)
+{
+	__this_cpu_dec(softnet_data.xmit.recursion);
 }
 #else
 static inline int dev_recursion_level(void)
@@ -3260,6 +3462,20 @@ static inline int dev_recursion_level(void)
 	return current->net_xmit.recursion;
 }
 
+static inline bool dev_xmit_recursion(void)
+{
+	return unlikely(current->net_xmit.recursion > XMIT_RECURSION_LIMIT);
+}
+
+static inline void dev_xmit_recursion_inc(void)
+{
+	current->net_xmit.recursion++;
+}
+
+static inline void dev_xmit_recursion_dec(void)
+{
+	current->net_xmit.recursion--;
+}
 #endif
 
 void __netif_schedule(struct Qdisc *q);
@@ -3963,6 +4179,7 @@ struct sk_buff *dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 int bpf_xdp_link_attach(const union bpf_attr *attr, struct bpf_prog *prog);
 u8 dev_xdp_prog_count(struct net_device *dev);
 int dev_xdp_propagate(struct net_device *dev, struct netdev_bpf *bpf);
+u8 dev_xdp_sb_prog_count(struct net_device *dev);
 u32 dev_xdp_prog_id(struct net_device *dev, enum bpf_xdp_mode mode);
 
 u32 dev_get_min_mp_channel_count(const struct net_device *dev);

@@ -87,6 +87,7 @@ struct xsk_buff_pool *xp_create_and_assign_umem(struct xdp_sock *xs,
 	pool->addrs = umem->addrs;
 	pool->tx_metadata_len = umem->tx_metadata_len;
 	pool->tx_sw_csum = umem->flags & XDP_UMEM_TX_SW_CSUM;
+	spin_lock_init(&pool->rx_lock);
 	INIT_LIST_HEAD(&pool->free_list);
 	INIT_LIST_HEAD(&pool->xskb_list);
 	INIT_LIST_HEAD(&pool->xsk_tx_list);
@@ -101,12 +102,11 @@ struct xsk_buff_pool *xp_create_and_assign_umem(struct xdp_sock *xs,
 		xskb = &pool->heads[i];
 		xskb->pool = pool;
 		xskb->xdp.frame_sz = umem->chunk_size - umem->headroom;
-		INIT_LIST_HEAD(&xskb->free_list_node);
-		INIT_LIST_HEAD(&xskb->xskb_list_node);
+		INIT_LIST_HEAD(&xskb->list_node);
 		if (pool->unaligned)
 			pool->free_heads[i] = xskb;
 		else
-			xp_init_xskb_addr(xskb, pool, i * pool->chunk_size);
+			xp_init_xskb_addr(xskb, pool, (u64)i * pool->chunk_size);
 	}
 
 	return pool;
@@ -387,10 +387,9 @@ void xp_dma_unmap(struct xsk_buff_pool *pool, unsigned long attrs)
 		return;
 	}
 
-	if (!refcount_dec_and_test(&dma_map->users))
-		return;
+	if (refcount_dec_and_test(&dma_map->users))
+		__xp_dma_unmap(dma_map, attrs);
 
-	__xp_dma_unmap(dma_map, attrs);
 	kvfree(pool->dma_pages);
 	pool->dma_pages = NULL;
 	pool->dma_pages_cnt = 0;
@@ -550,8 +549,8 @@ struct xdp_buff *xp_alloc(struct xsk_buff_pool *pool)
 	} else {
 		pool->free_list_cnt--;
 		xskb = list_first_entry(&pool->free_list, struct xdp_buff_xsk,
-					free_list_node);
-		list_del_init(&xskb->free_list_node);
+					list_node);
+		list_del_init(&xskb->list_node);
 	}
 
 	xskb->xdp.data = xskb->xdp.data_hard_start + XDP_PACKET_HEADROOM;
@@ -617,8 +616,8 @@ static u32 xp_alloc_reused(struct xsk_buff_pool *pool, struct xdp_buff **xdp, u3
 
 	i = nb_entries;
 	while (i--) {
-		xskb = list_first_entry(&pool->free_list, struct xdp_buff_xsk, free_list_node);
-		list_del_init(&xskb->free_list_node);
+		xskb = list_first_entry(&pool->free_list, struct xdp_buff_xsk, list_node);
+		list_del_init(&xskb->list_node);
 
 		*xdp = &xskb->xdp;
 		xdp++;
@@ -688,11 +687,11 @@ EXPORT_SYMBOL(xp_can_alloc);
 
 void xp_free(struct xdp_buff_xsk *xskb)
 {
-	if (!list_empty(&xskb->free_list_node))
+	if (!list_empty(&xskb->list_node))
 		return;
 
 	xskb->pool->free_list_cnt++;
-	list_add(&xskb->free_list_node, &xskb->pool->free_list);
+	list_add(&xskb->list_node, &xskb->pool->free_list);
 }
 EXPORT_SYMBOL(xp_free);
 

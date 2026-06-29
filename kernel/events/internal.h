@@ -52,10 +52,12 @@ struct perf_buffer {
 	void				(*free_aux)(void *);
 	refcount_t			aux_refcount;
 	int				aux_in_sampling;
+	int				aux_in_pause_resume;
 	void				**aux_pages;
 	void				*aux_priv;
 
 	struct perf_event_mmap_page	*user_page;
+	void				*suse_kabi_padding;
 	void				*data_pages[];
 };
 
@@ -66,6 +68,7 @@ static inline void rb_free_rcu(struct rcu_head *rcu_head)
 	struct perf_buffer *rb;
 
 	rb = container_of(rcu_head, struct perf_buffer, rcu_head);
+	free_uid(rb->mmap_user);
 	rb_free(rb);
 }
 

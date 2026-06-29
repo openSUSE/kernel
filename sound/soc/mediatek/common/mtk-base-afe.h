@@ -121,6 +121,9 @@ struct mtk_base_afe {
 	struct list_head sub_dais;
 	struct snd_soc_dai_driver *dai_drivers;
 	unsigned int num_dai_drivers;
+#ifndef __GENKSYMS__
+	bool preallocate_buffers;
+#endif
 
 	const struct snd_pcm_hardware *mtk_afe_hardware;
 	int (*memif_fs)(struct snd_pcm_substream *substream,

@@ -6,7 +6,7 @@
  * Copyright (C) 2011-2012 Avionic Design GmbH
  */
 
-#define DEFAULT_SYMBOL_NAMESPACE PWM
+#define DEFAULT_SYMBOL_NAMESPACE "PWM"
 
 #include <linux/acpi.h>
 #include <linux/module.h>
@@ -75,7 +75,7 @@ static void pwm_apply_debug(struct pwm_device *pwm,
 	    state->duty_cycle < state->period)
 		dev_warn(pwmchip_parent(chip), ".apply ignored .polarity\n");
 
-	if (state->enabled &&
+	if (state->enabled && s2.enabled &&
 	    last->polarity == state->polarity &&
 	    last->period > s2.period &&
 	    last->period <= state->period)
@@ -83,7 +83,11 @@ static void pwm_apply_debug(struct pwm_device *pwm,
 			 ".apply didn't pick the best available period (requested: %llu, applied: %llu, possible: %llu)\n",
 			 state->period, s2.period, last->period);
 
-	if (state->enabled && state->period < s2.period)
+	/*
+	 * Rounding period up is fine only if duty_cycle is 0 then, because a
+	 * flat line doesn't have a characteristic period.
+	 */
+	if (state->enabled && s2.enabled && state->period < s2.period && s2.duty_cycle)
 		dev_warn(pwmchip_parent(chip),
 			 ".apply is supposed to round down period (requested: %llu, applied: %llu)\n",
 			 state->period, s2.period);
@@ -99,7 +103,7 @@ static void pwm_apply_debug(struct pwm_device *pwm,
 			 s2.duty_cycle, s2.period,
 			 last->duty_cycle, last->period);
 
-	if (state->enabled && state->duty_cycle < s2.duty_cycle)
+	if (state->enabled && s2.enabled && state->duty_cycle < s2.duty_cycle)
 		dev_warn(pwmchip_parent(chip),
 			 ".apply is supposed to round down duty_cycle (requested: %llu/%llu, applied: %llu/%llu)\n",
 			 state->duty_cycle, state->period,
@@ -144,7 +148,7 @@ static bool pwm_state_valid(const struct pwm_state *state)
 	 * and supposed to be ignored. So also ignore any strange values and
 	 * consider the state ok.
 	 */
-	if (state->enabled)
+	if (!state->enabled)
 		return true;
 
 	if (!state->period)
@@ -752,7 +756,7 @@ static int pwm_export_child(struct device *pwmchip_dev, struct pwm_device *pwm)
 	return 0;
 }
 
-static int pwm_unexport_match(struct device *pwm_dev, void *data)
+static int pwm_unexport_match(struct device *pwm_dev, const void *data)
 {
 	return pwm_from_dev(pwm_dev) == data;
 }

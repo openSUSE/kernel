@@ -1875,6 +1875,8 @@ struct rtl8xxxu_priv {
 	/* Protect the indirect register accesses of RTL8710BU. */
 	struct mutex syson_indirect_access_mutex;
 
+	void *suse_kabi_padding;
+
 	struct usb_anchor rx_anchor;
 	struct usb_anchor tx_anchor;
 	struct usb_anchor int_anchor;

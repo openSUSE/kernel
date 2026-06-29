@@ -2410,7 +2410,7 @@ static int super_init_validation(struct raid_set *rs, struct md_rdev *rdev)
 	 */
 	sb_retrieve_failed_devices(sb, failed_devices);
 	rdev_for_each(r, mddev) {
-		if (test_bit(Journal, &rdev->flags) ||
+		if (test_bit(Journal, &r->flags) ||
 		    !r->sb_page)
 			continue;
 		sb2 = page_address(r->sb_page);
@@ -3196,7 +3196,7 @@ static int raid_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		if (reshape_sectors || rs_is_raid1(rs)) {
 			/*
 			 * We can only prepare for a reshape here, because the
-			 * raid set needs to run to provide the repective reshape
+			 * raid set needs to run to provide the respective reshape
 			 * check functions via its MD personality instance.
 			 *
 			 * So do the reshape check after md_run() succeeded.
@@ -3811,8 +3811,10 @@ static void raid_io_hints(struct dm_target *ti, struct queue_limits *limits)
 	struct raid_set *rs = ti->private;
 	unsigned int chunk_size_bytes = to_bytes(rs->md.chunk_sectors);
 
-	limits->io_min = chunk_size_bytes;
-	limits->io_opt = chunk_size_bytes * mddev_data_stripes(rs);
+	if (chunk_size_bytes) {
+		limits->io_min = chunk_size_bytes;
+		limits->io_opt = chunk_size_bytes * mddev_data_stripes(rs);
+	}
 }
 
 static void raid_presuspend(struct dm_target *ti)

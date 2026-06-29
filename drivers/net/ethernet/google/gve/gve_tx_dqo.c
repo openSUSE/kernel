@@ -157,6 +157,24 @@ gve_free_pending_packet(struct gve_tx_ring *tx,
 	}
 }
 
+static void gve_unmap_packet(struct device *dev,
+			     struct gve_tx_pending_packet_dqo *pkt)
+{
+	int i;
+
+	if (!pkt->num_bufs)
+		return;
+
+	/* SKB linear portion is guaranteed to be mapped */
+	dma_unmap_single(dev, dma_unmap_addr(pkt, dma[0]),
+			 dma_unmap_len(pkt, len[0]), DMA_TO_DEVICE);
+	for (i = 1; i < pkt->num_bufs; i++) {
+		dma_unmap_page(dev, dma_unmap_addr(pkt, dma[i]),
+			       dma_unmap_len(pkt, len[i]), DMA_TO_DEVICE);
+	}
+	pkt->num_bufs = 0;
+}
+
 /* gve_tx_free_desc - Cleans up all pending tx requests and buffers.
  */
 static void gve_tx_clean_pending_packets(struct gve_tx_ring *tx)
@@ -166,21 +184,12 @@ static void gve_tx_clean_pending_packets(struct gve_tx_ring *tx)
 	for (i = 0; i < tx->dqo.num_pending_packets; i++) {
 		struct gve_tx_pending_packet_dqo *cur_state =
 			&tx->dqo.pending_packets[i];
-		int j;
 
-		for (j = 0; j < cur_state->num_bufs; j++) {
-			if (j == 0) {
-				dma_unmap_single(tx->dev,
-					dma_unmap_addr(cur_state, dma[j]),
-					dma_unmap_len(cur_state, len[j]),
-					DMA_TO_DEVICE);
-			} else {
-				dma_unmap_page(tx->dev,
-					dma_unmap_addr(cur_state, dma[j]),
-					dma_unmap_len(cur_state, len[j]),
-					DMA_TO_DEVICE);
-			}
-		}
+		if (tx->dqo.qpl)
+			gve_free_tx_qpl_bufs(tx, cur_state);
+		else
+			gve_unmap_packet(tx->dev, cur_state);
+
 		if (cur_state->skb) {
 			dev_consume_skb_any(cur_state->skb);
 			cur_state->skb = NULL;
@@ -287,7 +296,6 @@ static int gve_tx_alloc_ring_dqo(struct gve_priv *priv,
 {
 	struct device *hdev = &priv->pdev->dev;
 	int num_pending_packets;
-	int qpl_page_cnt;
 	size_t bytes;
 	u32 qpl_id;
 	int i;
@@ -357,10 +365,9 @@ static int gve_tx_alloc_ring_dqo(struct gve_priv *priv,
 
 	if (!cfg->raw_addressing) {
 		qpl_id = gve_tx_qpl_id(priv, tx->q_num);
-		qpl_page_cnt = priv->tx_pages_per_qpl;
 
 		tx->dqo.qpl = gve_alloc_queue_page_list(priv, qpl_id,
-							qpl_page_cnt);
+							cfg->pages_per_qpl);
 		if (!tx->dqo.qpl)
 			goto err;
 
@@ -379,27 +386,23 @@ int gve_tx_alloc_rings_dqo(struct gve_priv *priv,
 			   struct gve_tx_alloc_rings_cfg *cfg)
 {
 	struct gve_tx_ring *tx = cfg->tx;
+	int total_queues;
 	int err = 0;
 	int i, j;
 
-	if (cfg->start_idx + cfg->num_rings > cfg->qcfg->max_queues) {
+	total_queues = cfg->qcfg->num_queues + cfg->num_xdp_rings;
+	if (total_queues > cfg->qcfg->max_queues) {
 		netif_err(priv, drv, priv->dev,
 			  "Cannot alloc more than the max num of Tx rings\n");
 		return -EINVAL;
 	}
 
-	if (cfg->start_idx == 0) {
-		tx = kvcalloc(cfg->qcfg->max_queues, sizeof(struct gve_tx_ring),
-			      GFP_KERNEL);
-		if (!tx)
-			return -ENOMEM;
-	} else if (!tx) {
-		netif_err(priv, drv, priv->dev,
-			  "Cannot alloc tx rings from a nonzero start idx without tx array\n");
-		return -EINVAL;
-	}
+	tx = kvcalloc(cfg->qcfg->max_queues, sizeof(struct gve_tx_ring),
+		      GFP_KERNEL);
+	if (!tx)
+		return -ENOMEM;
 
-	for (i = cfg->start_idx; i < cfg->start_idx + cfg->num_rings; i++) {
+	for (i = 0; i < total_queues; i++) {
 		err = gve_tx_alloc_ring_dqo(priv, cfg, &tx[i], i);
 		if (err) {
 			netif_err(priv, drv, priv->dev,
@@ -415,8 +418,7 @@ int gve_tx_alloc_rings_dqo(struct gve_priv *priv,
 err:
 	for (j = 0; j < i; j++)
 		gve_tx_free_ring_dqo(priv, &tx[j], cfg);
-	if (cfg->start_idx == 0)
-		kvfree(tx);
+	kvfree(tx);
 	return err;
 }
 
@@ -429,13 +431,11 @@ void gve_tx_free_rings_dqo(struct gve_priv *priv,
 	if (!tx)
 		return;
 
-	for (i = cfg->start_idx; i < cfg->start_idx + cfg->num_rings; i++)
+	for (i = 0; i < cfg->qcfg->num_queues + cfg->qcfg->num_xdp_queues; i++)
 		gve_tx_free_ring_dqo(priv, &tx[i], cfg);
 
-	if (cfg->start_idx == 0) {
-		kvfree(tx);
-		cfg->tx = NULL;
-	}
+	kvfree(tx);
+	cfg->tx = NULL;
 }
 
 /* Returns the number of slots available in the ring */
@@ -770,6 +770,9 @@ static int gve_tx_add_skb_dqo(struct gve_tx_ring *tx,
 	s16 completion_tag;
 
 	pkt = gve_alloc_pending_packet(tx);
+	if (!pkt)
+		return -ENOMEM;
+
 	pkt->skb = skb;
 	completion_tag = pkt - tx->dqo.pending_packets;
 
@@ -1036,21 +1039,6 @@ static void remove_from_list(struct gve_tx_ring *tx,
 	}
 }
 
-static void gve_unmap_packet(struct device *dev,
-			     struct gve_tx_pending_packet_dqo *pkt)
-{
-	int i;
-
-	/* SKB linear portion is guaranteed to be mapped */
-	dma_unmap_single(dev, dma_unmap_addr(pkt, dma[0]),
-			 dma_unmap_len(pkt, len[0]), DMA_TO_DEVICE);
-	for (i = 1; i < pkt->num_bufs; i++) {
-		dma_unmap_page(dev, dma_unmap_addr(pkt, dma[i]),
-			       dma_unmap_len(pkt, len[i]), DMA_TO_DEVICE);
-	}
-	pkt->num_bufs = 0;
-}
-
 /* Completion types and expected behavior:
  * No Miss compl + Packet compl = Packet completed normally.
  * Miss compl + Re-inject compl = Packet completed normally.
@@ -1146,8 +1134,7 @@ static void gve_handle_miss_completion(struct gve_priv *priv,
 	/* jiffies can wraparound but time comparisons can handle overflows. */
 	pending_packet->timeout_jiffies =
 			jiffies +
-			msecs_to_jiffies(GVE_REINJECT_COMPL_TIMEOUT *
-					 MSEC_PER_SEC);
+			secs_to_jiffies(GVE_REINJECT_COMPL_TIMEOUT);
 	add_to_list(tx, &tx->dqo_compl.miss_completions, pending_packet);
 
 	*bytes += pending_packet->skb->len;
@@ -1191,8 +1178,7 @@ static void remove_miss_completions(struct gve_priv *priv,
 		pending_packet->state = GVE_PACKET_STATE_TIMED_OUT_COMPL;
 		pending_packet->timeout_jiffies =
 				jiffies +
-				msecs_to_jiffies(GVE_DEALLOCATE_COMPL_TIMEOUT *
-						 MSEC_PER_SEC);
+				secs_to_jiffies(GVE_DEALLOCATE_COMPL_TIMEOUT);
 		/* Maintain pending packet in another list so the packet can be
 		 * unallocated at a later time.
 		 */

@@ -51,6 +51,7 @@
 #include <linux/start_kernel.h>
 #include <linux/hugetlb.h>
 #include <linux/kmemleak.h>
+#include <linux/security.h>
 
 #include <asm/archrandom.h>
 #include <asm/boot_data.h>
@@ -619,7 +620,7 @@ static void __init reserve_crashkernel(void)
 	int rc;
 
 	rc = parse_crashkernel(boot_command_line, ident_map_size,
-			       &crash_size, &crash_base, NULL, NULL);
+			       &crash_size, &crash_base, NULL, NULL, NULL);
 
 	crash_base = ALIGN(crash_base, KEXEC_CRASH_MEM_ALIGN);
 	crash_size = ALIGN(crash_size, KEXEC_CRASH_MEM_ALIGN);
@@ -1005,4 +1006,14 @@ void __init setup_arch(char **cmdline_p)
 
 	/* Add system specific data to the random pool */
 	setup_randomness();
+
+#ifdef CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT
+	if (ipl_secure_flag)
+		security_lock_kernel_down("IPL Secure Boot mode", LOCKDOWN_INTEGRITY_MAX);
+#endif
+}
+
+void __init arch_cpu_finalize_init(void)
+{
+	sclp_init();
 }

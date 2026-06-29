@@ -220,6 +220,7 @@ static int scsi_realloc_sdev_budget_map(struct scsi_device *sdev,
 	int new_shift = sbitmap_calculate_shift(depth);
 	bool need_alloc = !sdev->budget_map.map;
 	bool need_free = false;
+	unsigned int memflags;
 	int ret;
 	struct sbitmap sb_backup;
 
@@ -227,7 +228,7 @@ static int scsi_realloc_sdev_budget_map(struct scsi_device *sdev,
 
 	/*
 	 * realloc if new shift is calculated, which is caused by setting
-	 * up one new default queue depth after calling ->device_configure
+	 * up one new default queue depth after calling ->sdev_configure
 	 */
 	if (!need_alloc && new_shift != sdev->budget_map.shift)
 		need_alloc = need_free = true;
@@ -240,12 +241,12 @@ static int scsi_realloc_sdev_budget_map(struct scsi_device *sdev,
 	 * and here disk isn't added yet, so freezing is pretty fast
 	 */
 	if (need_free) {
-		blk_mq_freeze_queue(sdev->request_queue);
+		memflags = blk_mq_freeze_queue(sdev->request_queue);
 		sb_backup = sdev->budget_map;
 	}
 	ret = sbitmap_init_node(&sdev->budget_map,
 				scsi_device_max_queue_depth(sdev),
-				new_shift, GFP_KERNEL,
+				new_shift, GFP_NOIO,
 				sdev->request_queue->node, false, true);
 	if (!ret)
 		sbitmap_resize(&sdev->budget_map, depth);
@@ -256,7 +257,7 @@ static int scsi_realloc_sdev_budget_map(struct scsi_device *sdev,
 		else
 			sbitmap_free(&sb_backup);
 		ret = 0;
-		blk_mq_unfreeze_queue(sdev->request_queue);
+		blk_mq_unfreeze_queue(sdev->request_queue, memflags);
 	}
 	return ret;
 }
@@ -265,7 +266,7 @@ static int scsi_realloc_sdev_budget_map(struct scsi_device *sdev,
  * scsi_alloc_sdev - allocate and setup a scsi_Device
  * @starget: which target to allocate a &scsi_device for
  * @lun: which lun
- * @hostdata: usually NULL and set by ->slave_alloc instead
+ * @hostdata: usually NULL and set by ->sdev_init instead
  *
  * Description:
  *     Allocate, initialize for io, and return a pointer to a scsi_Device.
@@ -312,11 +313,11 @@ static struct scsi_device *scsi_alloc_sdev(struct scsi_target *starget,
 	sdev->sdev_gendev.parent = get_device(&starget->dev);
 	sdev->sdev_target = starget;
 
-	/* usually NULL and set by ->slave_alloc instead */
+	/* usually NULL and set by ->sdev_init instead */
 	sdev->hostdata = hostdata;
 
 	/* if the device needs this changing, it may do so in the
-	 * slave_configure function */
+	 * sdev_configure function */
 	sdev->max_device_blocked = SCSI_DEFAULT_DEVICE_BLOCKED;
 
 	/*
@@ -363,8 +364,8 @@ static struct scsi_device *scsi_alloc_sdev(struct scsi_target *starget,
 
 	scsi_sysfs_device_initialize(sdev);
 
-	if (shost->hostt->slave_alloc) {
-		ret = shost->hostt->slave_alloc(sdev);
+	if (shost->hostt->sdev_init) {
+		ret = shost->hostt->sdev_init(sdev);
 		if (ret) {
 			/*
 			 * if LLDD reports slave not present, don't clutter
@@ -1074,10 +1075,8 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	else if (*bflags & BLIST_MAX_1024)
 		lim.max_hw_sectors = 1024;
 
-	if (hostt->device_configure)
-		ret = hostt->device_configure(sdev, &lim);
-	else if (hostt->slave_configure)
-		ret = hostt->slave_configure(sdev);
+	if (hostt->sdev_configure)
+		ret = hostt->sdev_configure(sdev, &lim);
 	if (ret) {
 		queue_limits_cancel_update(sdev->request_queue);
 		/*
@@ -1097,12 +1096,12 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	}
 
 	/*
-	 * The queue_depth is often changed in ->device_configure.
+	 * The queue_depth is often changed in ->sdev_configure.
 	 *
 	 * Set up budget map again since memory consumption of the map depends
 	 * on actual queue depth.
 	 */
-	if (hostt->device_configure || hostt->slave_configure)
+	if (hostt->sdev_configure)
 		scsi_realloc_sdev_budget_map(sdev, sdev->queue_depth);
 
 	if (sdev->scsi_level >= SCSI_3)

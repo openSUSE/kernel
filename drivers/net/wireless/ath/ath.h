@@ -182,6 +182,8 @@ struct ath_common {
 	const struct ath_bus_ops *bus_ops;
 	const struct ath_ps_ops *ps_ops;
 
+	void *suse_kabi_padding;
+
 	bool btcoex_enabled;
 	bool disable_ani;
 	bool bt_ant_diversity;

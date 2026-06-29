@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2024 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -118,11 +118,8 @@ lpfc_nvmet_cmd_template(void)
 	bf_set(wqe_sup, &wqe->fcp_tsend.wqe_com, 0);
 	bf_set(wqe_irsp, &wqe->fcp_tsend.wqe_com, 0);
 	bf_set(wqe_irsplen, &wqe->fcp_tsend.wqe_com, 0);
-	bf_set(wqe_pbde, &wqe->fcp_tsend.wqe_com, 0);
 
 	/* Word 12 - fcp_data_len is variable */
-
-	/* Word 13, 14, 15 - PBDE is zero */
 
 	/* TRECEIVE template */
 	wqe = &lpfc_treceive_cmd_template;
@@ -158,17 +155,14 @@ lpfc_nvmet_cmd_template(void)
 	bf_set(wqe_lenloc, &wqe->fcp_treceive.wqe_com, LPFC_WQE_LENLOC_WORD12);
 	bf_set(wqe_xc, &wqe->fcp_tsend.wqe_com, 1);
 
-	/* Word 11 - pbde is variable */
+	/* Word 11 */
 	bf_set(wqe_cmd_type, &wqe->fcp_treceive.wqe_com, FCP_COMMAND_TRECEIVE);
 	bf_set(wqe_cqid, &wqe->fcp_treceive.wqe_com, LPFC_WQE_CQ_ID_DEFAULT);
 	bf_set(wqe_sup, &wqe->fcp_treceive.wqe_com, 0);
 	bf_set(wqe_irsp, &wqe->fcp_treceive.wqe_com, 0);
 	bf_set(wqe_irsplen, &wqe->fcp_treceive.wqe_com, 0);
-	bf_set(wqe_pbde, &wqe->fcp_treceive.wqe_com, 1);
 
 	/* Word 12 - fcp_data_len is variable */
-
-	/* Word 13, 14, 15 - PBDE is variable */
 
 	/* TRSP template */
 	wqe = &lpfc_trsp_cmd_template;
@@ -207,7 +201,6 @@ lpfc_nvmet_cmd_template(void)
 	bf_set(wqe_sup, &wqe->fcp_trsp.wqe_com, 0);
 	bf_set(wqe_irsp, &wqe->fcp_trsp.wqe_com, 0);
 	bf_set(wqe_irsplen, &wqe->fcp_trsp.wqe_com, 0);
-	bf_set(wqe_pbde, &wqe->fcp_trsp.wqe_com, 0);
 
 	/* Word 12, 13, 14, 15 - is zero */
 }
@@ -1243,7 +1236,7 @@ lpfc_nvmet_defer_rcv(struct nvmet_fc_target_port *tgtport,
 	struct lpfc_nvmet_tgtport *tgtp;
 	struct lpfc_async_xchg_ctx *ctxp =
 		container_of(rsp, struct lpfc_async_xchg_ctx, hdlrctx.fcp_req);
-	struct rqb_dmabuf *nvmebuf = ctxp->rqb_buffer;
+	struct rqb_dmabuf *nvmebuf;
 	struct lpfc_hba *phba = ctxp->phba;
 	unsigned long iflag;
 
@@ -1251,13 +1244,18 @@ lpfc_nvmet_defer_rcv(struct nvmet_fc_target_port *tgtport,
 	lpfc_nvmeio_data(phba, "NVMET DEFERRCV: xri x%x sz %d CPU %02x\n",
 			 ctxp->oxid, ctxp->size, raw_smp_processor_id());
 
+	spin_lock_irqsave(&ctxp->ctxlock, iflag);
+	nvmebuf = ctxp->rqb_buffer;
 	if (!nvmebuf) {
+		spin_unlock_irqrestore(&ctxp->ctxlock, iflag);
 		lpfc_printf_log(phba, KERN_INFO, LOG_NVME_IOERR,
 				"6425 Defer rcv: no buffer oxid x%x: "
 				"flg %x ste %x\n",
 				ctxp->oxid, ctxp->flag, ctxp->state);
 		return;
 	}
+	ctxp->rqb_buffer = NULL;
+	spin_unlock_irqrestore(&ctxp->ctxlock, iflag);
 
 	tgtp = phba->targetport->private;
 	if (tgtp)
@@ -1265,9 +1263,6 @@ lpfc_nvmet_defer_rcv(struct nvmet_fc_target_port *tgtport,
 
 	/* Free the nvmebuf since a new buffer already replaced it */
 	nvmebuf->hrq->rqbp->rqb_free_buffer(phba, nvmebuf);
-	spin_lock_irqsave(&ctxp->ctxlock, iflag);
-	ctxp->rqb_buffer = NULL;
-	spin_unlock_irqrestore(&ctxp->ctxlock, iflag);
 }
 
 /**
@@ -2722,7 +2717,6 @@ lpfc_nvmet_prep_fcp_wqe(struct lpfc_hba *phba,
 	struct ulp_bde64 *bde;
 	dma_addr_t physaddr;
 	int i, cnt, nsegs;
-	bool use_pbde = false;
 	int xc = 1;
 
 	if (!lpfc_is_link_up(phba)) {
@@ -2854,7 +2848,7 @@ lpfc_nvmet_prep_fcp_wqe(struct lpfc_hba *phba,
 			/* In template ar=1 wqes=0 sup=0 irsp=0 irsplen=0 */
 
 			if (rsp->rsplen == LPFC_NVMET_SUCCESS_LEN) {
-				if (ndlp->nlp_flag & NLP_SUPPRESS_RSP)
+				if (test_bit(NLP_SUPPRESS_RSP, &ndlp->nlp_flag))
 					bf_set(wqe_sup,
 					       &wqe->fcp_tsend.wqe_com, 1);
 			} else {
@@ -2906,15 +2900,6 @@ lpfc_nvmet_prep_fcp_wqe(struct lpfc_hba *phba,
 		/* Word 10 - in template xc=1 */
 		if (!xc)
 			bf_set(wqe_xc, &wqe->fcp_treceive.wqe_com, 0);
-
-		/* Word 11 - check for pbde */
-		if (nsegs == 1 && phba->cfg_enable_pbde) {
-			use_pbde = true;
-			/* Word 11 - PBDE bit already preset by template */
-		} else {
-			/* Overwrite default template setting */
-			bf_set(wqe_pbde, &wqe->fcp_treceive.wqe_com, 0);
-		}
 
 		/* Word 12 */
 		wqe->fcp_tsend.fcp_data_len = rsp->transfer_length;
@@ -3023,19 +3008,9 @@ lpfc_nvmet_prep_fcp_wqe(struct lpfc_hba *phba,
 	}
 
 	bde = (struct ulp_bde64 *)&wqe->words[13];
-	if (use_pbde) {
-		/* decrement sgl ptr backwards once to first data sge */
-		sgl--;
 
-		/* Words 13-15 (PBDE) */
-		bde->addrLow = sgl->addr_lo;
-		bde->addrHigh = sgl->addr_hi;
-		bde->tus.f.bdeSize = le32_to_cpu(sgl->sge_len);
-		bde->tus.f.bdeFlags = BUFF_TYPE_BDE_64;
-		bde->tus.w = cpu_to_le32(bde->tus.w);
-	} else {
-		memset(bde, 0, sizeof(struct ulp_bde64));
-	}
+	memset(bde, 0, sizeof(struct ulp_bde64));
+
 	ctxp->state = LPFC_NVME_STE_DATA;
 	ctxp->entry_cnt++;
 	return nvmewqe;

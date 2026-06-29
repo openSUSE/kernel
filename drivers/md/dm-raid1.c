@@ -133,10 +133,9 @@ static void queue_bio(struct mirror_set *ms, struct bio *bio, int rw)
 	spin_lock_irqsave(&ms->lock, flags);
 	should_wake = !(bl->head);
 	bio_list_add(bl, bio);
-	spin_unlock_irqrestore(&ms->lock, flags);
-
 	if (should_wake)
 		wakeup_mirrord(ms);
+	spin_unlock_irqrestore(&ms->lock, flags);
 }
 
 static void dispatch_bios(void *context, struct bio_list *bio_list)
@@ -646,9 +645,9 @@ static void write_callback(unsigned long error, void *context)
 	if (!ms->failures.head)
 		should_wake = 1;
 	bio_list_add(&ms->failures, bio);
-	spin_unlock_irqrestore(&ms->lock, flags);
 	if (should_wake)
 		wakeup_mirrord(ms);
+	spin_unlock_irqrestore(&ms->lock, flags);
 }
 
 static void do_write(struct mirror_set *ms, struct bio *bio)
@@ -656,7 +655,7 @@ static void do_write(struct mirror_set *ms, struct bio *bio)
 	unsigned int i;
 	struct dm_io_region io[MAX_NR_MIRRORS], *dest = io;
 	struct mirror *m;
-	blk_opf_t op_flags = bio->bi_opf & (REQ_FUA | REQ_PREFLUSH);
+	blk_opf_t op_flags = bio->bi_opf & (REQ_FUA | REQ_PREFLUSH | REQ_ATOMIC);
 	struct dm_io_request io_req = {
 		.bi_opf = REQ_OP_WRITE | op_flags,
 		.mem.type = DM_IO_BIO,
@@ -1483,8 +1482,9 @@ static int mirror_iterate_devices(struct dm_target *ti,
 
 static struct target_type mirror_target = {
 	.name	 = "mirror",
-	.version = {1, 14, 0},
+	.version = {1, 15, 0},
 	.module	 = THIS_MODULE,
+	.features = DM_TARGET_ATOMIC_WRITES,
 	.ctr	 = mirror_ctr,
 	.dtr	 = mirror_dtr,
 	.map	 = mirror_map,

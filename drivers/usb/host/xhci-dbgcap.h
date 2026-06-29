@@ -96,6 +96,7 @@ struct dbc_ep {
 #define DBC_WRITE_BUF_SIZE		8192
 #define DBC_POLL_INTERVAL_DEFAULT	64	/* milliseconds */
 #define DBC_POLL_INTERVAL_MAX		5000	/* milliseconds */
+#define DBC_XFER_INACTIVITY_TIMEOUT	10	/* milliseconds */
 /*
  * Private structure for DbC hardware state:
  */
@@ -113,11 +114,13 @@ struct dbc_port {
 	unsigned int			tx_boundary;
 
 	bool				registered;
+	void *suse_kabi_padding;
 };
 
 struct dbc_driver {
 	int (*configure)(struct xhci_dbc *dbc);
 	void (*disconnect)(struct xhci_dbc *dbc);
+	void *suse_kabi_padding;
 };
 
 struct xhci_dbc {
@@ -142,10 +145,12 @@ struct xhci_dbc {
 	enum dbc_state			state;
 	struct delayed_work		event_work;
 	unsigned int			poll_interval;	/* ms */
+	unsigned long			xfer_timestamp;
 	unsigned			resume_required:1;
 	struct dbc_ep			eps[2];
 
 	const struct dbc_driver		*driver;
+	void *suse_kabi_padding;
 	void				*priv;
 };
 
@@ -164,6 +169,7 @@ struct dbc_request {
 	dma_addr_t			trb_dma;
 	union xhci_trb			*trb;
 	unsigned			direction:1;
+	void *suse_kabi_padding;
 };
 
 #define dbc_bulkout_ctx(d)		\
@@ -187,6 +193,7 @@ struct dbc_request {
 enum evtreturn {
 	EVT_ERR	= -1,
 	EVT_DONE,
+	EVT_XFER_DONE,
 	EVT_GSER,
 	EVT_DISC,
 };

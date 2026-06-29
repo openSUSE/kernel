@@ -62,6 +62,7 @@ struct tb_nvm {
 	bool authenticating;
 	bool flushed;
 	const struct tb_nvm_vendor_ops *vops;
+	void *suse_kabi_padding;
 };
 
 enum tb_nvm_write_ops {
@@ -212,6 +213,7 @@ struct tb_switch {
 	unsigned int max_pcie_credits;
 	unsigned int max_dma_credits;
 	unsigned int clx;
+	void *suse_kabi_padding;
 };
 
 /**
@@ -297,6 +299,8 @@ struct tb_port {
 	struct list_head group_list;
 	unsigned int max_bw;
 	bool redrive;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -313,6 +317,7 @@ struct usb4_port {
 	struct tb_port *port;
 	bool can_offline;
 	bool offline;
+	void *suse_kabi_padding;
 #ifdef CONFIG_USB4_DEBUGFS_MARGINING
 	struct tb_margining *margining;
 #endif
@@ -344,6 +349,7 @@ struct tb_retimer {
 #ifdef CONFIG_USB4_DEBUGFS_MARGINING
 	struct tb_margining *margining;
 #endif
+	void *suse_kabi_padding;
 };
 
 /**
@@ -381,6 +387,7 @@ struct tb_path_hop {
 	int next_hop_index;
 	unsigned int initial_credits;
 	unsigned int nfc_credits;
+	void *suse_kabi_padding;
 	bool pm_support;
 };
 
@@ -438,6 +445,7 @@ struct tb_path {
 	struct tb_path_hop *hops;
 	int path_length;
 	bool alloc_hopid;
+	void *suse_kabi_padding;
 };
 
 /* HopIDs 0-7 are reserved by the Thunderbolt protocol */
@@ -534,6 +542,7 @@ struct tb_cm_ops {
 			      void *rx_data, size_t rx_data_len);
 	int (*usb4_switch_nvm_authenticate_status)(struct tb_switch *sw,
 						   u32 *status);
+	void *suse_kabi_padding;
 };
 
 static inline void *tb_priv(struct tb *tb)
@@ -1299,7 +1308,7 @@ int usb4_switch_read_uid(struct tb_switch *sw, u64 *uid);
 int usb4_switch_drom_read(struct tb_switch *sw, unsigned int address, void *buf,
 			  size_t size);
 bool usb4_switch_lane_bonding_possible(struct tb_switch *sw);
-int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags);
+int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags, bool runtime);
 int usb4_switch_set_sleep(struct tb_switch *sw);
 int usb4_switch_nvm_sector_size(struct tb_switch *sw);
 int usb4_switch_nvm_read(struct tb_switch *sw, unsigned int address, void *buf,
@@ -1384,11 +1393,12 @@ struct usb4_port_margining_params {
 	u32 voltage_time_offset;
 	bool optional_voltage_offset_range;
 	bool right_high;
+	bool upper_eye;
 	bool time;
 };
 
 int usb4_port_margining_caps(struct tb_port *port, enum usb4_sb_target target,
-			     u8 index, u32 *caps);
+			     u8 index, u32 *caps, size_t ncaps);
 int usb4_port_hw_margin(struct tb_port *port, enum usb4_sb_target target,
 			u8 index, const struct usb4_port_margining_params *params,
 			u32 *results);

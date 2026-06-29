@@ -1341,6 +1341,10 @@ static void retrieve_status(struct dm_table *table,
 		used = param->data_start + (outptr - outbuf);
 
 		outptr = align_ptr(outptr);
+		if (!outptr || outptr > outbuf + len) {
+			param->flags |= DM_BUFFER_FULL_FLAG;
+			break;
+		}
 		spec->next = outptr - outbuf;
 	}
 
@@ -1648,8 +1652,6 @@ static void retrieve_deps(struct dm_table *table,
 	struct dm_dev_internal *dd;
 	struct dm_target_deps *deps;
 
-	down_read(&table->devices_lock);
-
 	deps = get_result_buffer(param, param_size, &len);
 
 	/*
@@ -1664,7 +1666,7 @@ static void retrieve_deps(struct dm_table *table,
 	needed = struct_size(deps, dev, count);
 	if (len < needed) {
 		param->flags |= DM_BUFFER_FULL_FLAG;
-		goto out;
+		return;
 	}
 
 	/*
@@ -1676,9 +1678,6 @@ static void retrieve_deps(struct dm_table *table,
 		deps->dev[count++] = huge_encode_dev(dd->dm_dev->bdev->bd_dev);
 
 	param->data_size = param->data_start + needed;
-
-out:
-	up_read(&table->devices_lock);
 }
 
 static int table_deps(struct file *filp, struct dm_ioctl *param, size_t param_size)
@@ -1912,7 +1911,7 @@ static int check_version(unsigned int cmd, struct dm_ioctl __user *user,
 
 	if ((kernel_params->version[0] != DM_VERSION_MAJOR) ||
 	    (kernel_params->version[1] > DM_VERSION_MINOR)) {
-		DMERR("ioctl interface mismatch: kernel(%u.%u.%u), user(%u.%u.%u), cmd(%d)",
+		DMERR_LIMIT("ioctl interface mismatch: kernel(%u.%u.%u), user(%u.%u.%u), cmd(%d)",
 		      DM_VERSION_MAJOR, DM_VERSION_MINOR,
 		      DM_VERSION_PATCHLEVEL,
 		      kernel_params->version[0],
@@ -1961,7 +1960,7 @@ static int copy_params(struct dm_ioctl __user *user, struct dm_ioctl *param_kern
 
 	if (unlikely(param_kernel->data_size < minimum_data_size) ||
 	    unlikely(param_kernel->data_size > DM_MAX_TARGETS * DM_MAX_TARGET_PARAMS)) {
-		DMERR("Invalid data size in the ioctl structure: %u",
+		DMERR_LIMIT("Invalid data size in the ioctl structure: %u",
 		      param_kernel->data_size);
 		return -EINVAL;
 	}

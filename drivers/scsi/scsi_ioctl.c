@@ -407,7 +407,7 @@ static int scsi_complete_sghdr_rq(struct request *rq, struct sg_io_hdr *hdr,
 	return ret;
 }
 
-static int sg_io(struct scsi_device *sdev, struct sg_io_hdr *hdr,
+int sg_io(struct scsi_device *sdev, struct sg_io_hdr *hdr,
 		bool open_for_write)
 {
 	unsigned long start_time;
@@ -474,6 +474,7 @@ out_put_request:
 	blk_mq_free_request(rq);
 	return ret;
 }
+EXPORT_SYMBOL(sg_io);
 
 /**
  * sg_scsi_ioctl  --  handle deprecated SCSI_IOCTL_SEND_COMMAND ioctl

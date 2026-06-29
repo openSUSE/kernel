@@ -41,7 +41,7 @@ static int hmac_setkey(struct crypto_shash *parent,
 	SHASH_DESC_ON_STACK(shash, hash);
 	unsigned int i;
 
-	if (fips_enabled && (keylen < 112 / 8))
+	if (fips_enabled && (keylen < 128 / 8))
 		return -EINVAL;
 
 	shash->tfm = hash;

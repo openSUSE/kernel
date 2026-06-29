@@ -25,6 +25,7 @@ ALL_TESTS="
 	kci_test_ipsec
 	kci_test_ipsec_offload
 	kci_test_fdb_get
+	kci_test_fdb_del
 	kci_test_neigh_get
 	kci_test_bridge_parent_id
 	kci_test_address_proto
@@ -809,10 +810,10 @@ kci_test_ipsec_offload()
 	# does driver have correct offload info
 	run_cmd diff $sysfsf - << EOF
 SA count=2 tx=3
-sa[0] tx ipaddr=0x00000000 00000000 00000000 00000000
+sa[0] tx ipaddr=$dstip
 sa[0]    spi=0x00000009 proto=0x32 salt=0x61626364 crypt=1
 sa[0]    key=0x34333231 38373635 32313039 36353433
-sa[1] rx ipaddr=0x00000000 00000000 00000000 037ba8c0
+sa[1] rx ipaddr=$srcip
 sa[1]    spi=0x00000009 proto=0x32 salt=0x61626364 crypt=1
 sa[1]    key=0x34333231 38373635 32313039 36353433
 EOF
@@ -1063,6 +1064,45 @@ kci_test_fdb_get()
 	fi
 
 	end_test "PASS: bridge fdb get"
+}
+
+kci_test_fdb_del()
+{
+	local test_mac=de:ad:be:ef:13:37
+	local dummydev="dummy1"
+	local brdev="test-br0"
+	local ret=0
+
+	run_cmd_grep 'bridge fdb get' bridge fdb help
+	if [ $? -ne 0 ]; then
+		end_test "SKIP: fdb del tests: iproute2 too old"
+		return $ksft_skip
+	fi
+
+	setup_ns testns
+	if [ $? -ne 0 ]; then
+		end_test "SKIP fdb del tests: cannot add net namespace $testns"
+		return $ksft_skip
+	fi
+	IP="ip -netns $testns"
+	BRIDGE="bridge -netns $testns"
+	run_cmd $IP link add $dummydev type dummy
+	run_cmd $IP link add name $brdev type bridge vlan_filtering 1
+	run_cmd $IP link set dev $dummydev master $brdev
+	run_cmd $BRIDGE fdb add $test_mac dev $dummydev master static vlan 1
+	run_cmd $BRIDGE vlan del vid 1 dev $dummydev
+	run_cmd $BRIDGE fdb get $test_mac br $brdev vlan 1
+	run_cmd $BRIDGE fdb del $test_mac dev $dummydev master vlan 1
+	run_cmd_fail $BRIDGE fdb get $test_mac br $brdev vlan 1
+
+	ip netns del $testns &>/dev/null
+
+	if [ $ret -ne 0 ]; then
+		end_test "FAIL: bridge fdb del"
+		return 1
+	fi
+
+	end_test "PASS: bridge fdb del"
 }
 
 kci_test_neigh_get()

@@ -76,13 +76,13 @@ int amdgpu_dpm_set_powergating_by_smu(struct amdgpu_device *adev, uint32_t block
 	const struct amd_pm_funcs *pp_funcs = adev->powerplay.pp_funcs;
 	enum ip_power_state pwr_state = gate ? POWER_STATE_OFF : POWER_STATE_ON;
 
+	mutex_lock(&adev->pm.mutex);
+
 	if (atomic_read(&adev->pm.pwr_state[block_type]) == pwr_state) {
 		dev_dbg(adev->dev, "IP block%d already in the target %s state!",
 				block_type, gate ? "gate" : "ungate");
-		return 0;
+		goto out_unlock;
 	}
-
-	mutex_lock(&adev->pm.mutex);
 
 	switch (block_type) {
 	case AMD_IP_BLOCK_TYPE_UVD:
@@ -105,6 +105,7 @@ int amdgpu_dpm_set_powergating_by_smu(struct amdgpu_device *adev, uint32_t block
 	if (!ret)
 		atomic_set(&adev->pm.pwr_state[block_type], pwr_state);
 
+out_unlock:
 	mutex_unlock(&adev->pm.mutex);
 
 	return ret;

@@ -78,6 +78,9 @@ bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
 	 *   - MDA enabled
 	 * - Power management control on fc
 	 */
+	if (!ie->mesh_config)
+		return false;
+
 	if (!(ifmsh->mesh_id_len == ie->mesh_id_len &&
 	     memcmp(ifmsh->mesh_id, ie->mesh_id, ie->mesh_id_len) == 0 &&
 	     (ifmsh->mesh_pp_id == ie->mesh_config->meshconf_psel) &&
@@ -623,6 +626,9 @@ int mesh_add_he_6ghz_cap_ie(struct ieee80211_sub_if_data *sdata,
 	if (!sband)
 		return -EINVAL;
 
+	if (sband->band != NL80211_BAND_6GHZ)
+		return 0;
+
 	iftd = ieee80211_get_sband_iftype_data(sband,
 					       NL80211_IFTYPE_MESH_POINT);
 	/* The device doesn't support HE in mesh mode or at all */
@@ -1157,14 +1163,14 @@ void ieee80211_mbss_info_change_notify(struct ieee80211_sub_if_data *sdata,
 				       u64 changed)
 {
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
-	unsigned long bits = changed;
+	unsigned long bits[] = { BITMAP_FROM_U64(changed) };
 	u32 bit;
 
-	if (!bits)
+	if (!changed)
 		return;
 
 	/* if we race with running work, worst case this work becomes a noop */
-	for_each_set_bit(bit, &bits, sizeof(changed) * BITS_PER_BYTE)
+	for_each_set_bit(bit, bits, sizeof(changed) * BITS_PER_BYTE)
 		set_bit(bit, ifmsh->mbss_changed);
 	set_bit(MESH_WORK_MBSS_CHANGED, &ifmsh->wrkq_flags);
 	wiphy_work_queue(sdata->local->hw.wiphy, &sdata->work);
@@ -1482,7 +1488,7 @@ static void ieee80211_mesh_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 	if (!elems)
 		return;
 
-	/* ignore non-mesh or secure / unsecure mismatch */
+	/* ignore non-mesh or secure / insecure mismatch */
 	if ((!elems->mesh_id || !elems->mesh_config) ||
 	    (elems->rsn && sdata->u.mesh.security == IEEE80211_MESH_SEC_NONE) ||
 	    (!elems->rsn && sdata->u.mesh.security != IEEE80211_MESH_SEC_NONE))
@@ -1626,6 +1632,9 @@ static void mesh_rx_csa_frame(struct ieee80211_sub_if_data *sdata,
 		return;
 
 	if (!mesh_matches_local(sdata, elems))
+		goto free;
+
+	if (!elems->mesh_chansw_params_ie)
 		goto free;
 
 	ifmsh->chsw_ttl = elems->mesh_chansw_params_ie->mesh_ttl;

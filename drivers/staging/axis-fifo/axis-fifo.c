@@ -42,7 +42,6 @@
 #define DRIVER_NAME "axis_fifo"
 
 #define READ_BUF_SIZE 128U /* read buffer length in words */
-#define WRITE_BUF_SIZE 128U /* write buffer length in words */
 
 /* ----------------------------
  *     IP register offsets
@@ -140,180 +139,6 @@ struct axis_fifo {
 };
 
 /* ----------------------------
- *         sysfs entries
- * ----------------------------
- */
-
-static ssize_t sysfs_write(struct device *dev, const char *buf,
-			   size_t count, unsigned int addr_offset)
-{
-	struct axis_fifo *fifo = dev_get_drvdata(dev);
-	unsigned long tmp;
-	int rc;
-
-	rc = kstrtoul(buf, 0, &tmp);
-	if (rc < 0)
-		return rc;
-
-	iowrite32(tmp, fifo->base_addr + addr_offset);
-
-	return count;
-}
-
-static ssize_t sysfs_read(struct device *dev, char *buf,
-			  unsigned int addr_offset)
-{
-	struct axis_fifo *fifo = dev_get_drvdata(dev);
-	unsigned int read_val;
-
-	read_val = ioread32(fifo->base_addr + addr_offset);
-	return sysfs_emit(buf, "0x%x\n", read_val);
-}
-
-static ssize_t isr_store(struct device *dev, struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_ISR_OFFSET);
-}
-
-static ssize_t isr_show(struct device *dev,
-			struct device_attribute *attr, char *buf)
-{
-	return sysfs_read(dev, buf, XLLF_ISR_OFFSET);
-}
-
-static DEVICE_ATTR_RW(isr);
-
-static ssize_t ier_store(struct device *dev, struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_IER_OFFSET);
-}
-
-static ssize_t ier_show(struct device *dev,
-			struct device_attribute *attr, char *buf)
-{
-	return sysfs_read(dev, buf, XLLF_IER_OFFSET);
-}
-
-static DEVICE_ATTR_RW(ier);
-
-static ssize_t tdfr_store(struct device *dev, struct device_attribute *attr,
-			  const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_TDFR_OFFSET);
-}
-
-static DEVICE_ATTR_WO(tdfr);
-
-static ssize_t tdfv_show(struct device *dev,
-			 struct device_attribute *attr, char *buf)
-{
-	return sysfs_read(dev, buf, XLLF_TDFV_OFFSET);
-}
-
-static DEVICE_ATTR_RO(tdfv);
-
-static ssize_t tdfd_store(struct device *dev, struct device_attribute *attr,
-			  const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_TDFD_OFFSET);
-}
-
-static DEVICE_ATTR_WO(tdfd);
-
-static ssize_t tlr_store(struct device *dev, struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_TLR_OFFSET);
-}
-
-static DEVICE_ATTR_WO(tlr);
-
-static ssize_t rdfr_store(struct device *dev, struct device_attribute *attr,
-			  const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_RDFR_OFFSET);
-}
-
-static DEVICE_ATTR_WO(rdfr);
-
-static ssize_t rdfo_show(struct device *dev,
-			 struct device_attribute *attr, char *buf)
-{
-	return sysfs_read(dev, buf, XLLF_RDFO_OFFSET);
-}
-
-static DEVICE_ATTR_RO(rdfo);
-
-static ssize_t rdfd_show(struct device *dev,
-			 struct device_attribute *attr, char *buf)
-{
-	return sysfs_read(dev, buf, XLLF_RDFD_OFFSET);
-}
-
-static DEVICE_ATTR_RO(rdfd);
-
-static ssize_t rlr_show(struct device *dev,
-			struct device_attribute *attr, char *buf)
-{
-	return sysfs_read(dev, buf, XLLF_RLR_OFFSET);
-}
-
-static DEVICE_ATTR_RO(rlr);
-
-static ssize_t srr_store(struct device *dev, struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_SRR_OFFSET);
-}
-
-static DEVICE_ATTR_WO(srr);
-
-static ssize_t tdr_store(struct device *dev, struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	return sysfs_write(dev, buf, count, XLLF_TDR_OFFSET);
-}
-
-static DEVICE_ATTR_WO(tdr);
-
-static ssize_t rdr_show(struct device *dev,
-			struct device_attribute *attr, char *buf)
-{
-	return sysfs_read(dev, buf, XLLF_RDR_OFFSET);
-}
-
-static DEVICE_ATTR_RO(rdr);
-
-static struct attribute *axis_fifo_attrs[] = {
-	&dev_attr_isr.attr,
-	&dev_attr_ier.attr,
-	&dev_attr_tdfr.attr,
-	&dev_attr_tdfv.attr,
-	&dev_attr_tdfd.attr,
-	&dev_attr_tlr.attr,
-	&dev_attr_rdfr.attr,
-	&dev_attr_rdfo.attr,
-	&dev_attr_rdfd.attr,
-	&dev_attr_rlr.attr,
-	&dev_attr_srr.attr,
-	&dev_attr_tdr.attr,
-	&dev_attr_rdr.attr,
-	NULL,
-};
-
-static const struct attribute_group axis_fifo_attrs_group = {
-	.name = "ip_registers",
-	.attrs = axis_fifo_attrs,
-};
-
-static const struct attribute_group *axis_fifo_attrs_groups[] = {
-	&axis_fifo_attrs_group,
-	NULL,
-};
-
-/* ----------------------------
  *        implementation
  * ----------------------------
  */
@@ -392,32 +217,28 @@ static ssize_t axis_fifo_read(struct file *f, char __user *buf,
 	}
 
 	bytes_available = ioread32(fifo->base_addr + XLLF_RLR_OFFSET);
+	words_available = bytes_available / sizeof(u32);
 	if (!bytes_available) {
-		dev_err(fifo->dt_device, "received a packet of length 0 - fifo core will be reset\n");
-		reset_ip_core(fifo);
+		dev_err(fifo->dt_device, "received a packet of length 0\n");
 		ret = -EIO;
 		goto end_unlock;
 	}
 
 	if (bytes_available > len) {
-		dev_err(fifo->dt_device, "user read buffer too small (available bytes=%zu user buffer bytes=%zu) - fifo core will be reset\n",
+		dev_err(fifo->dt_device, "user read buffer too small (available bytes=%zu user buffer bytes=%zu)\n",
 			bytes_available, len);
-		reset_ip_core(fifo);
 		ret = -EINVAL;
-		goto end_unlock;
+		goto err_flush_rx;
 	}
 
 	if (bytes_available % sizeof(u32)) {
 		/* this probably can't happen unless IP
 		 * registers were previously mishandled
 		 */
-		dev_err(fifo->dt_device, "received a packet that isn't word-aligned - fifo core will be reset\n");
-		reset_ip_core(fifo);
+		dev_err(fifo->dt_device, "received a packet that isn't word-aligned\n");
 		ret = -EIO;
-		goto end_unlock;
+		goto err_flush_rx;
 	}
-
-	words_available = bytes_available / sizeof(u32);
 
 	/* read data into an intermediate buffer, copying the contents
 	 * to userspace when the buffer is full
@@ -430,19 +251,23 @@ static ssize_t axis_fifo_read(struct file *f, char __user *buf,
 			tmp_buf[i] = ioread32(fifo->base_addr +
 					      XLLF_RDFD_OFFSET);
 		}
+		words_available -= copy;
 
 		if (copy_to_user(buf + copied * sizeof(u32), tmp_buf,
 				 copy * sizeof(u32))) {
-			reset_ip_core(fifo);
 			ret = -EFAULT;
-			goto end_unlock;
+			goto err_flush_rx;
 		}
 
 		copied += copy;
-		words_available -= copy;
 	}
+	mutex_unlock(&fifo->read_lock);
 
-	ret = bytes_available;
+	return bytes_available;
+
+err_flush_rx:
+	while (words_available--)
+		ioread32(fifo->base_addr + XLLF_RDFD_OFFSET);
 
 end_unlock:
 	mutex_unlock(&fifo->read_lock);
@@ -470,11 +295,8 @@ static ssize_t axis_fifo_write(struct file *f, const char __user *buf,
 {
 	struct axis_fifo *fifo = (struct axis_fifo *)f->private_data;
 	unsigned int words_to_write;
-	unsigned int copied;
-	unsigned int copy;
-	unsigned int i;
+	u32 *txbuf;
 	int ret;
-	u32 tmp_buf[WRITE_BUF_SIZE];
 
 	if (len % sizeof(u32)) {
 		dev_err(fifo->dt_device,
@@ -490,11 +312,17 @@ static ssize_t axis_fifo_write(struct file *f, const char __user *buf,
 		return -EINVAL;
 	}
 
-	if (words_to_write > fifo->tx_fifo_depth) {
-		dev_err(fifo->dt_device, "tried to write more words [%u] than slots in the fifo buffer [%u]\n",
-			words_to_write, fifo->tx_fifo_depth);
+	/*
+	 * In 'Store-and-Forward' mode, the maximum packet that can be
+	 * transmitted is limited by the size of the FIFO, which is
+	 * (C_TX_FIFO_DEPTH–4)*(data interface width/8) bytes.
+	 *
+	 * Do not attempt to send a packet larger than 'tx_fifo_depth - 4',
+	 * otherwise a 'Transmit Packet Overrun Error' interrupt will be
+	 * raised, which requires a reset of the TX circuit to recover.
+	 */
+	if (words_to_write > (fifo->tx_fifo_depth - 4))
 		return -EINVAL;
-	}
 
 	if (fifo->write_flags & O_NONBLOCK) {
 		/*
@@ -533,33 +361,20 @@ static ssize_t axis_fifo_write(struct file *f, const char __user *buf,
 		}
 	}
 
-	/* write data from an intermediate buffer into the fifo IP, refilling
-	 * the buffer with userspace data as needed
-	 */
-	copied = 0;
-	while (words_to_write > 0) {
-		copy = min(words_to_write, WRITE_BUF_SIZE);
-
-		if (copy_from_user(tmp_buf, buf + copied * sizeof(u32),
-				   copy * sizeof(u32))) {
-			reset_ip_core(fifo);
-			ret = -EFAULT;
-			goto end_unlock;
-		}
-
-		for (i = 0; i < copy; i++)
-			iowrite32(tmp_buf[i], fifo->base_addr +
-				  XLLF_TDFD_OFFSET);
-
-		copied += copy;
-		words_to_write -= copy;
+	txbuf = vmemdup_user(buf, len);
+	if (IS_ERR(txbuf)) {
+		ret = PTR_ERR(txbuf);
+		goto end_unlock;
 	}
 
-	ret = copied * sizeof(u32);
+	for (int i = 0; i < words_to_write; ++i)
+		iowrite32(txbuf[i], fifo->base_addr + XLLF_TDFD_OFFSET);
 
 	/* write packet size to fifo */
-	iowrite32(ret, fifo->base_addr + XLLF_TLR_OFFSET);
+	iowrite32(len, fifo->base_addr + XLLF_TLR_OFFSET);
 
+	ret = len;
+	kvfree(txbuf);
 end_unlock:
 	mutex_unlock(&fifo->write_lock);
 
@@ -775,9 +590,6 @@ static int axis_fifo_parse_dt(struct axis_fifo *fifo)
 		goto end;
 	}
 
-	/* IP sets TDFV to fifo depth - 4 so we will do the same */
-	fifo->tx_fifo_depth -= 4;
-
 	ret = get_dts_property(fifo, "xlnx,use-rx-data", &fifo->has_rx_fifo);
 	if (ret) {
 		dev_err(fifo->dt_device, "missing xlnx,use-rx-data property\n");
@@ -885,7 +697,6 @@ static int axis_fifo_probe(struct platform_device *pdev)
 	fifo->miscdev.fops = &fops;
 	fifo->miscdev.minor = MISC_DYNAMIC_MINOR;
 	fifo->miscdev.name = device_name;
-	fifo->miscdev.groups = axis_fifo_attrs_groups;
 	fifo->miscdev.parent = dev;
 	rc = misc_register(&fifo->miscdev);
 	if (rc < 0)

@@ -751,6 +751,8 @@ static int i10nm_get_ddr_munits(void)
 				continue;
 			} else {
 				d->imc[lmc].mdev = mdev;
+				if (res_cfg->type == SPR)
+					skx_set_mc_mapping(d, i, lmc);
 				lmc++;
 			}
 		}
@@ -938,16 +940,17 @@ static struct res_config gnr_cfg = {
 };
 
 static const struct x86_cpu_id i10nm_cpuids[] = {
-	X86_MATCH_VFM_STEPPINGS(INTEL_ATOM_TREMONT_D,	X86_STEPPINGS(0x0, 0x3), &i10nm_cfg0),
-	X86_MATCH_VFM_STEPPINGS(INTEL_ATOM_TREMONT_D,	X86_STEPPINGS(0x4, 0xf), &i10nm_cfg1),
-	X86_MATCH_VFM_STEPPINGS(INTEL_ICELAKE_X,	X86_STEPPINGS(0x0, 0x3), &i10nm_cfg0),
-	X86_MATCH_VFM_STEPPINGS(INTEL_ICELAKE_X,	X86_STEPPINGS(0x4, 0xf), &i10nm_cfg1),
-	X86_MATCH_VFM_STEPPINGS(INTEL_ICELAKE_D,	X86_STEPPINGS(0x0, 0xf), &i10nm_cfg1),
-	X86_MATCH_VFM_STEPPINGS(INTEL_SAPPHIRERAPIDS_X,	X86_STEPPINGS(0x0, 0xf), &spr_cfg),
-	X86_MATCH_VFM_STEPPINGS(INTEL_EMERALDRAPIDS_X,	X86_STEPPINGS(0x0, 0xf), &spr_cfg),
-	X86_MATCH_VFM_STEPPINGS(INTEL_GRANITERAPIDS_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
-	X86_MATCH_VFM_STEPPINGS(INTEL_ATOM_CRESTMONT_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
-	X86_MATCH_VFM_STEPPINGS(INTEL_ATOM_CRESTMONT,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
+	X86_MATCH_VFM_STEPS(INTEL_ATOM_TREMONT_D,	X86_STEP_MIN, 0x3, &i10nm_cfg0),
+	X86_MATCH_VFM_STEPS(INTEL_ATOM_TREMONT_D,	0x4, X86_STEP_MAX, &i10nm_cfg1),
+	X86_MATCH_VFM_STEPS(INTEL_ICELAKE_X,	X86_STEP_MIN, 0x3, &i10nm_cfg0),
+	X86_MATCH_VFM_STEPS(INTEL_ICELAKE_X,	0x4, X86_STEP_MAX, &i10nm_cfg1),
+	X86_MATCH_VFM(	    INTEL_ICELAKE_D,			   &i10nm_cfg1),
+	X86_MATCH_VFM(INTEL_SAPPHIRERAPIDS_X,	&spr_cfg),
+	X86_MATCH_VFM(INTEL_EMERALDRAPIDS_X,	&spr_cfg),
+	X86_MATCH_VFM(INTEL_GRANITERAPIDS_X,	&gnr_cfg),
+	X86_MATCH_VFM(INTEL_ATOM_CRESTMONT_X,	&gnr_cfg),
+	X86_MATCH_VFM(INTEL_ATOM_CRESTMONT,	&gnr_cfg),
+	X86_MATCH_VFM(INTEL_ATOM_DARKMONT_X,	&gnr_cfg),
 	{}
 };
 MODULE_DEVICE_TABLE(x86cpu, i10nm_cpuids);
@@ -962,6 +965,15 @@ static bool i10nm_check_ecc(struct skx_imc *imc, int chan)
 	return !!GET_BITFIELD(mcmtr, 2, 2);
 }
 
+static bool i10nm_channel_disabled(struct skx_imc *imc, int chan)
+{
+	u32 mcmtr = I10NM_GET_MCMTR(imc, chan);
+
+	edac_dbg(1, "mc%d ch%d mcmtr reg %x\n", imc->mc, chan, mcmtr);
+
+	return (mcmtr == ~0 || GET_BITFIELD(mcmtr, 18, 18));
+}
+
 static int i10nm_get_dimm_config(struct mem_ctl_info *mci,
 				 struct res_config *cfg)
 {
@@ -974,6 +986,11 @@ static int i10nm_get_dimm_config(struct mem_ctl_info *mci,
 	for (i = 0; i < imc->num_channels; i++) {
 		if (!imc->mbase)
 			continue;
+
+		if (i10nm_channel_disabled(imc, i)) {
+			edac_dbg(1, "mc%d ch%d is disabled.\n", imc->mc, i);
+			continue;
+		}
 
 		ndimms = 0;
 
@@ -1010,7 +1027,7 @@ static struct notifier_block i10nm_mce_dec = {
 
 static int __init i10nm_init(void)
 {
-	u8 mc = 0, src_id = 0, node_id = 0;
+	u8 mc = 0, src_id = 0;
 	const struct x86_cpu_id *id;
 	struct res_config *cfg;
 	const char *owner;
@@ -1036,6 +1053,7 @@ static int __init i10nm_init(void)
 		return -ENODEV;
 
 	cfg = (struct res_config *)id->driver_data;
+	skx_set_res_cfg(cfg);
 	res_cfg = cfg;
 
 	rc = skx_get_hi_lo(0x09a2, off, &tolm, &tohm);
@@ -1069,19 +1087,14 @@ static int __init i10nm_init(void)
 		if (rc < 0)
 			goto fail;
 
-		rc = skx_get_node_id(d, &node_id);
-		if (rc < 0)
-			goto fail;
-
-		edac_dbg(2, "src_id = %d node_id = %d\n", src_id, node_id);
+		edac_dbg(2, "src_id = %d\n", src_id);
 		for (i = 0; i < imc_num; i++) {
 			if (!d->imc[i].mdev)
 				continue;
 
 			d->imc[i].mc  = mc++;
 			d->imc[i].lmc = i;
-			d->imc[i].src_id  = src_id;
-			d->imc[i].node_id = node_id;
+			d->imc[i].src_id = src_id;
 			if (d->imc[i].hbm_mc) {
 				d->imc[i].chan_mmio_sz = cfg->hbm_chan_mmio_sz;
 				d->imc[i].num_channels = cfg->hbm_chan_num;

@@ -6,6 +6,7 @@
  */
 
 #include "builtin.h"
+#include "perf.h"
 
 #include "util/data.h"
 #include "util/evlist.h"
@@ -23,7 +24,7 @@
 
 #include <subcmd/pager.h>
 #include <subcmd/parse-options.h>
-#include <traceevent/event-parse.h>
+#include <event-parse.h>
 
 #include <errno.h>
 #include <inttypes.h>

@@ -462,9 +462,9 @@ static int jpeg_v1_0_process_interrupt(struct amdgpu_device *adev,
  *
  * Set ring and irq function pointers
  */
-int jpeg_v1_0_early_init(void *handle)
+int jpeg_v1_0_early_init(struct amdgpu_ip_block *ip_block)
 {
-	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
+	struct amdgpu_device *adev = ip_block->adev;
 
 	adev->jpeg.num_jpeg_inst = 1;
 	adev->jpeg.num_jpeg_rings = 1;
@@ -557,7 +557,7 @@ static const struct amdgpu_ring_funcs jpeg_v1_0_decode_ring_vm_funcs = {
 	.nop = PACKET0(0x81ff, 0),
 	.support_64bit_ptrs = false,
 	.no_user_fence = true,
-	.extra_dw = 64,
+	.extra_bytes = 256,
 	.get_rptr = jpeg_v1_0_decode_ring_get_rptr,
 	.get_wptr = jpeg_v1_0_decode_ring_get_wptr,
 	.set_wptr = jpeg_v1_0_decode_ring_set_wptr,

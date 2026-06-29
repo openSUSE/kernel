@@ -83,6 +83,9 @@ struct mt76_bus_ops {
 		     const struct mt76_reg_pair *rp, int len);
 	int (*rd_rp)(struct mt76_dev *dev, u32 base,
 		     struct mt76_reg_pair *rp, int len);
+
+	void *suse_kabi_padding;
+
 	enum mt76_bus_type type;
 };
 
@@ -249,6 +252,8 @@ struct mt76_mcu_ops {
 	int (*mcu_rd_rp)(struct mt76_dev *dev, u32 base,
 			 struct mt76_reg_pair *rp, int len);
 	int (*mcu_restart)(struct mt76_dev *dev);
+
+	void *suse_kabi_padding;
 };
 
 struct mt76_queue_ops {
@@ -279,6 +284,8 @@ struct mt76_queue_ops {
 	void (*kick)(struct mt76_dev *dev, struct mt76_queue *q);
 
 	void (*reset_q)(struct mt76_dev *dev, struct mt76_queue *q);
+
+	void *suse_kabi_padding;
 };
 
 enum mt76_phy_type {
@@ -489,6 +496,7 @@ struct mt76_hw_cap {
 #define MT_DRV_RX_DMA_HDR		BIT(3)
 #define MT_DRV_HW_MGMT_TXQ		BIT(4)
 #define MT_DRV_AMSDU_OFFLOAD		BIT(5)
+#define MT_DRV_IGNORE_TXS_FAILED	BIT(6)
 
 struct mt76_driver_ops {
 	u32 drv_flags;
@@ -528,6 +536,8 @@ struct mt76_driver_ops {
 
 	void (*sta_remove)(struct mt76_dev *dev, struct ieee80211_vif *vif,
 			   struct ieee80211_sta *sta);
+
+	void *suse_kabi_padding;
 };
 
 struct mt76_channel_state {
@@ -617,6 +627,8 @@ struct mt76_usb {
 		int rp_len;
 		u32 base;
 	} mcu;
+
+	void *suse_kabi_padding;
 };
 
 #define MT76S_XMIT_BUF_SZ	0x3fe00
@@ -645,6 +657,7 @@ struct mt76_sdio {
 	} sched;
 
 	int (*parse_irq)(struct mt76_dev *dev, struct mt76s_intr *intr);
+	void *suse_kabi_padding;
 };
 
 struct mt76_mmio {
@@ -755,6 +768,7 @@ struct mt76_testmode_data {
 
 struct mt76_vif {
 	u8 idx;
+	u8 link_idx;
 	u8 omac_idx;
 	u8 band_idx;
 	u8 wmm_idx;
@@ -917,6 +931,8 @@ struct mt76_dev {
 	} test_mtd;
 #endif
 	struct workqueue_struct *wq;
+
+	void *suse_kabi_padding;
 
 	union {
 		struct mt76_mmio mmio;
@@ -1156,6 +1172,15 @@ static inline int mt76_wed_dma_setup(struct mt76_dev *dev, struct mt76_queue *q,
 	for (i = 0; i < ARRAY_SIZE((dev)->q_rx); i++)	\
 		if ((dev)->q_rx[i].ndesc)
 
+static inline struct mt76_dev *mt76_wed_to_dev(struct mtk_wed_device *wed)
+{
+#ifdef CONFIG_NET_MEDIATEK_SOC_WED
+	if (wed->wlan.hif2)
+		return container_of(wed, struct mt76_dev, mmio.wed_hif2);
+#endif /* CONFIG_NET_MEDIATEK_SOC_WED */
+	return container_of(wed, struct mt76_dev, mmio.wed);
+}
+
 struct mt76_dev *mt76_alloc_device(struct device *pdev, unsigned int size,
 				   const struct ieee80211_ops *ops,
 				   const struct mt76_driver_ops *drv_ops);
@@ -1183,7 +1208,7 @@ void mt76_seq_puts_array(struct seq_file *file, const char *str,
 			 s8 *val, int len);
 
 int mt76_eeprom_init(struct mt76_dev *dev, int len);
-void mt76_eeprom_override(struct mt76_phy *phy);
+int mt76_eeprom_override(struct mt76_phy *phy);
 int mt76_get_of_data_from_mtd(struct mt76_dev *dev, void *eep, int offset, int len);
 int mt76_get_of_data_from_nvmem(struct mt76_dev *dev, void *eep,
 				const char *cell_name, int len);
@@ -1736,5 +1761,6 @@ mt76_token_put(struct mt76_dev *dev, int token)
 
 void mt76_wcid_init(struct mt76_wcid *wcid);
 void mt76_wcid_cleanup(struct mt76_dev *dev, struct mt76_wcid *wcid);
+void mt76_wcid_add_poll(struct mt76_dev *dev, struct mt76_wcid *wcid);
 
 #endif

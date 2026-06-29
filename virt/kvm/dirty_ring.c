@@ -11,14 +11,14 @@
 #include <trace/events/kvm.h>
 #include "kvm_mm.h"
 
-int __weak kvm_cpu_dirty_log_size(void)
+int __weak kvm_cpu_dirty_log_size(struct kvm *kvm)
 {
 	return 0;
 }
 
-u32 kvm_dirty_ring_get_rsvd_entries(void)
+u32 kvm_dirty_ring_get_rsvd_entries(struct kvm *kvm)
 {
-	return KVM_DIRTY_RING_RSVD_ENTRIES + kvm_cpu_dirty_log_size();
+	return KVM_DIRTY_RING_RSVD_ENTRIES + kvm_cpu_dirty_log_size(kvm);
 }
 
 bool kvm_use_dirty_bitmap(struct kvm *kvm)
@@ -66,7 +66,8 @@ static void kvm_reset_dirty_gfn(struct kvm *kvm, u32 slot, u64 offset, u64 mask)
 
 	memslot = id_to_memslot(__kvm_memslots(kvm, as_id), id);
 
-	if (!memslot || (offset + __fls(mask)) >= memslot->npages)
+	if (!memslot || offset >= memslot->npages ||
+	    offset + __fls(mask) >= memslot->npages)
 		return;
 
 	KVM_MMU_LOCK(kvm);
@@ -74,14 +75,15 @@ static void kvm_reset_dirty_gfn(struct kvm *kvm, u32 slot, u64 offset, u64 mask)
 	KVM_MMU_UNLOCK(kvm);
 }
 
-int kvm_dirty_ring_alloc(struct kvm_dirty_ring *ring, int index, u32 size)
+int kvm_dirty_ring_alloc(struct kvm *kvm, struct kvm_dirty_ring *ring,
+			 int index, u32 size)
 {
 	ring->dirty_gfns = vzalloc(size);
 	if (!ring->dirty_gfns)
 		return -ENOMEM;
 
 	ring->size = size / sizeof(struct kvm_dirty_gfn);
-	ring->soft_limit = ring->size - kvm_dirty_ring_get_rsvd_entries();
+	ring->soft_limit = ring->size - kvm_dirty_ring_get_rsvd_entries(kvm);
 	ring->dirty_index = 0;
 	ring->reset_index = 0;
 	ring->index = index;
@@ -104,19 +106,22 @@ static inline bool kvm_dirty_gfn_harvested(struct kvm_dirty_gfn *gfn)
 	return smp_load_acquire(&gfn->flags) & KVM_DIRTY_GFN_F_RESET;
 }
 
-int kvm_dirty_ring_reset(struct kvm *kvm, struct kvm_dirty_ring *ring)
+int kvm_dirty_ring_reset(struct kvm *kvm, struct kvm_dirty_ring *ring,
+			 int *nr_entries_reset)
 {
 	u32 cur_slot, next_slot;
 	u64 cur_offset, next_offset;
 	unsigned long mask;
-	int count = 0;
 	struct kvm_dirty_gfn *entry;
 	bool first_round = true;
 
 	/* This is only needed to make compilers happy */
 	cur_slot = cur_offset = mask = 0;
 
-	while (true) {
+	while (likely((*nr_entries_reset) < INT_MAX)) {
+		if (signal_pending(current))
+			return -EINTR;
+
 		entry = &ring->dirty_gfns[ring->reset_index & (ring->size - 1)];
 
 		if (!kvm_dirty_gfn_harvested(entry))
@@ -129,7 +134,17 @@ int kvm_dirty_ring_reset(struct kvm *kvm, struct kvm_dirty_ring *ring)
 		kvm_dirty_gfn_set_invalid(entry);
 
 		ring->reset_index++;
-		count++;
+		(*nr_entries_reset)++;
+
+		/*
+		 * While the size of each ring is fixed, it's possible for the
+		 * ring to be constantly re-dirtied/harvested while the reset
+		 * is in-progress (the hard limit exists only to guard against
+		 * wrapping the count into negative space).
+		 */
+		if (!first_round)
+			cond_resched();
+
 		/*
 		 * Try to coalesce the reset operations when the guest is
 		 * scanning pages in the same slot.
@@ -166,7 +181,7 @@ int kvm_dirty_ring_reset(struct kvm *kvm, struct kvm_dirty_ring *ring)
 
 	trace_kvm_dirty_ring_reset(ring);
 
-	return count;
+	return 0;
 }
 
 void kvm_dirty_ring_push(struct kvm_vcpu *vcpu, u32 slot, u64 offset)

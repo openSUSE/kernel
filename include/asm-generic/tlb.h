@@ -46,7 +46,8 @@
  *
  * The mmu_gather API consists of:
  *
- *  - tlb_gather_mmu() / tlb_gather_mmu_fullmm() / tlb_finish_mmu()
+ *  - tlb_gather_mmu() / tlb_gather_mmu_fullmm() / tlb_gather_mmu_vma() /
+ *    tlb_finish_mmu()
  *
  *    start and finish a mmu_gather
  *
@@ -344,6 +345,81 @@ struct mmu_gather {
 	unsigned int		vma_huge : 1;
 	unsigned int		vma_pfn  : 1;
 
+#ifndef __GENKSYMS__
+	/*
+	 * Did we unshare (unmap) any shared page tables? For now only
+	 * used for hugetlb PMD table sharing.
+	 */
+	unsigned int		unshared_tables : 1;
+
+	/*
+	 * Did we unshare any page tables such that they are now exclusive
+	 * and could get reused+modified by the new owner? When setting this
+	 * flag, "unshared_tables" will be set as well. For now only used
+	 * for hugetlb PMD table sharing.
+	 */
+	unsigned int		fully_unshared_tables : 1;
+#endif
+
+	unsigned int            batch_count;
+
+#ifndef CONFIG_MMU_GATHER_NO_GATHER
+	struct mmu_gather_batch *active;
+	struct mmu_gather_batch local;
+	struct page             *__pages[MMU_GATHER_BUNDLE];
+
+#ifdef CONFIG_MMU_GATHER_PAGE_SIZE
+	unsigned int page_size;
+#endif
+#endif
+};
+
+struct __orig_mmu_gather {
+	struct mm_struct        *mm;
+
+#ifdef CONFIG_MMU_GATHER_TABLE_FREE
+	struct mmu_table_batch  *batch;
+#endif
+
+	unsigned long           start;
+	unsigned long           end;
+	/*
+	 * we are in the middle of an operation to clear
+	 * a full mm and can make some optimizations
+	 */
+	unsigned int            fullmm : 1;
+
+	/*
+	 * we have performed an operation which
+	 * requires a complete flush of the tlb
+	 */
+	unsigned int            need_flush_all : 1;
+
+	/*
+	 * we have removed page directories
+	 */
+	unsigned int            freed_tables : 1;
+
+	/*
+	 * Do we have pending delayed rmap removals?
+	 */
+	unsigned int            delayed_rmap : 1;
+
+	/*
+	 * at which levels have we cleared entries?
+	 */
+	unsigned int            cleared_ptes : 1;
+	unsigned int            cleared_pmds : 1;
+	unsigned int            cleared_puds : 1;
+	unsigned int            cleared_p4ds : 1;
+
+	/*
+	 * tracks VM_EXEC | VM_HUGETLB in tlb_start_vma
+	 */
+	unsigned int            vma_exec : 1;
+	unsigned int            vma_huge : 1;
+	unsigned int            vma_pfn  : 1;
+
 	unsigned int		batch_count;
 
 #ifndef CONFIG_MMU_GATHER_NO_GATHER
@@ -356,6 +432,11 @@ struct mmu_gather {
 #endif
 #endif
 };
+
+suse_kabi_static_assert(offsetof(struct mmu_gather, batch_count) ==
+			offsetof(struct __orig_mmu_gather, batch_count));
+suse_kabi_static_assert(sizeof(struct mmu_gather) ==
+			sizeof(struct __orig_mmu_gather));
 
 void tlb_flush_mmu(struct mmu_gather *tlb);
 
@@ -380,6 +461,7 @@ static inline void __tlb_reset_range(struct mmu_gather *tlb)
 	tlb->cleared_pmds = 0;
 	tlb->cleared_puds = 0;
 	tlb->cleared_p4ds = 0;
+	tlb->unshared_tables = 0;
 	/*
 	 * Do not reset mmu_gather::vma_* fields here, we do not
 	 * call into tlb_start_vma() again to set them if there is an
@@ -459,7 +541,7 @@ static inline void tlb_flush_mmu_tlbonly(struct mmu_gather *tlb)
 	 * these bits.
 	 */
 	if (!(tlb->freed_tables || tlb->cleared_ptes || tlb->cleared_pmds ||
-	      tlb->cleared_puds || tlb->cleared_p4ds))
+	      tlb->cleared_puds || tlb->cleared_p4ds || tlb->unshared_tables))
 		return;
 
 	tlb_flush(tlb);
@@ -747,6 +829,63 @@ static inline bool huge_pmd_needs_flush(pmd_t oldpmd, pmd_t newpmd)
 	return true;
 }
 #endif
+
+#ifdef CONFIG_HUGETLB_PMD_PAGE_TABLE_SHARING
+static inline void tlb_unshare_pmd_ptdesc(struct mmu_gather *tlb, struct ptdesc *pt,
+					  unsigned long addr)
+{
+	/*
+	 * The caller must make sure that concurrent unsharing + exclusive
+	 * reuse is impossible until tlb_flush_unshared_tables() was called.
+	 */
+	VM_WARN_ON_ONCE(!ptdesc_pmd_is_shared(pt));
+	ptdesc_pmd_pts_dec(pt);
+
+	/* Clearing a PUD pointing at a PMD table with PMD leaves. */
+	tlb_flush_pmd_range(tlb, addr & PUD_MASK, PUD_SIZE);
+
+	/*
+	 * If the page table is now exclusively owned, we fully unshared
+	 * a page table.
+	 */
+	if (!ptdesc_pmd_is_shared(pt))
+		tlb->fully_unshared_tables = true;
+	tlb->unshared_tables = true;
+}
+
+static inline void tlb_flush_unshared_tables(struct mmu_gather *tlb)
+{
+	/*
+	 * As soon as the caller drops locks to allow for reuse of
+	 * previously-shared tables, these tables could get modified and
+	 * even reused outside of hugetlb context, so we have to make sure that
+	 * any page table walkers (incl. TLB, GUP-fast) are aware of that
+	 * change.
+	 *
+	 * Even if we are not fully unsharing a PMD table, we must
+	 * flush the TLB for the unsharer now.
+	 */
+	if (tlb->unshared_tables)
+		tlb_flush_mmu_tlbonly(tlb);
+
+	/*
+	 * Similarly, we must make sure that concurrent GUP-fast will not
+	 * walk previously-shared page tables that are getting modified+reused
+	 * elsewhere. So broadcast an IPI to wait for any concurrent GUP-fast.
+	 *
+	 * We only perform this when we are the last sharer of a page table,
+	 * as the IPI will reach all CPUs: any GUP-fast.
+	 *
+	 * Note that on configs where tlb_remove_table_sync_one() is a NOP,
+	 * the expectation is that the tlb_flush_mmu_tlbonly() would have issued
+	 * required IPIs already for us.
+	 */
+	if (tlb->fully_unshared_tables) {
+		tlb_remove_table_sync_one();
+		tlb->fully_unshared_tables = false;
+	}
+}
+#endif /* CONFIG_HUGETLB_PMD_PAGE_TABLE_SHARING */
 
 #endif /* CONFIG_MMU */
 

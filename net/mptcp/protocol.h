@@ -149,22 +149,24 @@ struct mptcp_options_received {
 	u32	subflow_seq;
 	u16	data_len;
 	__sum16	csum;
-	u16	suboptions;
+	struct_group(status,
+		u16 suboptions;
+		u16 use_map:1,
+		    dsn64:1,
+		    data_fin:1,
+		    use_ack:1,
+		    ack64:1,
+		    mpc_map:1,
+		    reset_reason:4,
+		    reset_transient:1,
+		    echo:1,
+		    backup:1,
+		    deny_join_id0:1,
+		    __unused:2;
+	);
+	u8	join_id;
 	u32	token;
 	u32	nonce;
-	u16	use_map:1,
-		dsn64:1,
-		data_fin:1,
-		use_ack:1,
-		ack64:1,
-		mpc_map:1,
-		reset_reason:4,
-		reset_transient:1,
-		echo:1,
-		backup:1,
-		deny_join_id0:1,
-		__unused:2;
-	u8	join_id;
 	u64	thmac;
 	u8	hmac[MPTCPOPT_HMAC_LEN];
 	struct mptcp_addr_info addr;
@@ -260,8 +262,8 @@ struct mptcp_data_frag {
 	struct page *page;
 };
 
-/* MPTCP connection sock */
-struct mptcp_sock {
+/* original version of struct mptcp_sock */
+struct __orig_mptcp_sock {
 	/* inet_connection_sock must be the first member */
 	struct inet_connection_sock sk;
 	u64		local_key;		/* protected by the first subflow socket lock
@@ -345,6 +347,105 @@ struct mptcp_sock {
 	u32		setsockopt_seq;
 	char		ca_name[TCP_CA_NAME_MAX];
 };
+
+/* MPTCP connection sock */
+struct mptcp_sock {
+	/* inet_connection_sock must be the first member */
+	struct inet_connection_sock sk;
+	u64		local_key;		/* protected by the first subflow socket lock
+						 * lockless access read
+						 */
+	u64		remote_key;		/* same as above */
+	u64		write_seq;
+	u64		bytes_sent;
+	u64		snd_nxt;
+	u64		bytes_received;
+	u64		ack_seq;
+	atomic64_t	rcv_wnd_sent;
+	u64		rcv_data_fin_seq;
+	u64		bytes_retrans;
+	u64		bytes_consumed;
+	int		rmem_fwd_alloc;
+	int		snd_burst;
+	int		old_wspace;
+	u64		recovery_snd_nxt;	/* in recovery mode accept up to this seq;
+						 * recovery related fields are under data_lock
+						 * protection
+						 */
+	u64		bytes_acked;
+	u64		snd_una;
+	u64		wnd_end;
+	u32		last_data_sent;
+	u32		last_data_recv;
+	u32		last_ack_recv;
+	unsigned long	timer_ival;
+	u32		token;
+	int		rmem_released;
+	unsigned long	flags;
+	unsigned long	cb_flags;
+	bool		recovery;		/* closing subflow write queue reinjected */
+	bool		can_ack;
+	bool		fully_established;
+	bool		rcv_data_fin;
+	bool		snd_data_fin_enable;
+	bool		rcv_fastclose;
+	bool		use_64bit_ack; /* Set when we received a 64-bit DSN */
+	bool		csum_enabled;
+	bool		allow_infinite_fallback;
+	u8		pending_state; /* A subflow asked to set this sk_state,
+					* protected by the msk data lock
+					*/
+	u8		mpc_endpoint_id;
+	u8		recvmsg_inq:1,
+			cork:1,
+			nodelay:1,
+			fastopening:1,
+			in_accept_queue:1,
+			free_first:1,
+			rcvspace_init:1;
+	u32		notsent_lowat;
+	int		keepalive_cnt;
+	int		keepalive_idle;
+	int		keepalive_intvl;
+	struct work_struct work;
+	struct sk_buff  *ooo_last_skb;
+	struct rb_root  out_of_order_queue;
+	struct sk_buff_head receive_queue;
+	struct list_head conn_list;
+	struct list_head rtx_queue;
+	struct mptcp_data_frag *first_pending;
+	struct list_head join_list;
+	struct sock	*first; /* The mptcp ops can safely dereference, using suitable
+				 * ONCE annotation, the subflow outside the socket
+				 * lock as such sock is freed after close().
+				 */
+	struct mptcp_pm_data	pm;
+	struct mptcp_sched_ops	*sched;
+	struct {
+		u32	space;	/* bytes copied in last measurement window */
+		u32	copied; /* bytes copied in this measurement window */
+		u64	time;	/* start time of measurement window */
+		u64	rtt_us; /* last maximum rtt of subflows */
+	} rcvq_space;
+	u8		scaling_ratio;
+#ifndef __GENKSYMS__
+	bool		allow_subflows;
+#endif
+
+	u32		subflow_id;
+	u32		setsockopt_seq;
+	char		ca_name[TCP_CA_NAME_MAX];
+
+#ifndef __GENKSYMS__
+	spinlock_t	fallback_lock;	/* protects fallback,
+					 * allow_infinite_fallback and
+					 * allow_join
+					 */
+#endif
+};
+
+suse_kabi_static_assert(offsetof(struct mptcp_sock, subflow_id) ==
+	      offsetof(struct __orig_mptcp_sock, subflow_id));
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)
@@ -513,7 +614,6 @@ struct mptcp_subflow_context {
 		request_bkup : 1,
 		mp_capable : 1,	    /* remote is MPTCP capable */
 		mp_join : 1,	    /* remote is JOINing */
-		fully_established : 1,	    /* path validated */
 		pm_notified : 1,    /* PM hook called for established status */
 		conn_finished : 1,
 		map_valid : 1,
@@ -532,10 +632,11 @@ struct mptcp_subflow_context {
 		is_mptfo : 1,	    /* subflow is doing TFO */
 		close_event_done : 1,       /* has done the post-closed part */
 		mpc_drop : 1,	    /* the MPC option has been dropped in a rtx */
-		__unused : 8;
+		__unused : 9;
 	bool	data_avail;
 	bool	scheduled;
 	bool	pm_listener;	    /* a listener managed by the kernel PM? */
+	bool	fully_established;  /* path validated */
 	u32	remote_nonce;
 	u64	thmac;
 	u32	local_nonce;
@@ -760,10 +861,15 @@ static inline u64 mptcp_data_avail(const struct mptcp_sock *msk)
 
 static inline bool mptcp_epollin_ready(const struct sock *sk)
 {
+	u64 data_avail = mptcp_data_avail(mptcp_sk(sk));
+
+	if (!data_avail)
+		return false;
+
 	/* mptcp doesn't have to deal with small skbs in the receive queue,
-	 * at it can always coalesce them
+	 * as it can always coalesce them
 	 */
-	return (mptcp_data_avail(mptcp_sk(sk)) >= sk->sk_rcvlowat) ||
+	return (data_avail >= sk->sk_rcvlowat) ||
 	       (mem_cgroup_sockets_enabled && sk->sk_memcg &&
 		mem_cgroup_under_socket_pressure(sk->sk_memcg)) ||
 	       READ_ONCE(tcp_memory_pressure);
@@ -780,7 +886,7 @@ static inline bool __tcp_can_send(const struct sock *ssk)
 static inline bool __mptcp_subflow_active(struct mptcp_subflow_context *subflow)
 {
 	/* can't send if JOIN hasn't completed yet (i.e. is usable for mptcp) */
-	if (subflow->request_join && !subflow->fully_established)
+	if (subflow->request_join && !READ_ONCE(subflow->fully_established))
 		return false;
 
 	return __tcp_can_send(mptcp_subflow_tcp_sock(subflow));
@@ -806,6 +912,7 @@ static inline void mptcp_subflow_tcp_fallback(struct sock *sk,
 void __init mptcp_proto_init(void);
 #if IS_ENABLED(CONFIG_MPTCP_IPV6)
 int __init mptcp_proto_v6_init(void);
+void __init mptcp_subflow_v6_init(void);
 #endif
 
 struct sock *mptcp_sk_clone_init(const struct sock *sk,
@@ -1181,13 +1288,22 @@ static inline bool mptcp_check_fallback(const struct sock *sk)
 	return __mptcp_check_fallback(msk);
 }
 
-static inline void __mptcp_do_fallback(struct mptcp_sock *msk)
+static inline bool __mptcp_try_fallback(struct mptcp_sock *msk)
 {
 	if (__mptcp_check_fallback(msk)) {
 		pr_debug("TCP fallback already done (msk=%p)\n", msk);
-		return;
+		return true;
 	}
+	spin_lock_bh(&msk->fallback_lock);
+	if (!msk->allow_infinite_fallback) {
+		spin_unlock_bh(&msk->fallback_lock);
+		return false;
+	}
+
+	msk->allow_subflows = false;
 	set_bit(MPTCP_FALLBACK_DONE, &msk->flags);
+	spin_unlock_bh(&msk->fallback_lock);
+	return true;
 }
 
 static inline bool __mptcp_has_initial_subflow(const struct mptcp_sock *msk)
@@ -1199,14 +1315,15 @@ static inline bool __mptcp_has_initial_subflow(const struct mptcp_sock *msk)
 			TCPF_SYN_RECV | TCPF_LISTEN));
 }
 
-static inline void mptcp_do_fallback(struct sock *ssk)
+static inline bool mptcp_try_fallback(struct sock *ssk)
 {
 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(ssk);
 	struct sock *sk = subflow->conn;
 	struct mptcp_sock *msk;
 
 	msk = mptcp_sk(sk);
-	__mptcp_do_fallback(msk);
+	if (!__mptcp_try_fallback(msk))
+		return false;
 	if (READ_ONCE(msk->snd_data_fin_enable) && !(ssk->sk_shutdown & SEND_SHUTDOWN)) {
 		gfp_t saved_allocation = ssk->sk_allocation;
 
@@ -1218,6 +1335,7 @@ static inline void mptcp_do_fallback(struct sock *ssk)
 		tcp_shutdown(ssk, SEND_SHUTDOWN);
 		ssk->sk_allocation = saved_allocation;
 	}
+	return true;
 }
 
 #define pr_fallback(a) pr_debug("%s:fallback to TCP (msk=%p)\n", __func__, a)
@@ -1227,7 +1345,7 @@ static inline void mptcp_subflow_early_fallback(struct mptcp_sock *msk,
 {
 	pr_fallback(msk);
 	subflow->request_mptcp = 0;
-	__mptcp_do_fallback(msk);
+	WARN_ON_ONCE(!__mptcp_try_fallback(msk));
 }
 
 static inline bool mptcp_check_infinite_map(struct sk_buff *skb)
@@ -1250,10 +1368,8 @@ static inline bool subflow_simultaneous_connect(struct sock *sk)
 {
 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
 
-	return (1 << sk->sk_state) &
-	       (TCPF_ESTABLISHED | TCPF_FIN_WAIT1 | TCPF_FIN_WAIT2 | TCPF_CLOSING) &&
-	       is_active_ssk(subflow) &&
-	       !subflow->conn_finished;
+	/* Note that the sk state implies !subflow->conn_finished. */
+	return sk->sk_state == TCP_SYN_RECV && is_active_ssk(subflow);
 }
 
 #ifdef CONFIG_SYN_COOKIES

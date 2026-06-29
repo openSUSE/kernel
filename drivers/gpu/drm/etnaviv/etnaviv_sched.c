@@ -34,6 +34,7 @@ static enum drm_gpu_sched_stat etnaviv_sched_timedout_job(struct drm_sched_job
 							  *sched_job)
 {
 	struct etnaviv_gem_submit *submit = to_etnaviv_submit(sched_job);
+	struct drm_gpu_scheduler *sched = sched_job->sched;
 	struct etnaviv_gpu *gpu = submit->gpu;
 	u32 dma_addr;
 	int change;
@@ -76,7 +77,9 @@ static enum drm_gpu_sched_stat etnaviv_sched_timedout_job(struct drm_sched_job
 	return DRM_GPU_SCHED_STAT_NOMINAL;
 
 out_no_timeout:
-	list_add(&sched_job->list, &sched_job->sched->pending_list);
+	spin_lock(&sched->job_list_lock);
+	list_add(&sched_job->list, &sched->pending_list);
+	spin_unlock(&sched->job_list_lock);
 	return DRM_GPU_SCHED_STAT_NOMINAL;
 }
 
@@ -107,16 +110,18 @@ int etnaviv_sched_push_job(struct etnaviv_gem_submit *submit)
 	 */
 	mutex_lock(&gpu->sched_lock);
 
+	ret = xa_alloc_cyclic(&gpu->user_fences, &submit->out_fence_id,
+			      NULL, xa_limit_32b, &gpu->next_user_fence,
+			      GFP_KERNEL);
+	if (ret < 0)
+		goto out_unlock;
+
 	drm_sched_job_arm(&submit->sched_job);
 
 	submit->out_fence = dma_fence_get(&submit->sched_job.s_fence->finished);
-	ret = xa_alloc_cyclic(&gpu->user_fences, &submit->out_fence_id,
-			      submit->out_fence, xa_limit_32b,
-			      &gpu->next_user_fence, GFP_KERNEL);
-	if (ret < 0) {
-		drm_sched_job_cleanup(&submit->sched_job);
-		goto out_unlock;
-	}
+
+	xa_store(&gpu->user_fences, submit->out_fence_id,
+		 submit->out_fence, GFP_KERNEL);
 
 	/* the scheduler holds on to the job now */
 	kref_get(&submit->refcount);

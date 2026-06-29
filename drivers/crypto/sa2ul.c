@@ -1775,13 +1775,13 @@ static int sa_cra_init_aead(struct crypto_aead *tfm, const char *hash,
 static int sa_cra_init_aead_sha1(struct crypto_aead *tfm)
 {
 	return sa_cra_init_aead(tfm, "sha1",
-				"authenc(hmac(sha1-ce),cbc(aes-ce))");
+				"authenc(hmac(sha1),cbc(aes))");
 }
 
 static int sa_cra_init_aead_sha256(struct crypto_aead *tfm)
 {
 	return sa_cra_init_aead(tfm, "sha256",
-				"authenc(hmac(sha256-ce),cbc(aes-ce))");
+				"authenc(hmac(sha256),cbc(aes))");
 }
 
 static void sa_exit_tfm_aead(struct crypto_aead *tfm)
@@ -2489,7 +2489,7 @@ static void sa_ul_remove(struct platform_device *pdev)
 
 static struct platform_driver sa_ul_driver = {
 	.probe = sa_ul_probe,
-	.remove_new = sa_ul_remove,
+	.remove = sa_ul_remove,
 	.driver = {
 		   .name = "saul-crypto",
 		   .of_match_table = of_match,

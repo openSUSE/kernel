@@ -669,7 +669,7 @@ choice
 	help
 	  This selects the default access restrictions for debugfs.
 	  It can be overridden with kernel command line option
-	  debugfs=[on,no-mount,off]. The restrictions apply for API access
+	  debugfs=[on,off]. The restrictions apply for API access
 	  and filesystem registration.
 
 config DEBUG_FS_ALLOW_ALL
@@ -677,13 +677,6 @@ config DEBUG_FS_ALLOW_ALL
 	help
 	  No restrictions apply. Both API and filesystem registration
 	  is on. This is the normal default operation.
-
-config DEBUG_FS_DISALLOW_MOUNT
-	bool "Do not register debugfs as filesystem"
-	help
-	  The API is open but filesystem is not loaded. Clients can still do
-	  their work and read with debug tools that do not need
-	  debugfs filesystem.
 
 config DEBUG_FS_ALLOW_NONE
 	bool "No access"
@@ -2993,6 +2986,22 @@ config TEST_OBJPOOL
 
 	  If unsure, say N.
 
+config INT_POW_TEST
+	tristate "Integer exponentiation (int_pow) test" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  This option enables the KUnit test suite for the int_pow function,
+	  which performs integer exponentiation. The test suite is designed to
+	  verify that the implementation of int_pow correctly computes the power
+	  of a given base raised to a given exponent.
+
+	  Enabling this option will include tests that check various scenarios
+	  and edge cases to ensure the accuracy and reliability of the exponentiation
+	  function.
+
+	  If unsure, say N
+
 endif # RUNTIME_TESTING_MENU
 
 config ARCH_USE_MEMTEST
@@ -3088,19 +3097,3 @@ config RUST_KERNEL_DOCTESTS
 endmenu # "Rust"
 
 endmenu # Kernel hacking
-
-config INT_POW_TEST
-	tristate "Integer exponentiation (int_pow) test" if !KUNIT_ALL_TESTS
-	depends on KUNIT
-	default KUNIT_ALL_TESTS
-	help
-	  This option enables the KUnit test suite for the int_pow function,
-	  which performs integer exponentiation. The test suite is designed to
-	  verify that the implementation of int_pow correctly computes the power
-	  of a given base raised to a given exponent.
-
-	  Enabling this option will include tests that check various scenarios
-	  and edge cases to ensure the accuracy and reliability of the exponentiation
-	  function.
-
-	  If unsure, say N

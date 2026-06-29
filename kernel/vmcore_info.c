@@ -20,6 +20,8 @@
 
 #include <crypto/sha1.h>
 
+#include <generated/uapi/linux/suse_version.h>
+
 #include "kallsyms_internal.h"
 #include "kexec_internal.h"
 
@@ -136,6 +138,7 @@ static int __init crash_save_vmcoreinfo_init(void)
 	}
 
 	VMCOREINFO_OSRELEASE(init_uts_ns.name.release);
+	VMCOREINFO_NUMBER(SUSE_PRODUCT_CODE);
 	VMCOREINFO_BUILD_ID();
 	VMCOREINFO_PAGESIZE(PAGE_SIZE);
 

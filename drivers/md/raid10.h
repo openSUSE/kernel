@@ -152,6 +152,7 @@ struct r10bio {
 		};
 		sector_t	addr;
 		int		devnum;
+		int		error;
 	} devs[];
 };
 
@@ -161,7 +162,6 @@ enum r10bio_state {
 	R10BIO_IsSync,
 	R10BIO_IsRecover,
 	R10BIO_IsReshape,
-	R10BIO_Degraded,
 /* Set ReadError on bios that experience a read error
  * so that raid10d knows what to do with them.
  */

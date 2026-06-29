@@ -56,7 +56,6 @@
 #include <scsi/sas_ata.h>
 #include <linux/atomic.h>
 #include <linux/blk-mq.h>
-#include <linux/blk-mq-pci.h>
 #include "pm8001_defs.h"
 
 #define DRV_NAME		"pm80xx"
@@ -785,6 +784,7 @@ static inline void pm8001_ccb_task_free_done(struct pm8001_hba_info *pm8001_ha,
 }
 void pm8001_setds_completion(struct domain_device *dev);
 void pm8001_tmf_aborted(struct sas_task *task);
+u32 pm80xx_get_local_phy_id(struct domain_device *dev);
 
 #endif
 

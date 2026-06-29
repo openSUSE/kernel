@@ -245,11 +245,13 @@ void btintel_hw_error(struct hci_dev *hdev, u8 code)
 
 	bt_dev_err(hdev, "Hardware error 0x%2.2x", code);
 
+	hci_req_sync_lock(hdev);
+
 	skb = __hci_cmd_sync(hdev, HCI_OP_RESET, 0, NULL, HCI_INIT_TIMEOUT);
 	if (IS_ERR(skb)) {
 		bt_dev_err(hdev, "Reset after hardware error failed (%ld)",
 			   PTR_ERR(skb));
-		return;
+		goto unlock;
 	}
 	kfree_skb(skb);
 
@@ -257,18 +259,21 @@ void btintel_hw_error(struct hci_dev *hdev, u8 code)
 	if (IS_ERR(skb)) {
 		bt_dev_err(hdev, "Retrieving Intel exception info failed (%ld)",
 			   PTR_ERR(skb));
-		return;
+		goto unlock;
 	}
 
 	if (skb->len != 13) {
 		bt_dev_err(hdev, "Exception info size mismatch");
 		kfree_skb(skb);
-		return;
+		goto unlock;
 	}
 
 	bt_dev_err(hdev, "Exception info %s", (char *)(skb->data + 1));
 
 	kfree_skb(skb);
+
+unlock:
+	hci_req_sync_unlock(hdev);
 }
 EXPORT_SYMBOL_GPL(btintel_hw_error);
 
@@ -1040,7 +1045,7 @@ static int btintel_download_firmware_payload(struct hci_dev *hdev,
 		 * as needed.
 		 *
 		 * Send set of commands with 4 byte alignment from the
-		 * firmware data buffer as a single Data fragement.
+		 * firmware data buffer as a single Data fragment.
 		 */
 		if (!(frag_len % 4)) {
 			err = btintel_secure_send(hdev, 0x01, frag_len, fw_ptr);
@@ -1252,6 +1257,12 @@ static void btintel_reset_to_bootloader(struct hci_dev *hdev)
 	struct intel_reset params;
 	struct sk_buff *skb;
 
+	/* PCIe transport uses shared hardware reset mechanism for recovery
+	 * which gets triggered in pcie *setup* function on error.
+	 */
+	if (hdev->bus == HCI_PCI)
+		return;
+
 	/* Send Intel Reset command. This will result in
 	 * re-enumeration of BT controller.
 	 *
@@ -1267,6 +1278,7 @@ static void btintel_reset_to_bootloader(struct hci_dev *hdev)
 	 * boot_param:    Boot address
 	 *
 	 */
+
 	params.reset_type = 0x01;
 	params.patch_enable = 0x01;
 	params.ddc_reload = 0x01;
@@ -1841,6 +1853,37 @@ static int btintel_boot_wait(struct hci_dev *hdev, ktime_t calltime, int msec)
 	return 0;
 }
 
+static int btintel_boot_wait_d0(struct hci_dev *hdev, ktime_t calltime,
+				int msec)
+{
+	ktime_t delta, rettime;
+	unsigned long long duration;
+	int err;
+
+	bt_dev_info(hdev, "Waiting for device transition to d0");
+
+	err = btintel_wait_on_flag_timeout(hdev, INTEL_WAIT_FOR_D0,
+					   TASK_INTERRUPTIBLE,
+					   msecs_to_jiffies(msec));
+	if (err == -EINTR) {
+		bt_dev_err(hdev, "Device d0 move interrupted");
+		return -EINTR;
+	}
+
+	if (err) {
+		bt_dev_err(hdev, "Device d0 move timeout");
+		return -ETIMEDOUT;
+	}
+
+	rettime = ktime_get();
+	delta = ktime_sub(rettime, calltime);
+	duration = (unsigned long long)ktime_to_ns(delta) >> 10;
+
+	bt_dev_info(hdev, "Device moved to D0 in %llu usecs", duration);
+
+	return 0;
+}
+
 static int btintel_boot(struct hci_dev *hdev, u32 boot_addr)
 {
 	ktime_t calltime;
@@ -1849,6 +1892,7 @@ static int btintel_boot(struct hci_dev *hdev, u32 boot_addr)
 	calltime = ktime_get();
 
 	btintel_set_flag(hdev, INTEL_BOOTING);
+	btintel_set_flag(hdev, INTEL_WAIT_FOR_D0);
 
 	err = btintel_send_intel_reset(hdev, boot_addr);
 	if (err) {
@@ -1861,13 +1905,28 @@ static int btintel_boot(struct hci_dev *hdev, u32 boot_addr)
 	 * is done by the operational firmware sending bootup notification.
 	 *
 	 * Booting into operational firmware should not take longer than
-	 * 1 second. However if that happens, then just fail the setup
+	 * 5 second. However if that happens, then just fail the setup
 	 * since something went wrong.
 	 */
-	err = btintel_boot_wait(hdev, calltime, 1000);
-	if (err == -ETIMEDOUT)
+	err = btintel_boot_wait(hdev, calltime, 5000);
+	if (err == -ETIMEDOUT) {
 		btintel_reset_to_bootloader(hdev);
+		goto exit_error;
+	}
 
+	if (hdev->bus == HCI_PCI) {
+		/* In case of PCIe, after receiving bootup event, driver performs
+		 * D0 entry by writing 0 to sleep control register (check
+		 * btintel_pcie_recv_event())
+		 * Firmware acks with alive interrupt indicating host is full ready to
+		 * perform BT operation. Lets wait here till INTEL_WAIT_FOR_D0
+		 * bit is cleared.
+		 */
+		calltime = ktime_get();
+		err = btintel_boot_wait_d0(hdev, calltime, 2000);
+	}
+
+exit_error:
 	return err;
 }
 
@@ -2609,7 +2668,7 @@ static u8 btintel_classify_pkt_type(struct hci_dev *hdev, struct sk_buff *skb)
 	 * Distinguish ISO data packets form ACL data packets
 	 * based on their connection handle value range.
 	 */
-	if (hci_skb_pkt_type(skb) == HCI_ACLDATA_PKT) {
+	if (iso_capable(hdev) && hci_skb_pkt_type(skb) == HCI_ACLDATA_PKT) {
 		__u16 handle = __le16_to_cpu(hci_acl_hdr(skb)->handle);
 
 		if (hci_handle(handle) >= BTINTEL_ISODATA_HANDLE_BASE)
@@ -2658,7 +2717,7 @@ static int btintel_uefi_get_dsbr(u32 *dsbr_var)
 	} __packed data;
 
 	efi_status_t status;
-	unsigned long data_size = 0;
+	unsigned long data_size = sizeof(data);
 	efi_guid_t guid = EFI_GUID(0xe65d8884, 0xd4af, 0x4b20, 0x8d, 0x03,
 				   0x77, 0x2e, 0xcc, 0x3d, 0xa5, 0x31);
 
@@ -2669,15 +2728,9 @@ static int btintel_uefi_get_dsbr(u32 *dsbr_var)
 		return -EOPNOTSUPP;
 
 	status = efi.get_variable(BTINTEL_EFI_DSBR, &guid, NULL, &data_size,
-				  NULL);
-
-	if (status != EFI_BUFFER_TOO_SMALL || !data_size)
-		return -EIO;
-
-	status = efi.get_variable(BTINTEL_EFI_DSBR, &guid, NULL, &data_size,
 				  &data);
 
-	if (status != EFI_SUCCESS)
+	if (status != EFI_SUCCESS || data_size != sizeof(data))
 		return -ENXIO;
 
 	*dsbr_var = data.dsbr;
@@ -2693,20 +2746,32 @@ static int btintel_set_dsbr(struct hci_dev *hdev, struct intel_version_tlv *ver)
 
 	struct btintel_dsbr_cmd cmd;
 	struct sk_buff *skb;
+	u32 dsbr, cnvi;
 	u8 status;
-	u32 dsbr;
-	bool apply_dsbr;
 	int err;
 
-	/* DSBR command needs to be sent for BlazarI + B0 step product after
-	 * downloading IML image.
+	cnvi = ver->cnvi_top & 0xfff;
+	/* DSBR command needs to be sent for,
+	 * 1. BlazarI or BlazarIW + B0 step product in IML image.
+	 * 2. Gale Peak2 or BlazarU in OP image.
 	 */
-	apply_dsbr = (ver->img_type == BTINTEL_IMG_IML &&
-		((ver->cnvi_top & 0xfff) == BTINTEL_CNVI_BLAZARI) &&
-		INTEL_CNVX_TOP_STEP(ver->cnvi_top) == 0x01);
 
-	if (!apply_dsbr)
+	switch (cnvi) {
+	case BTINTEL_CNVI_BLAZARI:
+	case BTINTEL_CNVI_BLAZARIW:
+		if (ver->img_type == BTINTEL_IMG_IML &&
+		    INTEL_CNVX_TOP_STEP(ver->cnvi_top) == 0x01)
+			break;
 		return 0;
+	case BTINTEL_CNVI_GAP:
+	case BTINTEL_CNVI_BLAZARU:
+		if (ver->img_type == BTINTEL_IMG_OP &&
+		    hdev->bus == HCI_USB)
+			break;
+		return 0;
+	default:
+		return 0;
+	}
 
 	dsbr = 0;
 	err = btintel_uefi_get_dsbr(&dsbr);
@@ -2748,6 +2813,13 @@ int btintel_bootloader_setup_tlv(struct hci_dev *hdev,
 	 * command while downloading the firmware.
 	 */
 	boot_param = 0x00000000;
+
+	/* In case of PCIe, this function might get called multiple times with
+	 * same hdev instance if there is any error on firmware download.
+	 * Need to clear stale bits of previous firmware download attempt.
+	 */
+	for (int i = 0; i < __INTEL_NUM_FLAGS; i++)
+		btintel_clear_flag(hdev, i);
 
 	btintel_set_flag(hdev, INTEL_BOOTLOADER);
 
@@ -2835,7 +2907,7 @@ void btintel_set_msft_opcode(struct hci_dev *hdev, u8 hw_variant)
 	case 0x12:	/* ThP */
 	case 0x13:	/* HrP */
 	case 0x14:	/* CcP */
-	/* All Intel new genration controllers support the Microsoft vendor
+	/* All Intel new generation controllers support the Microsoft vendor
 	 * extension are using 0xFC1E for VsMsftOpCode.
 	 */
 	case 0x17:
@@ -3273,7 +3345,7 @@ int btintel_configure_setup(struct hci_dev *hdev, const char *driver_name)
 }
 EXPORT_SYMBOL_GPL(btintel_configure_setup);
 
-static int btintel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb)
+int btintel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct intel_tlv *tlv = (void *)&skb->data[5];
 
@@ -3301,6 +3373,7 @@ static int btintel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb)
 recv_frame:
 	return hci_recv_frame(hdev, skb);
 }
+EXPORT_SYMBOL_GPL(btintel_diagnostics);
 
 int btintel_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
 {
@@ -3320,7 +3393,8 @@ int btintel_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
 				 * indicating that the bootup completed.
 				 */
 				btintel_bootup(hdev, ptr, len);
-				break;
+				kfree_skb(skb);
+				return 0;
 			case 0x06:
 				/* When the firmware loading completes the
 				 * device sends out a vendor specific event
@@ -3328,7 +3402,8 @@ int btintel_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
 				 * loading.
 				 */
 				btintel_secure_send_result(hdev, ptr, len);
-				break;
+				kfree_skb(skb);
+				return 0;
 			}
 		}
 

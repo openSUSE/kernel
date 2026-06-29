@@ -840,7 +840,9 @@ struct drm_display_info {
 	int vics_len;
 
 	/**
-	 * @quirks: EDID based quirks. Internal to EDID parsing.
+	 * @quirks: EDID based quirks. DRM core and drivers can query the
+	 * @drm_edid_quirk quirks using drm_edid_has_quirk(), the rest of
+	 * the quirks also tracked here are internal to EDID parsing.
 	 */
 	u32 quirks;
 
@@ -1139,6 +1141,8 @@ struct drm_connector_state {
 	 * @drm_atomic_helper_connector_hdmi_check().
 	 */
 	struct drm_connector_hdmi_state hdmi;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -2001,8 +2005,11 @@ struct drm_connector {
 	struct drm_encoder *encoder;
 
 #define MAX_ELD_BYTES	128
-	/** @eld: EDID-like data, if present */
+	/** @eld: EDID-like data, if present, protected by @eld_mutex */
 	uint8_t eld[MAX_ELD_BYTES];
+	/** @eld_mutex: protection for concurrenct access to @eld */
+	struct mutex eld_mutex;
+
 	/** @latency_present: AV delay info from ELD, if found */
 	bool latency_present[2];
 	/**
@@ -2118,6 +2125,8 @@ struct drm_connector {
 	 * @hdmi: HDMI-related variable and properties.
 	 */
 	struct drm_connector_hdmi hdmi;
+
+	void *suse_kabi_padding;
 };
 
 #define obj_to_connector(x) container_of(x, struct drm_connector, base)
