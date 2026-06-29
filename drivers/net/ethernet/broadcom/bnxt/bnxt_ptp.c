@@ -719,10 +719,10 @@ static long bnxt_ptp_ts_aux_work(struct ptp_clock_info *ptp_info)
 	unsigned long now = jiffies;
 	struct bnxt *bp = ptp->bp;
 	u16 cons = ptp->txts_cons;
-	u8 num_requests;
+	u32 num_requests;
 	int rc = 0;
 
-	num_requests = BNXT_MAX_TX_TS - atomic_read(&ptp->tx_avail);
+	num_requests = BNXT_MAX_TX_TS - READ_ONCE(ptp->tx_avail);
 	while (num_requests--) {
 		if (IS_ERR(ptp->txts_req[cons].tx_skb))
 			goto next_slot;
@@ -732,7 +732,7 @@ static long bnxt_ptp_ts_aux_work(struct ptp_clock_info *ptp_info)
 		if (rc == -EAGAIN)
 			break;
 next_slot:
-		atomic_inc(&ptp->tx_avail);
+		BNXT_PTP_INC_TX_AVAIL(ptp);
 		cons = NEXT_TXTS(cons);
 	}
 	ptp->txts_cons = cons;
@@ -754,6 +754,20 @@ next_slot:
 	if (rc == -EAGAIN)
 		return 0;
 	return HZ;
+}
+
+int bnxt_ptp_get_txts_prod(struct bnxt_ptp_cfg *ptp, u16 *prod)
+{
+	spin_lock_bh(&ptp->ptp_tx_lock);
+	if (ptp->tx_avail) {
+		*prod = ptp->txts_prod;
+		ptp->txts_prod = NEXT_TXTS(*prod);
+		ptp->tx_avail--;
+		spin_unlock_bh(&ptp->ptp_tx_lock);
+		return 0;
+	}
+	spin_unlock_bh(&ptp->ptp_tx_lock);
+	return -ENOSPC;
 }
 
 void bnxt_get_tx_ts_p5(struct bnxt *bp, struct sk_buff *skb, u16 prod)
@@ -1003,7 +1017,7 @@ int bnxt_ptp_init(struct bnxt *bp)
 
 	bnxt_ptp_free(bp);
 
-	atomic_set(&ptp->tx_avail, BNXT_MAX_TX_TS);
+	WRITE_ONCE(ptp->tx_avail, BNXT_MAX_TX_TS);
 	spin_lock_init(&ptp->ptp_lock);
 	spin_lock_init(&ptp->ptp_tx_lock);
 
