@@ -29,6 +29,7 @@
 #include <asm/cpu_device_id.h>
 #include <asm/i8259.h>
 #include <asm/topology.h>
+#include <asm/uv/uv_hub.h>
 #include <asm/uv/uv.h>
 #include <asm/sev.h>
 
@@ -1231,6 +1232,20 @@ bool tsc_clocksource_as_watchdog(void)
 	return tsc_as_watchdog && !no_tsc_watchdog;
 }
 
+static bool __init platform_is_exempt_from_watchdog(void)
+{
+	/* Platforms with no more than 4 packages are exempt */
+	if (topology_max_packages() <= 4)
+		return true;
+
+#ifdef CONFIG_X86_64
+	/* Recent UV systems are exempt */
+	if (is_uvy_hub())
+		return true;
+#endif
+	return false;
+}
+
 static void __init check_system_tsc_reliable(void)
 {
 #if defined(CONFIG_MGEODEGX1) || defined(CONFIG_MGEODE_LX) || defined(CONFIG_X86_GENERIC)
@@ -1249,17 +1264,17 @@ static void __init check_system_tsc_reliable(void)
 		tsc_clocksource_reliable = 1;
 
 	/*
-	 * Disable the clocksource watchdog when the system has:
-	 *  - TSC running at constant frequency
-	 *  - TSC which does not stop in C-States
-	 *  - the TSC_ADJUST register which allows to detect even minimal
+	 * Disable the clocksource watchdog when the system:
+	 *  - has TSC running at constant frequency
+	 *  - has TSC which does not stop in C-States
+	 *  - has the TSC_ADJUST register which allows to detect even minimal
 	 *    modifications
-	 *  - not more than four packages
+	 *  - is exempt from running the clocksource watchdog
 	 */
 	if (boot_cpu_has(X86_FEATURE_CONSTANT_TSC) &&
 	    boot_cpu_has(X86_FEATURE_NONSTOP_TSC) &&
 	    boot_cpu_has(X86_FEATURE_TSC_ADJUST) &&
-	    topology_max_packages() <= 4)
+	    platform_is_exempt_from_watchdog())
 		tsc_disable_clocksource_watchdog();
 }
 
