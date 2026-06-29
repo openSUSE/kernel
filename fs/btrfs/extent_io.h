@@ -79,7 +79,7 @@ enum {
  *    single word in a bitmap may straddle two pages in the extent buffer.
  */
 #define BIT_BYTE(nr) ((nr) / BITS_PER_BYTE)
-#define BYTE_MASK ((1 << BITS_PER_BYTE) - 1)
+#define BYTE_MASK ((1U << BITS_PER_BYTE) - 1)
 #define BITMAP_FIRST_BYTE_MASK(start) \
 	((BYTE_MASK << ((start) & (BITS_PER_BYTE - 1))) & BYTE_MASK)
 #define BITMAP_LAST_BYTE_MASK(nbits) \
@@ -244,8 +244,7 @@ void extent_write_locked_range(struct inode *inode, const struct folio *locked_f
 			       u64 start, u64 end, struct writeback_control *wbc,
 			       bool pages_dirty);
 int btrfs_writepages(struct address_space *mapping, struct writeback_control *wbc);
-int btree_write_cache_pages(struct address_space *mapping,
-			    struct writeback_control *wbc);
+int btree_writepages(struct address_space *mapping, struct writeback_control *wbc);
 void btrfs_readahead(struct readahead_control *rac);
 int set_folio_extent_mapped(struct folio *folio);
 int set_page_extent_mapped(struct page *page);

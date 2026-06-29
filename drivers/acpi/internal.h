@@ -175,6 +175,12 @@ bool processor_physically_present(acpi_handle handle);
 static inline void acpi_early_processor_control_setup(void) {}
 #endif
 
+#ifdef CONFIG_ACPI_PROCESSOR_CSTATE
+void acpi_idle_rescan_dead_smt_siblings(void);
+#else
+static inline void acpi_idle_rescan_dead_smt_siblings(void) {}
+#endif
+
 /* --------------------------------------------------------------------------
                                   Embedded Controller
    -------------------------------------------------------------------------- */
@@ -215,6 +221,8 @@ extern struct acpi_ec *first_ec;
 /* External interfaces use first EC only, so remember */
 typedef int (*acpi_ec_query_func) (void *data);
 
+#ifdef CONFIG_ACPI_EC
+
 void acpi_ec_init(void);
 void acpi_ec_ecdt_probe(void);
 void acpi_ec_dsdt_probe(void);
@@ -231,6 +239,29 @@ void acpi_ec_flush_work(void);
 bool acpi_ec_dispatch_gpe(void);
 #endif
 
+#else
+
+static inline void acpi_ec_init(void) {}
+static inline void acpi_ec_ecdt_probe(void) {}
+static inline void acpi_ec_dsdt_probe(void) {}
+static inline void acpi_ec_block_transactions(void) {}
+static inline void acpi_ec_unblock_transactions(void) {}
+static inline int acpi_ec_add_query_handler(struct acpi_ec *ec, u8 query_bit,
+			      acpi_handle handle, acpi_ec_query_func func,
+			      void *data)
+{
+	return -ENXIO;
+}
+static inline void acpi_ec_remove_query_handler(struct acpi_ec *ec, u8 query_bit) {}
+static inline void acpi_ec_register_opregions(struct acpi_device *adev) {}
+
+static inline void acpi_ec_flush_work(void) {}
+static inline bool acpi_ec_dispatch_gpe(void)
+{
+	return false;
+}
+
+#endif
 
 /*--------------------------------------------------------------------------
                                   Suspend/Resume

@@ -2040,6 +2040,15 @@ static struct hist_field *create_hist_field(struct hist_trigger_data *hist_data,
 			hist_field->fn_num = HIST_FIELD_FN_RELDYNSTRING;
 		else
 			hist_field->fn_num = HIST_FIELD_FN_PSTRING;
+	} else if (field->filter_type == FILTER_STACKTRACE) {
+		flags |= HIST_FIELD_FL_STACKTRACE;
+
+		hist_field->size = MAX_FILTER_STR_VAL;
+		hist_field->type = kstrdup_const(field->type, GFP_KERNEL);
+		if (!hist_field->type)
+			goto free;
+
+		hist_field->fn_num = HIST_FIELD_FN_STACK;
 	} else {
 		hist_field->size = field->size;
 		hist_field->is_signed = field->is_signed;
@@ -5597,25 +5606,19 @@ static int hist_show(struct seq_file *m, void *v)
 {
 	struct event_trigger_data *data;
 	struct trace_event_file *event_file;
-	int n = 0, ret = 0;
+	int n = 0;
 
-	mutex_lock(&event_mutex);
+	guard(mutex)(&event_mutex);
 
 	event_file = event_file_file(m->private);
-	if (unlikely(!event_file)) {
-		ret = -ENODEV;
-		goto out_unlock;
-	}
+	if (unlikely(!event_file))
+		return -ENODEV;
 
 	list_for_each_entry(data, &event_file->triggers, list) {
 		if (data->cmd_ops->trigger_type == ETT_EVENT_HIST)
 			hist_trigger_show(m, data, n++);
 	}
-
- out_unlock:
-	mutex_unlock(&event_mutex);
-
-	return ret;
+	return 0;
 }
 
 static int event_hist_open(struct inode *inode, struct file *file)
@@ -5628,7 +5631,10 @@ static int event_hist_open(struct inode *inode, struct file *file)
 
 	/* Clear private_data to avoid warning in single_open() */
 	file->private_data = NULL;
-	return single_open(file, hist_show, file);
+	ret = single_open(file, hist_show, file);
+	if (ret)
+		tracing_release_file_tr(inode, file);
+	return ret;
 }
 
 const struct file_operations event_hist_fops = {
@@ -5876,25 +5882,19 @@ static int hist_debug_show(struct seq_file *m, void *v)
 {
 	struct event_trigger_data *data;
 	struct trace_event_file *event_file;
-	int n = 0, ret = 0;
+	int n = 0;
 
-	mutex_lock(&event_mutex);
+	guard(mutex)(&event_mutex);
 
 	event_file = event_file_file(m->private);
-	if (unlikely(!event_file)) {
-		ret = -ENODEV;
-		goto out_unlock;
-	}
+	if (unlikely(!event_file))
+		return -ENODEV;
 
 	list_for_each_entry(data, &event_file->triggers, list) {
 		if (data->cmd_ops->trigger_type == ETT_EVENT_HIST)
 			hist_trigger_debug_show(m, data, n++);
 	}
-
- out_unlock:
-	mutex_unlock(&event_mutex);
-
-	return ret;
+	return 0;
 }
 
 static int event_hist_debug_open(struct inode *inode, struct file *file)
@@ -5907,7 +5907,10 @@ static int event_hist_debug_open(struct inode *inode, struct file *file)
 
 	/* Clear private_data to avoid warning in single_open() */
 	file->private_data = NULL;
-	return single_open(file, hist_debug_show, file);
+	ret = single_open(file, hist_debug_show, file);
+	if (ret)
+		tracing_release_file_tr(inode, file);
+	return ret;
 }
 
 const struct file_operations event_hist_debug_fops = {
@@ -6652,27 +6655,27 @@ static int event_hist_trigger_parse(struct event_command *cmd_ops,
 	if (existing_hist_update_only(glob, trigger_data, file))
 		goto out_free;
 
+	if (!get_named_trigger_data(trigger_data)) {
+
+		ret = create_actions(hist_data);
+		if (ret)
+			goto out_free;
+
+		if (has_hist_vars(hist_data) || hist_data->n_var_refs) {
+			ret = save_hist_vars(hist_data);
+			if (ret)
+				goto out_free;
+		}
+
+		ret = tracing_map_init(hist_data->map);
+		if (ret)
+			goto out_free;
+	}
+
 	ret = event_trigger_register(cmd_ops, file, glob, trigger_data);
 	if (ret < 0)
 		goto out_free;
 
-	if (get_named_trigger_data(trigger_data))
-		goto enable;
-
-	ret = create_actions(hist_data);
-	if (ret)
-		goto out_unreg;
-
-	if (has_hist_vars(hist_data) || hist_data->n_var_refs) {
-		ret = save_hist_vars(hist_data);
-		if (ret)
-			goto out_unreg;
-	}
-
-	ret = tracing_map_init(hist_data->map);
-	if (ret)
-		goto out_unreg;
-enable:
 	ret = hist_trigger_enable(trigger_data, file);
 	if (ret)
 		goto out_unreg;

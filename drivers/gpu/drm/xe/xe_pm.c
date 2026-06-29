@@ -6,6 +6,8 @@
 #include "xe_pm.h"
 
 #include <linux/pm_runtime.h>
+#include <linux/suspend.h>
+#include <linux/dmi.h>
 
 #include <drm/drm_managed.h>
 #include <drm/ttm/ttm_placement.h>
@@ -264,6 +266,21 @@ int xe_pm_init_early(struct xe_device *xe)
 	return 0;
 }
 
+static u32 vram_threshold_value(struct xe_device *xe)
+{
+	if (xe->info.platform == XE_BATTLEMAGE) {
+		const char *product_name;
+
+		product_name = dmi_get_system_info(DMI_PRODUCT_NAME);
+		if (product_name && strstr(product_name, "NUC13RNG")) {
+			drm_warn(&xe->drm, "BMG + D3Cold not supported on this platform\n");
+			return 0;
+		}
+	}
+
+	return DEFAULT_VRAM_THRESHOLD;
+}
+
 /**
  * xe_pm_init - Initialize Xe Power Management
  * @xe: xe device instance
@@ -274,6 +291,7 @@ int xe_pm_init_early(struct xe_device *xe)
  */
 int xe_pm_init(struct xe_device *xe)
 {
+	u32 vram_threshold;
 	int err;
 
 	/* For now suspend/resume is only allowed with GuC */
@@ -287,7 +305,8 @@ int xe_pm_init(struct xe_device *xe)
 		if (err)
 			return err;
 
-		err = xe_pm_set_vram_threshold(xe, DEFAULT_VRAM_THRESHOLD);
+		vram_threshold = vram_threshold_value(xe);
+		err = xe_pm_set_vram_threshold(xe, vram_threshold);
 		if (err)
 			return err;
 	}
@@ -605,7 +624,8 @@ static bool xe_pm_suspending_or_resuming(struct xe_device *xe)
 	struct device *dev = xe->drm.dev;
 
 	return dev->power.runtime_status == RPM_SUSPENDING ||
-		dev->power.runtime_status == RPM_RESUMING;
+		dev->power.runtime_status == RPM_RESUMING ||
+		pm_suspend_target_state != PM_SUSPEND_ON;
 #else
 	return false;
 #endif
@@ -671,11 +691,13 @@ void xe_pm_assert_unbounded_bridge(struct xe_device *xe)
 }
 
 /**
- * xe_pm_set_vram_threshold - Set a vram threshold for allowing/blocking D3Cold
+ * xe_pm_set_vram_threshold - Set a VRAM threshold for allowing/blocking D3Cold
  * @xe: xe device instance
- * @threshold: VRAM size in bites for the D3cold threshold
+ * @threshold: VRAM size in MiB for the D3cold threshold
  *
- * Returns 0 for success, negative error code otherwise.
+ * Return:
+ * * 0		- success
+ * * -EINVAL	- invalid argument
  */
 int xe_pm_set_vram_threshold(struct xe_device *xe, u32 threshold)
 {

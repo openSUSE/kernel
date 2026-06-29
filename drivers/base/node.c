@@ -244,12 +244,14 @@ CACHE_ATTR(size, "%llu")
 CACHE_ATTR(line_size, "%u")
 CACHE_ATTR(indexing, "%u")
 CACHE_ATTR(write_policy, "%u")
+CACHE_ATTR(address_mode, "%#x")
 
 static struct attribute *cache_attrs[] = {
 	&dev_attr_indexing.attr,
 	&dev_attr_size.attr,
 	&dev_attr_line_size.attr,
 	&dev_attr_write_policy.attr,
+	&dev_attr_address_mode.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(cache);
@@ -521,20 +523,20 @@ static ssize_t node_read_vmstat(struct device *dev,
 	int i;
 	int len = 0;
 
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++)
 		len += sysfs_emit_at(buf, len, "%s %lu\n",
 				     zone_stat_name(i),
 				     sum_zone_node_page_state(nid, i));
 
 #ifdef CONFIG_NUMA
 	fold_vm_numa_events();
-	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++)
+	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS_USED; i++)
 		len += sysfs_emit_at(buf, len, "%s %lu\n",
 				     numa_stat_name(i),
 				     sum_zone_numa_event_state(nid, i));
 
 #endif
-	for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
+	for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
 		unsigned long pages = node_page_state_pages(pgdat, i);
 
 		if (vmstat_item_print_in_thp(i))
@@ -879,6 +881,10 @@ int __register_one_node(int nid)
 	node_devices[nid] = node;
 
 	error = register_node(node_devices[nid], nid);
+	if (error) {
+		node_devices[nid] = NULL;
+		return error;
+	}
 
 	/* link cpu under this node */
 	for_each_present_cpu(cpu) {

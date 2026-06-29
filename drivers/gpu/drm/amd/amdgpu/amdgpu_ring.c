@@ -341,7 +341,8 @@ int amdgpu_ring_init(struct amdgpu_device *adev, struct amdgpu_ring *ring,
 		amdgpu_ring_clear_ring(ring);
 
 	} else if (ring->ring_obj == NULL) {
-		r = amdgpu_bo_create_kernel(adev, ring->ring_size + ring->funcs->extra_dw, PAGE_SIZE,
+		r = amdgpu_bo_create_kernel(adev, ring->ring_size + ring->funcs->extra_bytes,
+					    PAGE_SIZE,
 					    AMDGPU_GEM_DOMAIN_GTT,
 					    &ring->ring_obj,
 					    &ring->gpu_addr,
@@ -400,9 +401,6 @@ void amdgpu_ring_fini(struct amdgpu_ring *ring)
 	dma_fence_put(ring->vmid_wait);
 	ring->vmid_wait = NULL;
 	ring->me = 0;
-
-	if (!ring->is_mes_queue)
-		ring->adev->rings[ring->idx] = NULL;
 }
 
 /**
@@ -439,6 +437,7 @@ bool amdgpu_ring_soft_recovery(struct amdgpu_ring *ring, unsigned int vmid,
 {
 	unsigned long flags;
 	ktime_t deadline;
+	bool ret;
 
 	if (unlikely(ring->adev->debug_disable_soft_recovery))
 		return false;
@@ -453,12 +452,16 @@ bool amdgpu_ring_soft_recovery(struct amdgpu_ring *ring, unsigned int vmid,
 		dma_fence_set_error(fence, -ENODATA);
 	spin_unlock_irqrestore(fence->lock, flags);
 
-	atomic_inc(&ring->adev->gpu_reset_counter);
 	while (!dma_fence_is_signaled(fence) &&
 	       ktime_to_ns(ktime_sub(deadline, ktime_get())) > 0)
 		ring->funcs->soft_recovery(ring, vmid);
 
-	return dma_fence_is_signaled(fence);
+	ret = dma_fence_is_signaled(fence);
+	/* increment the counter only if soft reset worked */
+	if (ret)
+		atomic_inc(&ring->adev->gpu_reset_counter);
+
+	return ret;
 }
 
 /*

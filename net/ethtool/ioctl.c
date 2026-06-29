@@ -992,7 +992,13 @@ static noinline_for_stack int ethtool_set_rxnfc(struct net_device *dev,
 	if (rc)
 		return rc;
 
-	if (ops->get_rxfh) {
+	/* Nonzero ring with RSS only makes sense if NIC adds them together */
+	if (cmd == ETHTOOL_SRXCLSRLINS && info.fs.flow_type & FLOW_RSS &&
+	    !ops->cap_rss_rxnfc_adds &&
+	    ethtool_get_flow_spec_ring(info.fs.ring_cookie))
+		return -EINVAL;
+
+	if (cmd == ETHTOOL_SRXFH && ops->get_rxfh) {
 		struct ethtool_rxfh_param rxfh = {};
 
 		rc = ops->get_rxfh(dev, &rxfh);
@@ -1462,6 +1468,13 @@ static noinline_for_stack int ethtool_set_rxfh(struct net_device *dev,
 		mutex_lock(&dev->ethtool->rss_lock);
 		locked = true;
 	}
+
+	if (rxfh.rss_context && rxfh_dev.rss_delete) {
+		ret = ethtool_check_rss_ctx_busy(dev, rxfh.rss_context);
+		if (ret)
+			goto out;
+	}
+
 	if (create) {
 		if (rxfh_dev.rss_delete) {
 			ret = -EINVAL;
@@ -2045,8 +2058,8 @@ static int ethtool_get_ringparam(struct net_device *dev, void __user *useraddr)
 
 static int ethtool_set_ringparam(struct net_device *dev, void __user *useraddr)
 {
-	struct ethtool_ringparam ringparam, max = { .cmd = ETHTOOL_GRINGPARAM };
 	struct kernel_ethtool_ringparam kernel_ringparam;
+	struct ethtool_ringparam ringparam, max;
 	int ret;
 
 	if (!dev->ethtool_ops->set_ringparam || !dev->ethtool_ops->get_ringparam)
@@ -2055,7 +2068,7 @@ static int ethtool_set_ringparam(struct net_device *dev, void __user *useraddr)
 	if (copy_from_user(&ringparam, useraddr, sizeof(ringparam)))
 		return -EFAULT;
 
-	dev->ethtool_ops->get_ringparam(dev, &max, &kernel_ringparam, NULL);
+	ethtool_ringparam_get_cfg(dev, &max, &kernel_ringparam, NULL);
 
 	/* ensure new ring parameters are within the maximums */
 	if (ringparam.rx_pending > max.rx_max_pending ||
@@ -2225,7 +2238,10 @@ static int ethtool_get_strings(struct net_device *dev, void __user *useraddr)
 		return -ENOMEM;
 	WARN_ON_ONCE(!ret);
 
-	gstrings.len = ret;
+	if (gstrings.len && gstrings.len != ret)
+		gstrings.len = 0;
+	else
+		gstrings.len = ret;
 
 	if (gstrings.len) {
 		data = vzalloc(array_size(gstrings.len, ETH_GSTRING_LEN));
@@ -2347,10 +2363,13 @@ static int ethtool_get_stats(struct net_device *dev, void __user *useraddr)
 	if (copy_from_user(&stats, useraddr, sizeof(stats)))
 		return -EFAULT;
 
-	stats.n_stats = n_stats;
+	if (stats.n_stats && stats.n_stats != n_stats)
+		stats.n_stats = 0;
+	else
+		stats.n_stats = n_stats;
 
-	if (n_stats) {
-		data = vzalloc(array_size(n_stats, sizeof(u64)));
+	if (stats.n_stats) {
+		data = vzalloc(array_size(stats.n_stats, sizeof(u64)));
 		if (!data)
 			return -ENOMEM;
 		ops->get_ethtool_stats(dev, &stats, data);
@@ -2362,7 +2381,9 @@ static int ethtool_get_stats(struct net_device *dev, void __user *useraddr)
 	if (copy_to_user(useraddr, &stats, sizeof(stats)))
 		goto out;
 	useraddr += sizeof(stats);
-	if (n_stats && copy_to_user(useraddr, data, array_size(n_stats, sizeof(u64))))
+	if (stats.n_stats &&
+	    copy_to_user(useraddr, data,
+			 array_size(stats.n_stats, sizeof(u64))))
 		goto out;
 	ret = 0;
 
@@ -2398,6 +2419,10 @@ static int ethtool_get_phy_stats_phydev(struct phy_device *phydev,
 		return -EOPNOTSUPP;
 
 	n_stats = phy_ops->get_sset_count(phydev);
+	if (stats->n_stats && stats->n_stats != n_stats) {
+		stats->n_stats = 0;
+		return 0;
+	}
 
 	ret = ethtool_vzalloc_stats_array(n_stats, data);
 	if (ret)
@@ -2418,6 +2443,10 @@ static int ethtool_get_phy_stats_ethtool(struct net_device *dev,
 		return -EOPNOTSUPP;
 
 	n_stats = ops->get_sset_count(dev, ETH_SS_PHY_STATS);
+	if (stats->n_stats && stats->n_stats != n_stats) {
+		stats->n_stats = 0;
+		return 0;
+	}
 
 	ret = ethtool_vzalloc_stats_array(n_stats, data);
 	if (ret)
@@ -2454,7 +2483,9 @@ static int ethtool_get_phy_stats(struct net_device *dev, void __user *useraddr)
 	}
 
 	useraddr += sizeof(stats);
-	if (copy_to_user(useraddr, data, array_size(stats.n_stats, sizeof(u64))))
+	if (stats.n_stats &&
+	    copy_to_user(useraddr, data,
+			 array_size(stats.n_stats, sizeof(u64))))
 		ret = -EFAULT;
 
  out:

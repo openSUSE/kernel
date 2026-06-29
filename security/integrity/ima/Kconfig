@@ -7,6 +7,7 @@ config IMA
 	select CRYPTO
 	select CRYPTO_HMAC
 	select CRYPTO_SHA1
+	select CRYPTO_SHA256
 	select CRYPTO_HASH_INFO
 	select SECURITY_PATH
 	select TCG_TPM if HAS_IOMEM
@@ -121,6 +122,20 @@ config IMA_DEFAULT_HASH
 	default "sha512" if IMA_DEFAULT_HASH_SHA512
 	default "wp512" if IMA_DEFAULT_HASH_WP512
 	default "sm3" if IMA_DEFAULT_HASH_SM3
+
+config IMA_COMPAT_FALLBACK_TPM_EXTEND
+	bool "Enable compatibility TPM PCR extend for unsupported banks"
+	default n
+	help
+	  In case a TPM PCR hash algorithm is not supported by the kernel,
+	  retain the old behaviour to extend the bank with padded SHA1 template
+	  digests.
+
+	  If Y, IMA will be unavailable when SHA1 is missing from the kernel.
+	  If N, existing tools may fail to verify IMA measurement lists against
+	  TPM PCR banks corresponding to hashes not supported by the kernel.
+
+	  If unsure, say N.
 
 config IMA_WRITE_POLICY
 	bool "Enable multiple writes to the IMA policy"

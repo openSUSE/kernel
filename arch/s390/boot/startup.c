@@ -75,7 +75,7 @@ static int cmma_test_essa(void)
 		: [reg1] "=&d" (reg1),
 		  [reg2] "=&a" (reg2),
 		  [rc] "+&d" (rc),
-		  [tmp] "=&d" (tmp),
+		  [tmp] "+&d" (tmp),
 		  "+Q" (get_lowcore()->program_new_psw),
 		  "=Q" (old)
 		: [psw_old] "a" (&old),
@@ -231,6 +231,8 @@ static unsigned long get_vmem_size(unsigned long identity_size,
 	vsize = round_up(SZ_2G + max_mappable, rte_size) +
 		round_up(vmemmap_size, rte_size) +
 		FIXMAP_SIZE + MODULES_LEN + KASLR_LEN;
+	if (IS_ENABLED(CONFIG_KMSAN))
+		vsize += MODULES_LEN * 2;
 	return size_add(vsize, vmalloc_size);
 }
 
@@ -480,7 +482,7 @@ void startup_kernel(void)
 	 * __vmlinux_relocs_64_end as the lower range address. However,
 	 * .amode31 section is written to by the decompressed kernel - at
 	 * that time the contents of .vmlinux.relocs is not needed anymore.
-	 * Conversly, .vmlinux.relocs is read only by the decompressor, even
+	 * Conversely, .vmlinux.relocs is read only by the decompressor, even
 	 * before the kernel started. Therefore, in case the two sections
 	 * overlap there is no risk of corrupting any data.
 	 */

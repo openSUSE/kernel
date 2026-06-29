@@ -104,13 +104,6 @@ enum {
 	MT7925_TM_WIFISPECTRUM,
 };
 
-struct mt7925_rftest_cmd {
-	u8 action;
-	u8 rsv[3];
-	__le32 param0;
-	__le32 param1;
-} __packed;
-
 struct mt7925_rftest_evt {
 	__le32 param0;
 	__le32 param1;
@@ -566,8 +559,8 @@ struct mt7925_wow_pattern_tlv {
 	u8 offset;
 	u8 mask[MT76_CONNAC_WOW_MASK_MAX_LEN];
 	u8 pattern[MT76_CONNAC_WOW_PATTEN_MAX_LEN];
-	u8 rsv[7];
-} __packed;
+	u8 rsv[4];
+};
 
 struct roc_acquire_tlv {
 	__le16 tag;
@@ -587,6 +580,47 @@ struct roc_acquire_tlv {
 	__le32 maxinterval;
 	u8 dbdcband;
 	u8 rsv[3];
+} __packed;
+
+enum ENUM_CMD_TEST_CTRL_ACT {
+	CMD_TEST_CTRL_ACT_SWITCH_MODE = 0,
+	CMD_TEST_CTRL_ACT_SET_AT = 1,
+	CMD_TEST_CTRL_ACT_GET_AT = 2,
+	CMD_TEST_CTRL_ACT_SET_AT_ENG = 3,
+	CMD_TEST_CTRL_ACT_GET_AT_ENG = 4,
+	CMD_TEST_CTRL_ACT_NUM
+};
+
+enum ENUM_CMD_TEST_CTRL_ACT_SWITCH_MODE_OP {
+	CMD_TEST_CTRL_ACT_SWITCH_MODE_NORMAL = 0,
+	CMD_TEST_CTRL_ACT_SWITCH_MODE_RF_TEST = 1,
+	CMD_TEST_CTRL_ACT_SWITCH_MODE_ICAP = 2,
+	CMD_TEST_CTRL_ACT_SWITCH_MODE_NUM
+};
+
+union testmode_data {
+	__le32 op_mode;
+	__le32 channel_freq;
+	u8 rf_at_info[84];
+};
+
+union testmode_evt {
+	__le32 op_mode;
+	__le32 channel_freq;
+	u8 rf_at_info[1024];
+};
+
+struct uni_cmd_testmode_ctrl {
+	u16 tag;
+	u16 length;
+	u8 action;
+	u8 reserved[3];
+	union testmode_data data;
+} __packed;
+
+struct mt7925_rftest_cmd {
+	u8 padding[4];
+	struct uni_cmd_testmode_ctrl ctrl;
 } __packed;
 
 static inline enum connac3_mcu_cipher_type
@@ -616,7 +650,7 @@ mt7925_mcu_get_cipher(int cipher)
 	}
 }
 
-int mt7925_mcu_set_dbdc(struct mt76_phy *phy);
+int mt7925_mcu_set_dbdc(struct mt76_phy *phy, bool enable);
 int mt7925_mcu_hw_scan(struct mt76_phy *phy, struct ieee80211_vif *vif,
 		       struct ieee80211_scan_request *scan_req);
 int mt7925_mcu_cancel_hw_scan(struct mt76_phy *phy,
@@ -627,6 +661,8 @@ int mt7925_mcu_sched_scan_req(struct mt76_phy *phy,
 int mt7925_mcu_sched_scan_enable(struct mt76_phy *phy,
 				 struct ieee80211_vif *vif,
 				 bool enable);
+void mt7925_mcu_del_dev(struct mt76_dev *mdev,
+			struct ieee80211_vif *vif);
 int mt7925_mcu_add_bss_info(struct mt792x_phy *phy,
 			    struct ieee80211_chanctx_conf *ctx,
 			    struct ieee80211_bss_conf *link_conf,
@@ -635,6 +671,7 @@ int mt7925_mcu_add_bss_info(struct mt792x_phy *phy,
 int mt7925_mcu_set_timing(struct mt792x_phy *phy,
 			  struct ieee80211_bss_conf *link_conf);
 int mt7925_mcu_set_deep_sleep(struct mt792x_dev *dev, bool enable);
+int mt7925_mcu_set_thermal_protect(struct mt792x_dev *dev);
 int mt7925_mcu_set_channel_domain(struct mt76_phy *phy);
 int mt7925_mcu_set_radio_en(struct mt792x_phy *phy, bool enable);
 int mt7925_mcu_set_chctx(struct mt76_phy *phy, struct mt76_vif *mvif,
@@ -643,4 +680,7 @@ int mt7925_mcu_set_chctx(struct mt76_phy *phy, struct mt76_vif *mvif,
 int mt7925_mcu_set_rate_txpower(struct mt76_phy *phy);
 int mt7925_mcu_update_arp_filter(struct mt76_dev *dev,
 				 struct ieee80211_bss_conf *link_conf);
+int
+mt7925_mcu_uni_bss_bcnft(struct mt792x_dev *dev,
+			 struct ieee80211_bss_conf *link_conf, bool enable);
 #endif

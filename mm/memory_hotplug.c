@@ -650,6 +650,7 @@ static void online_pages_range(unsigned long start_pfn, unsigned long nr_pages)
 	 * this and the first chunk to online will be pageblock_nr_pages.
 	 */
 	for (pfn = start_pfn; pfn < end_pfn;) {
+		struct page *page = pfn_to_page(pfn);
 		int order;
 
 		/*
@@ -664,7 +665,14 @@ static void online_pages_range(unsigned long start_pfn, unsigned long nr_pages)
 		else
 			order = MAX_PAGE_ORDER;
 
-		(*online_page_callback)(pfn_to_page(pfn), order);
+		/*
+		 * Exposing the page to the buddy by freeing can cause
+		 * issues with debug_pagealloc enabled: some archs don't
+		 * like double-unmappings. So treat them like any pages that
+		 * were allocated from the buddy.
+		 */
+		debug_pagealloc_map_pages(page, 1 << order);
+		(*online_page_callback)(page, order);
 		pfn += (1UL << order);
 	}
 
@@ -1805,8 +1813,12 @@ static void do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 		    (folio_test_large(folio) && folio_test_has_hwpoisoned(folio))) {
 			if (WARN_ON(folio_test_lru(folio)))
 				folio_isolate_lru(folio);
-			if (folio_mapped(folio))
-				unmap_poisoned_folio(folio, TTU_IGNORE_MLOCK);
+			if (folio_mapped(folio)) {
+				folio_lock(folio);
+				unmap_poisoned_folio(folio, pfn, false);
+				folio_unlock(folio);
+			}
+
 			continue;
 		}
 
@@ -1830,7 +1842,7 @@ put_folio:
 		nodemask_t nmask = node_states[N_MEMORY];
 		struct migration_target_control mtc = {
 			.nmask = &nmask,
-			.gfp_mask = GFP_USER | __GFP_MOVABLE | __GFP_RETRY_MAYFAIL,
+			.gfp_mask = GFP_KERNEL | __GFP_MOVABLE | __GFP_RETRY_MAYFAIL,
 			.reason = MR_MEMORY_HOTPLUG,
 		};
 		int ret;
@@ -1992,8 +2004,7 @@ int offline_pages(unsigned long start_pfn, unsigned long nr_pages,
 	/* set above range as isolated */
 	ret = start_isolate_page_range(start_pfn, end_pfn,
 				       MIGRATE_MOVABLE,
-				       MEMORY_OFFLINE | REPORT_FAILURE,
-				       GFP_USER | __GFP_MOVABLE | __GFP_RETRY_MAYFAIL);
+				       MEMORY_OFFLINE | REPORT_FAILURE);
 	if (ret) {
 		reason = "failure to isolate range";
 		goto failed_removal_pcplists_disabled;

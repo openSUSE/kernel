@@ -173,6 +173,15 @@ config PCI_PASID
 
 	  If unsure, say N.
 
+config PCIE_TPH
+	bool "TLP Processing Hints"
+	help
+	  This option adds support for PCIe TLP Processing Hints (TPH).
+	  TPH allows endpoint devices to provide optimization hints, such as
+	  desired caching behavior, for requests that target memory space.
+	  These hints, called Steering Tags, can empower the system hardware
+	  to optimize the utilization of platform resources.
+
 config PCI_P2PDMA
 	bool "PCI peer-to-peer transfer support"
 	depends on ZONE_DEVICE
@@ -193,6 +202,12 @@ config PCI_P2PDMA
 	  it's hard to tell which support it at all, so at this time,
 	  P2P DMA transactions must be between devices behind the same root
 	  port.
+
+	  Enabling this option will reduce the entropy of x86 KASLR memory
+	  regions. For example - on a 46 bit system, the entropy goes down
+	  from 16 bits to 15 bits. The actual reduction in entropy depends
+	  on the physical address bits, on processor features, kernel config
+	  (5 level page table) and physical memory present on the system.
 
 	  If unsure, say N.
 

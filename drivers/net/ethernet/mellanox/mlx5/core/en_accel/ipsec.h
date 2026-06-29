@@ -271,6 +271,7 @@ struct mlx5e_ipsec_sa_entry {
 	struct mlx5e_ipsec_dwork *dwork;
 	struct mlx5e_ipsec_limits limits;
 	u32 rx_mapped_id;
+	u8 ctx[MLX5_ST_SZ_BYTES(ipsec_aso)];
 };
 
 struct mlx5_accel_pol_xfrm_attrs {
@@ -336,6 +337,7 @@ void mlx5e_ipsec_build_accel_xfrm_attrs(struct mlx5e_ipsec_sa_entry *sa_entry,
 void mlx5e_ipsec_handle_mpv_event(int event, struct mlx5e_priv *slave_priv,
 				  struct mlx5e_priv *master_priv);
 void mlx5e_ipsec_send_event(struct mlx5e_priv *priv, int event);
+void mlx5e_ipsec_disable_events(struct mlx5e_priv *priv);
 
 static inline struct mlx5_core_dev *
 mlx5e_ipsec_sa2dev(struct mlx5e_ipsec_sa_entry *sa_entry)
@@ -379,6 +381,10 @@ static inline void mlx5e_ipsec_handle_mpv_event(int event, struct mlx5e_priv *sl
 }
 
 static inline void mlx5e_ipsec_send_event(struct mlx5e_priv *priv, int event)
+{
+}
+
+static inline void mlx5e_ipsec_disable_events(struct mlx5e_priv *priv)
 {
 }
 #endif

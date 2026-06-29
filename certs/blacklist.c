@@ -285,11 +285,12 @@ int add_key_to_revocation_list(const char *data, size_t size)
  * is_key_on_revocation_list - Determine if the key for a PKCS#7 message is revoked
  * @pkcs7: The PKCS#7 message to check
  */
-int is_key_on_revocation_list(struct pkcs7_message *pkcs7)
+int is_key_on_revocation_list(struct pkcs7_message *pkcs7,
+			      enum key_being_used_for usage)
 {
 	int ret;
 
-	ret = pkcs7_validate_trust(pkcs7, blacklist_keyring);
+	ret = pkcs7_validate_trust(pkcs7, blacklist_keyring, usage);
 
 	if (ret == 0)
 		return -EKEYREJECTED;

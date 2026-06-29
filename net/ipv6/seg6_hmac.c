@@ -35,6 +35,7 @@
 #include <net/xfrm.h>
 
 #include <crypto/hash.h>
+#include <crypto/utils.h>
 #include <net/seg6.h>
 #include <net/genetlink.h>
 #include <net/seg6_hmac.h>
@@ -108,7 +109,7 @@ static struct seg6_hmac_algo *__hmac_get_algo(u8 alg_id)
 	alg_count = ARRAY_SIZE(hmac_algos);
 	for (i = 0; i < alg_count; i++) {
 		algo = &hmac_algos[i];
-		if (algo->alg_id == alg_id)
+		if (algo->alg_id == alg_id && algo->tfms)
 			return algo;
 	}
 
@@ -244,6 +245,8 @@ bool seg6_hmac_validate_skb(struct sk_buff *skb)
 	int require_hmac;
 
 	idev = __in6_dev_get(skb->dev);
+	if (!idev)
+		return false;
 
 	srh = (struct ipv6_sr_hdr *)skb_transport_header(skb);
 
@@ -271,7 +274,7 @@ bool seg6_hmac_validate_skb(struct sk_buff *skb)
 	if (seg6_hmac_compute(hinfo, srh, &ipv6_hdr(skb)->saddr, hmac_output))
 		return false;
 
-	if (memcmp(hmac_output, tlv->hmac, SEG6_HMAC_FIELD_LEN) != 0)
+	if (crypto_memneq(hmac_output, tlv->hmac, SEG6_HMAC_FIELD_LEN))
 		return false;
 
 	return true;
@@ -293,7 +296,12 @@ EXPORT_SYMBOL(seg6_hmac_info_lookup);
 int seg6_hmac_info_add(struct net *net, u32 key, struct seg6_hmac_info *hinfo)
 {
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct seg6_hmac_algo *algo;
 	int err;
+
+	algo = __hmac_get_algo(hinfo->alg_id);
+	if (!algo || !algo->tfms)
+		return -ENOENT;
 
 	err = rhashtable_lookup_insert_fast(&sdata->hmac_infos, &hinfo->node,
 					    rht_params);
@@ -350,51 +358,86 @@ out:
 }
 EXPORT_SYMBOL(seg6_push_hmac);
 
-static int seg6_hmac_init_algo(void)
+static void seg6_hmac_free_algo(struct seg6_hmac_algo *algo)
 {
-	struct seg6_hmac_algo *algo;
 	struct crypto_shash *tfm;
 	struct shash_desc *shash;
-	int i, alg_count, cpu;
+	int cpu;
+
+	if (algo->shashs) {
+		for_each_possible_cpu(cpu) {
+			shash = *per_cpu_ptr(algo->shashs, cpu);
+			kfree(shash);
+		}
+		free_percpu(algo->shashs);
+		algo->shashs = NULL;
+	}
+
+	if (algo->tfms) {
+		for_each_possible_cpu(cpu) {
+			tfm = *per_cpu_ptr(algo->tfms, cpu);
+			crypto_free_shash(tfm);
+		}
+		free_percpu(algo->tfms);
+		algo->tfms = NULL;
+	}
+}
+
+static int seg6_hmac_init_algo(struct seg6_hmac_algo *algo)
+{
+	struct crypto_shash *tfm, **p_tfm;
+	struct shash_desc *shash;
+	int cpu, shsize;
 	int ret = -ENOMEM;
 
+	algo->tfms = alloc_percpu(struct crypto_shash *);
+	if (!algo->tfms)
+		goto error_out;
+
+	for_each_possible_cpu(cpu) {
+		tfm = crypto_alloc_shash(algo->name, 0, 0);
+		if (IS_ERR(tfm)) {
+			ret = PTR_ERR(tfm);
+			goto error_out;
+		}
+		p_tfm = per_cpu_ptr(algo->tfms, cpu);
+		*p_tfm = tfm;
+	}
+
+	p_tfm = raw_cpu_ptr(algo->tfms);
+	tfm = *p_tfm;
+
+	shsize = sizeof(*shash) + crypto_shash_descsize(tfm);
+
+	algo->shashs = alloc_percpu(struct shash_desc *);
+	if (!algo->shashs)
+		goto error_out;
+
+	for_each_possible_cpu(cpu) {
+		shash = kzalloc_node(shsize, GFP_KERNEL,
+				     cpu_to_node(cpu));
+		if (!shash)
+			goto error_out;
+		*per_cpu_ptr(algo->shashs, cpu) = shash;
+	}
+
+	return 0;
+
+error_out:
+	seg6_hmac_free_algo(algo);
+	return ret;
+}
+
+static int seg6_hmac_init_algos(void)
+{
+	int i, alg_count;
+	int ret;
+
 	alg_count = ARRAY_SIZE(hmac_algos);
-
 	for (i = 0; i < alg_count; i++) {
-		struct crypto_shash **p_tfm;
-		int shsize;
-
-		algo = &hmac_algos[i];
-		algo->tfms = alloc_percpu(struct crypto_shash *);
-		if (!algo->tfms)
+		ret = seg6_hmac_init_algo(&hmac_algos[i]);
+		if (ret && ret != -ENOENT)
 			goto error_out;
-
-		for_each_possible_cpu(cpu) {
-			tfm = crypto_alloc_shash(algo->name, 0, 0);
-			if (IS_ERR(tfm)) {
-				ret = PTR_ERR(tfm);
-				goto error_out;
-			}
-			p_tfm = per_cpu_ptr(algo->tfms, cpu);
-			*p_tfm = tfm;
-		}
-
-		p_tfm = raw_cpu_ptr(algo->tfms);
-		tfm = *p_tfm;
-
-		shsize = sizeof(*shash) + crypto_shash_descsize(tfm);
-
-		algo->shashs = alloc_percpu(struct shash_desc *);
-		if (!algo->shashs)
-			goto error_out;
-
-		for_each_possible_cpu(cpu) {
-			shash = kzalloc_node(shsize, GFP_KERNEL,
-					     cpu_to_node(cpu));
-			if (!shash)
-				goto error_out;
-			*per_cpu_ptr(algo->shashs, cpu) = shash;
-		}
 	}
 
 	return 0;
@@ -406,7 +449,7 @@ error_out:
 
 int __init seg6_hmac_init(void)
 {
-	return seg6_hmac_init_algo();
+	return seg6_hmac_init_algos();
 }
 
 int __net_init seg6_hmac_net_init(struct net *net)
@@ -418,30 +461,11 @@ int __net_init seg6_hmac_net_init(struct net *net)
 
 void seg6_hmac_exit(void)
 {
-	struct seg6_hmac_algo *algo = NULL;
-	struct crypto_shash *tfm;
-	struct shash_desc *shash;
-	int i, alg_count, cpu;
+	int i, alg_count;
 
 	alg_count = ARRAY_SIZE(hmac_algos);
 	for (i = 0; i < alg_count; i++) {
-		algo = &hmac_algos[i];
-
-		if (algo->shashs) {
-			for_each_possible_cpu(cpu) {
-				shash = *per_cpu_ptr(algo->shashs, cpu);
-				kfree(shash);
-			}
-			free_percpu(algo->shashs);
-		}
-
-		if (algo->tfms) {
-			for_each_possible_cpu(cpu) {
-				tfm = *per_cpu_ptr(algo->tfms, cpu);
-				crypto_free_shash(tfm);
-			}
-			free_percpu(algo->tfms);
-		}
+		seg6_hmac_free_algo(&hmac_algos[i]);
 	}
 }
 EXPORT_SYMBOL(seg6_hmac_exit);

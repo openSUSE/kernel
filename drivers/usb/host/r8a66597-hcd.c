@@ -759,7 +759,7 @@ static void enable_r8a66597_pipe_dma(struct r8a66597 *r8a66597,
 	struct r8a66597_pipe_info *info = &pipe->info;
 	unsigned short mbw = mbw_value(r8a66597);
 
-	/* pipe dma is only for external controlles */
+	/* pipe dma is only for external controllers */
 	if (r8a66597->pdata->on_chip)
 		return;
 
@@ -2510,7 +2510,7 @@ clean_up:
 
 static struct platform_driver r8a66597_driver = {
 	.probe =	r8a66597_probe,
-	.remove_new =	r8a66597_remove,
+	.remove =	r8a66597_remove,
 	.driver		= {
 		.name = hcd_name,
 		.pm	= R8A66597_DEV_PM_OPS,

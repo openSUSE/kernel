@@ -162,6 +162,8 @@ extern void cleanup_module(void);
 #define __INITRODATA_OR_MODULE __INITRODATA
 #endif /*CONFIG_MODULES*/
 
+struct module_kobject *lookup_or_create_module_kobject(const char *name);
+
 /* Generic info of form tag = "info" */
 #define MODULE_INFO(tag, info) __MODULE_INFO(tag, tag, info)
 
@@ -367,6 +369,7 @@ enum mod_mem_type {
 
 struct module_memory {
 	void *base;
+	bool is_rox;
 	unsigned int size;
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP
@@ -388,7 +391,7 @@ struct mod_kallsyms {
 	char *typetab;
 };
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 /**
  * struct klp_modinfo - ELF information preserved from the livepatch module
  *
@@ -513,7 +516,7 @@ struct module {
 	unsigned int num_bpf_raw_events;
 	struct bpf_raw_event_map *bpf_raw_events;
 #endif
-#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+#if 1
 	unsigned int btf_data_size;
 	unsigned int btf_base_data_size;
 	void *btf_data;
@@ -555,7 +558,7 @@ struct module {
 #endif
 
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 	bool klp; /* Is this a livepatch module? */
 	bool klp_alive;
 
@@ -580,6 +583,11 @@ struct module {
 	atomic_t refcnt;
 #endif
 
+#ifdef CONFIG_MITIGATION_ITS
+	int its_num_pages;
+	void **its_page_array;
+#endif
+
 #ifdef CONFIG_CONSTRUCTORS
 	/* Constructor functions. */
 	ctor_fn_t *ctors;
@@ -592,6 +600,11 @@ struct module {
 #endif
 #ifdef CONFIG_DYNAMIC_DEBUG_CORE
 	struct _ddebug_info dyndbg_info;
+#endif
+#ifndef __GENKSYMS__
+	void *arch_init_ftrace_trampolines;
+#else
+ 	void *suse_kabi_padding;
 #endif
 } ____cacheline_aligned __randomize_layout;
 #ifndef MODULE_ARCH_INIT
@@ -624,6 +637,11 @@ bool is_module_address(unsigned long addr);
 bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr);
 bool is_module_percpu_address(unsigned long addr);
 bool is_module_text_address(unsigned long addr);
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+void add_support_taint(unsigned flag);
+const char *supported_printable(unsigned long taint);
+const char *kernel_supported_printable(void);
+#endif
 
 static inline bool within_module_mem_type(unsigned long addr,
 					  const struct module *mod,
@@ -661,7 +679,7 @@ static inline bool within_module(unsigned long addr, const struct module *mod)
 	return within_module_init(addr, mod) || within_module_core(addr, mod);
 }
 
-/* Search for module by name: must be in a RCU-sched critical section. */
+/* Search for module by name: must be in a RCU critical section. */
 struct module *find_module(const char *name);
 
 extern void __noreturn __module_put_and_kthread_exit(struct module *mod,
@@ -743,6 +761,18 @@ static inline void __module_get(struct module *module)
 	__mod ? __mod->name : "kernel";		\
 })
 
+#ifdef CONFIG_STACKTRACE_BUILD_ID
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return mod->build_id;
+}
+#else
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return NULL;
+}
+#endif
+
 /* Dereference module function descriptor */
 void *dereference_module_function_descriptor(struct module *mod, void *ptr);
 
@@ -766,6 +796,7 @@ static inline bool is_livepatch_module(struct module *mod)
 }
 
 void set_module_sig_enforced(void);
+
 
 #else /* !CONFIG_MODULES... */
 
@@ -835,6 +866,11 @@ static inline void module_put(struct module *module)
 }
 
 #define module_name(mod) "kernel"
+
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return NULL;
+}
 
 static inline int register_module_notifier(struct notifier_block *nb)
 {

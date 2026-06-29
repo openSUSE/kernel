@@ -54,7 +54,7 @@
 #include <asm/firmware.h>
 #include <asm/hw_irq.h>
 #endif
-#include <asm/code-patching.h>
+#include <asm/text-patching.h>
 #include <asm/exec.h>
 #include <asm/livepatch.h>
 #include <asm/cpu_has_feature.h>
@@ -1000,7 +1000,7 @@ static inline void tm_reclaim_task(struct task_struct *tsk)
 
 	WARN_ON(tm_suspend_disabled);
 
-	TM_DEBUG("--- tm_reclaim on pid %d (NIP=%lx, "
+	TM_DEBUG("---- tm_reclaim on pid %d (NIP=%lx, "
 		 "ccr=%lx, msr=%lx, trap=%lx)\n",
 		 tsk->pid, thr->regs->nip,
 		 thr->regs->ccr, thr->regs->msr,
@@ -1008,7 +1008,7 @@ static inline void tm_reclaim_task(struct task_struct *tsk)
 
 	tm_reclaim_thread(thr, TM_CAUSE_RESCHED);
 
-	TM_DEBUG("--- tm_reclaim on pid %d complete\n",
+	TM_DEBUG("---- tm_reclaim on pid %d complete\n",
 		 tsk->pid);
 
 out_and_saveregs:
@@ -1897,8 +1897,6 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	return 0;
 }
 
-void preload_new_slb_context(unsigned long start, unsigned long sp);
-
 /*
  * Set up a thread for executing a new program
  */
@@ -1906,9 +1904,6 @@ void start_thread(struct pt_regs *regs, unsigned long start, unsigned long sp)
 {
 #ifdef CONFIG_PPC64
 	unsigned long load_addr = regs->gpr[2];	/* saved by ELF_PLAT_INIT */
-
-	if (IS_ENABLED(CONFIG_PPC_BOOK3S_64) && !radix_enabled())
-		preload_new_slb_context(start, sp);
 #endif
 
 #ifdef CONFIG_PPC_TRANSACTIONAL_MEM
@@ -2367,14 +2362,14 @@ void __no_sanitize_address show_stack(struct task_struct *tsk,
 				(sp + STACK_INT_FRAME_REGS);
 
 			lr = regs->link;
-			printk("%s--- interrupt: %lx at %pS\n",
+			printk("%s---- interrupt: %lx at %pS\n",
 			       loglvl, regs->trap, (void *)regs->nip);
 
 			// Detect the case of an empty pt_regs at the very base
 			// of the stack and suppress showing it in full.
 			if (!empty_user_regs(regs, tsk)) {
 				__show_regs(regs);
-				printk("%s--- interrupt: %lx\n", loglvl, regs->trap);
+				printk("%s---- interrupt: %lx\n", loglvl, regs->trap);
 			}
 
 			firstframe = 1;

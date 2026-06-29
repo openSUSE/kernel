@@ -10,6 +10,9 @@
 #include <ctype.h>
 #include <limits.h>
 #include "internal.h"
+#include <api/fs/fs.h>
+
+#define MAX_NR_CPUS 4096
 
 void perf_cpu_map__set_nr(struct perf_cpu_map *map, int nr_cpus)
 {
@@ -100,12 +103,12 @@ static struct perf_cpu_map *cpu_map__new_sysconf(void)
 static struct perf_cpu_map *cpu_map__new_sysfs_online(void)
 {
 	struct perf_cpu_map *cpus = NULL;
-	FILE *onlnf;
+	char *buf = NULL;
+	size_t buf_len;
 
-	onlnf = fopen("/sys/devices/system/cpu/online", "r");
-	if (onlnf) {
-		cpus = perf_cpu_map__read(onlnf);
-		fclose(onlnf);
+	if (sysfs__read_str("devices/system/cpu/online", &buf, &buf_len) >= 0) {
+		cpus = perf_cpu_map__new(buf);
+		free(buf);
 	}
 	return cpus;
 }
@@ -238,7 +241,7 @@ struct perf_cpu_map *perf_cpu_map__new(const char *cpu_list)
 		p = NULL;
 		start_cpu = strtoul(cpu_list, &p, 0);
 		if (start_cpu >= INT_MAX
-		    || (*p != '\0' && *p != ',' && *p != '-'))
+		    || (*p != '\0' && *p != ',' && *p != '-' && *p != '\n'))
 			goto invalid;
 
 		if (*p == '-') {
@@ -246,7 +249,7 @@ struct perf_cpu_map *perf_cpu_map__new(const char *cpu_list)
 			p = NULL;
 			end_cpu = strtoul(cpu_list, &p, 0);
 
-			if (end_cpu >= INT_MAX || (*p != '\0' && *p != ','))
+			if (end_cpu >= INT_MAX || (*p != '\0' && *p != ',' && *p != '\n'))
 				goto invalid;
 
 			if (end_cpu < start_cpu)
@@ -265,7 +268,7 @@ struct perf_cpu_map *perf_cpu_map__new(const char *cpu_list)
 					goto invalid;
 
 			if (nr_cpus == max_entries) {
-				max_entries += MAX_NR_CPUS;
+				max_entries += max(end_cpu - start_cpu + 1, 16UL);
 				tmp = realloc(tmp_cpus, max_entries * sizeof(struct perf_cpu));
 				if (tmp == NULL)
 					goto invalid;
@@ -279,14 +282,15 @@ struct perf_cpu_map *perf_cpu_map__new(const char *cpu_list)
 		cpu_list = p;
 	}
 
-	if (nr_cpus > 0)
+	if (nr_cpus > 0) {
 		cpus = cpu_map__trim_new(nr_cpus, tmp_cpus);
-	else if (*cpu_list != '\0') {
+	} else if (*cpu_list != '\0') {
 		pr_warning("Unexpected characters at end of cpu list ('%s'), using online CPUs.",
 			   cpu_list);
 		cpus = perf_cpu_map__new_online_cpus();
-	} else
+	} else {
 		cpus = perf_cpu_map__new_any_cpu();
+	}
 invalid:
 	free(tmp_cpus);
 out:

@@ -134,6 +134,8 @@
 #define CRYPTO_TFM_REQ_MAY_SLEEP	0x00000200
 #define CRYPTO_TFM_REQ_MAY_BACKLOG	0x00000400
 
+#define CRYPTO_TFM_FIPS_COMPLIANCE	0x80000000
+
 /*
  * Miscellaneous stuff.
  */
@@ -237,6 +239,8 @@ struct cipher_alg {
 	                  unsigned int keylen);
 	void (*cia_encrypt)(struct crypto_tfm *tfm, u8 *dst, const u8 *src);
 	void (*cia_decrypt)(struct crypto_tfm *tfm, u8 *dst, const u8 *src);
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -255,6 +259,8 @@ struct compress_alg {
 			    unsigned int slen, u8 *dst, unsigned int *dlen);
 	int (*coa_decompress)(struct crypto_tfm *tfm, const u8 *src,
 			      unsigned int slen, u8 *dst, unsigned int *dlen);
+
+	void *suse_kabi_padding;
 };
 
 #define cra_cipher	cra_u.cipher
@@ -367,6 +373,8 @@ struct crypto_alg {
 	void (*cra_destroy)(struct crypto_alg *alg);
 	
 	struct module *cra_module;
+
+	void *suse_kabi_padding;
 } CRYPTO_MINALIGN_ATTR;
 
 /*

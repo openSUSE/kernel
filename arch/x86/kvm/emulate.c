@@ -478,7 +478,7 @@ static int emulator_check_intercept(struct x86_emulate_ctxt *ctxt,
 		.src_bytes  = ctxt->src.bytes,
 		.dst_bytes  = ctxt->dst.bytes,
 		.ad_bytes   = ctxt->ad_bytes,
-		.next_rip   = ctxt->eip,
+		.next_rip   = ctxt->_eip,
 	};
 
 	return ctxt->ops->intercept(ctxt, &info, stage);
@@ -651,9 +651,10 @@ static inline u8 ctxt_virt_addr_bits(struct x86_emulate_ctxt *ctxt)
 }
 
 static inline bool emul_is_noncanonical_address(u64 la,
-						struct x86_emulate_ctxt *ctxt)
+						struct x86_emulate_ctxt *ctxt,
+						unsigned int flags)
 {
-	return !__is_canonical_address(la, ctxt_virt_addr_bits(ctxt));
+	return !ctxt->ops->is_canonical_addr(ctxt, la, flags);
 }
 
 /*
@@ -1359,12 +1360,25 @@ static int read_emulated(struct x86_emulate_ctxt *ctxt,
 	int rc;
 	struct read_cache *mc = &ctxt->mem_read;
 
+	/*
+	 * If the read gets a cache hit, simply copy the value from the cache.
+	 * A "hit" here means that there is unused data in the cache, i.e. when
+	 * re-emulating an instruction to complete a userspace exit, KVM relies
+	 * on "no decode" to ensure the instruction is re-emulated in the same
+	 * sequence, so that multiple reads are fulfilled in the correct order.
+	 */
 	if (mc->pos < mc->end)
 		goto read_cached;
 
 	if (KVM_EMULATOR_BUG_ON((mc->end + size) >= sizeof(mc->data), ctxt))
 		return X86EMUL_UNHANDLEABLE;
 
+	/*
+	 * Route all reads to the cache.  This allows @dest to be an on-stack
+	 * variable without triggering use-after-free if KVM needs to exit to
+	 * userspace to handle an MMIO read (the MMIO fragment will point at
+	 * the current location in the cache).
+	 */
 	rc = ctxt->ops->read_emulated(ctxt, addr, mc->data + mc->end, size,
 				      &ctxt->exception);
 	if (rc != X86EMUL_CONTINUE)
@@ -1733,7 +1747,8 @@ static int __load_segment_descriptor(struct x86_emulate_ctxt *ctxt,
 		if (ret != X86EMUL_CONTINUE)
 			return ret;
 		if (emul_is_noncanonical_address(get_desc_base(&seg_desc) |
-						 ((u64)base3 << 32), ctxt))
+						 ((u64)base3 << 32), ctxt,
+						 X86EMUL_F_DT_LOAD))
 			return emulate_gp(ctxt, err_code);
 	}
 
@@ -2516,8 +2531,8 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 		ss_sel = cs_sel + 8;
 		cs.d = 0;
 		cs.l = 1;
-		if (emul_is_noncanonical_address(rcx, ctxt) ||
-		    emul_is_noncanonical_address(rdx, ctxt))
+		if (emul_is_noncanonical_address(rcx, ctxt, 0) ||
+		    emul_is_noncanonical_address(rdx, ctxt, 0))
 			return emulate_gp(ctxt, 0);
 		break;
 	}
@@ -3494,7 +3509,8 @@ static int em_lgdt_lidt(struct x86_emulate_ctxt *ctxt, bool lgdt)
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
 	if (ctxt->mode == X86EMUL_MODE_PROT64 &&
-	    emul_is_noncanonical_address(desc_ptr.address, ctxt))
+	    emul_is_noncanonical_address(desc_ptr.address, ctxt,
+					 X86EMUL_F_DT_LOAD))
 		return emulate_gp(ctxt, 0);
 	if (lgdt)
 		ctxt->ops->set_gdt(ctxt, &desc_ptr);
@@ -3600,10 +3616,10 @@ static int em_cpuid(struct x86_emulate_ctxt *ctxt)
 	u64 msr = 0;
 
 	ctxt->ops->get_msr(ctxt, MSR_MISC_FEATURES_ENABLES, &msr);
-	if (msr & MSR_MISC_FEATURES_ENABLES_CPUID_FAULT &&
-	    ctxt->ops->cpl(ctxt)) {
+	if (!ctxt->ops->is_smm(ctxt) &&
+	    (msr & MSR_MISC_FEATURES_ENABLES_CPUID_FAULT) &&
+	    ctxt->ops->cpl(ctxt))
 		return emulate_gp(ctxt, 0);
-	}
 
 	eax = reg_read(ctxt, VCPU_REGS_RAX);
 	ecx = reg_read(ctxt, VCPU_REGS_RCX);
@@ -3891,8 +3907,7 @@ static int check_svme_pa(struct x86_emulate_ctxt *ctxt)
 {
 	u64 rax = reg_read(ctxt, VCPU_REGS_RAX);
 
-	/* Valid physical address? */
-	if (rax & 0xffff000000000000ULL)
+	if (!ctxt->ops->page_address_valid(ctxt, rax))
 		return emulate_gp(ctxt, 0);
 
 	return check_svme(ctxt);
@@ -4324,8 +4339,8 @@ static const struct opcode opcode_table[256] = {
 	I(DstReg | SrcMemFAddr | ModRM | No64 | Src2DS, em_lseg),
 	G(ByteOp, group11), G(0, group11),
 	/* 0xC8 - 0xCF */
-	I(Stack | SrcImmU16 | Src2ImmByte | IsBranch, em_enter),
-	I(Stack | IsBranch, em_leave),
+	I(Stack | SrcImmU16 | Src2ImmByte, em_enter),
+	I(Stack, em_leave),
 	I(ImplicitOps | SrcImmU16 | IsBranch, em_ret_far_imm),
 	I(ImplicitOps | IsBranch, em_ret_far),
 	D(ImplicitOps | IsBranch), DI(SrcImmByte | IsBranch, intn),

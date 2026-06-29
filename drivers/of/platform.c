@@ -570,10 +570,11 @@ static int __init of_platform_default_populate_init(void)
 
 		node = of_find_node_by_path("/firmware");
 		if (node) {
-			of_platform_populate(node, NULL, NULL, NULL);
+			of_platform_default_populate(node, NULL, NULL);
 			of_node_put(node);
 		}
 
+		sysfb_disable(NULL);
 		node = of_get_compatible_child(of_chosen, "simple-framebuffer");
 		if (node) {
 			/*

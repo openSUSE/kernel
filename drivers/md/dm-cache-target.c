@@ -2899,6 +2899,27 @@ static dm_cblock_t get_cache_dev_size(struct cache *cache)
 	return to_cblock(size);
 }
 
+static bool can_resume(struct cache *cache)
+{
+	/*
+	 * Disallow retrying the resume operation for devices that failed the
+	 * first resume attempt, as the failure leaves the policy object partially
+	 * initialized. Retrying could trigger BUG_ON when loading cache mappings
+	 * into the incomplete policy object.
+	 */
+	if (cache->sized && !cache->loaded_mappings) {
+		if (get_cache_mode(cache) != CM_WRITE)
+			DMERR("%s: unable to resume a failed-loaded cache, please check metadata.",
+			      cache_device_name(cache));
+		else
+			DMERR("%s: unable to resume cache due to missing proper cache table reload",
+			      cache_device_name(cache));
+		return false;
+	}
+
+	return true;
+}
+
 static bool can_resize(struct cache *cache, dm_cblock_t new_size)
 {
 	if (from_cblock(new_size) > from_cblock(cache->cache_size)) {
@@ -2946,6 +2967,9 @@ static int cache_preresume(struct dm_target *ti)
 	int r = 0;
 	struct cache *cache = ti->private;
 	dm_cblock_t csize = get_cache_dev_size(cache);
+
+	if (!can_resume(cache))
+		return -EINVAL;
 
 	/*
 	 * Check to see if the cache has resized.
@@ -3362,7 +3386,7 @@ static int cache_iterate_devices(struct dm_target *ti,
 static void disable_passdown_if_not_supported(struct cache *cache)
 {
 	struct block_device *origin_bdev = cache->origin_dev->bdev;
-	struct queue_limits *origin_limits = &bdev_get_queue(origin_bdev)->limits;
+	struct queue_limits *origin_limits = bdev_limits(origin_bdev);
 	const char *reason = NULL;
 
 	if (!cache->features.discard_passdown)
@@ -3384,7 +3408,7 @@ static void disable_passdown_if_not_supported(struct cache *cache)
 static void set_discard_limits(struct cache *cache, struct queue_limits *limits)
 {
 	struct block_device *origin_bdev = cache->origin_dev->bdev;
-	struct queue_limits *origin_limits = &bdev_get_queue(origin_bdev)->limits;
+	struct queue_limits *origin_limits = bdev_limits(origin_bdev);
 
 	if (!cache->features.discard_passdown) {
 		/* No passdown is done so setting own virtual limits */

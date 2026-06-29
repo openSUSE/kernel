@@ -2626,96 +2626,6 @@ qla2x00_port_speed_capability(uint16_t speed)
 }
 
 /**
- * qla2x00_gpsc() - FCS Get Port Speed Capabilities (GPSC) query.
- * @vha: HA context
- * @list: switch info entries to populate
- *
- * Returns 0 on success.
- */
-int
-qla2x00_gpsc(scsi_qla_host_t *vha, sw_info_t *list)
-{
-	int		rval;
-	uint16_t	i;
-	struct qla_hw_data *ha = vha->hw;
-	ms_iocb_entry_t *ms_pkt;
-	struct ct_sns_req	*ct_req;
-	struct ct_sns_rsp	*ct_rsp;
-	struct ct_arg arg;
-
-	if (!IS_IIDMA_CAPABLE(ha))
-		return QLA_FUNCTION_FAILED;
-	if (!ha->flags.gpsc_supported)
-		return QLA_FUNCTION_FAILED;
-
-	rval = qla2x00_mgmt_svr_login(vha);
-	if (rval)
-		return rval;
-
-	arg.iocb = ha->ms_iocb;
-	arg.req_dma = ha->ct_sns_dma;
-	arg.rsp_dma = ha->ct_sns_dma;
-	arg.req_size = GPSC_REQ_SIZE;
-	arg.rsp_size = GPSC_RSP_SIZE;
-	arg.nport_handle = vha->mgmt_svr_loop_id;
-
-	for (i = 0; i < ha->max_fibre_devices; i++) {
-		/* Issue GFPN_ID */
-		/* Prepare common MS IOCB */
-		ms_pkt = qla24xx_prep_ms_iocb(vha, &arg);
-
-		/* Prepare CT request */
-		ct_req = qla24xx_prep_ct_fm_req(ha->ct_sns, GPSC_CMD,
-		    GPSC_RSP_SIZE);
-		ct_rsp = &ha->ct_sns->p.rsp;
-
-		/* Prepare CT arguments -- port_name */
-		memcpy(ct_req->req.gpsc.port_name, list[i].fabric_port_name,
-		    WWN_SIZE);
-
-		/* Execute MS IOCB */
-		rval = qla2x00_issue_iocb(vha, ha->ms_iocb, ha->ms_iocb_dma,
-		    sizeof(ms_iocb_entry_t));
-		if (rval != QLA_SUCCESS) {
-			/*EMPTY*/
-			ql_dbg(ql_dbg_disc, vha, 0x2059,
-			    "GPSC issue IOCB failed (%d).\n", rval);
-		} else if ((rval = qla2x00_chk_ms_status(vha, ms_pkt, ct_rsp,
-		    "GPSC")) != QLA_SUCCESS) {
-			/* FM command unsupported? */
-			if (rval == QLA_INVALID_COMMAND &&
-			    (ct_rsp->header.reason_code ==
-				CT_REASON_INVALID_COMMAND_CODE ||
-			     ct_rsp->header.reason_code ==
-				CT_REASON_COMMAND_UNSUPPORTED)) {
-				ql_dbg(ql_dbg_disc, vha, 0x205a,
-				    "GPSC command unsupported, disabling "
-				    "query.\n");
-				ha->flags.gpsc_supported = 0;
-				rval = QLA_FUNCTION_FAILED;
-				break;
-			}
-			rval = QLA_FUNCTION_FAILED;
-		} else {
-			list->fp_speed = qla2x00_port_speed_capability(
-			    be16_to_cpu(ct_rsp->rsp.gpsc.speed));
-			ql_dbg(ql_dbg_disc, vha, 0x205b,
-			    "GPSC ext entry - fpn "
-			    "%8phN speeds=%04x speed=%04x.\n",
-			    list[i].fabric_port_name,
-			    be16_to_cpu(ct_rsp->rsp.gpsc.speeds),
-			    be16_to_cpu(ct_rsp->rsp.gpsc.speed));
-		}
-
-		/* Last device exit. */
-		if (list[i].d_id.b.rsvd_1 != 0)
-			break;
-	}
-
-	return (rval);
-}
-
-/**
  * qla2x00_gff_id() - SNS Get FC-4 Features (GFF_ID) query.
  *
  * @vha: HA context
@@ -3356,9 +3266,6 @@ login_logout:
 			    atomic_read(&fcport->state) == FCS_ONLINE) ||
 				do_delete) {
 				if (fcport->loop_id != FC_NO_LOOP_ID) {
-					if (fcport->flags & FCF_FCP2_DEVICE)
-						continue;
-
 					ql_log(ql_log_warn, vha, 0x20f0,
 					       "%s %d %8phC post del sess\n",
 					       __func__, __LINE__,
@@ -3625,8 +3532,8 @@ int qla_fab_async_scan(scsi_qla_host_t *vha, srb_t *sp)
 	if (vha->scan.scan_flags & SF_SCANNING) {
 		spin_unlock_irqrestore(&vha->work_lock, flags);
 		ql_dbg(ql_dbg_disc + ql_dbg_verbose, vha, 0x2012,
-		    "%s: scan active\n", __func__);
-		return rval;
+		    "%s: scan active for sp:%p\n", __func__, sp);
+		goto done_free_sp;
 	}
 	vha->scan.scan_flags |= SF_SCANNING;
 	if (!sp)
@@ -3791,23 +3698,25 @@ int qla_fab_async_scan(scsi_qla_host_t *vha, srb_t *sp)
 	return rval;
 
 done_free_sp:
-	if (sp->u.iocb_cmd.u.ctarg.req) {
-		dma_free_coherent(&vha->hw->pdev->dev,
-		    sp->u.iocb_cmd.u.ctarg.req_allocated_size,
-		    sp->u.iocb_cmd.u.ctarg.req,
-		    sp->u.iocb_cmd.u.ctarg.req_dma);
-		sp->u.iocb_cmd.u.ctarg.req = NULL;
-	}
-	if (sp->u.iocb_cmd.u.ctarg.rsp) {
-		dma_free_coherent(&vha->hw->pdev->dev,
-		    sp->u.iocb_cmd.u.ctarg.rsp_allocated_size,
-		    sp->u.iocb_cmd.u.ctarg.rsp,
-		    sp->u.iocb_cmd.u.ctarg.rsp_dma);
-		sp->u.iocb_cmd.u.ctarg.rsp = NULL;
-	}
+	if (sp) {
+		if (sp->u.iocb_cmd.u.ctarg.req) {
+			dma_free_coherent(&vha->hw->pdev->dev,
+			    sp->u.iocb_cmd.u.ctarg.req_allocated_size,
+			    sp->u.iocb_cmd.u.ctarg.req,
+			    sp->u.iocb_cmd.u.ctarg.req_dma);
+			sp->u.iocb_cmd.u.ctarg.req = NULL;
+		}
+		if (sp->u.iocb_cmd.u.ctarg.rsp) {
+			dma_free_coherent(&vha->hw->pdev->dev,
+			    sp->u.iocb_cmd.u.ctarg.rsp_allocated_size,
+			    sp->u.iocb_cmd.u.ctarg.rsp,
+			    sp->u.iocb_cmd.u.ctarg.rsp_dma);
+			sp->u.iocb_cmd.u.ctarg.rsp = NULL;
+		}
 
-	/* ref: INIT */
-	kref_put(&sp->cmd_kref, qla2x00_sp_release);
+		/* ref: INIT */
+		kref_put(&sp->cmd_kref, qla2x00_sp_release);
+	}
 
 	spin_lock_irqsave(&vha->work_lock, flags);
 	vha->scan.scan_flags &= ~SF_SCANNING;

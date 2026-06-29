@@ -178,11 +178,17 @@ void dump_vma(const struct vm_area_struct *vma)
 	pr_emerg("vma %px start %px end %px mm %px\n"
 		"prot %lx anon_vma %px vm_ops %px\n"
 		"pgoff %lx file %px private_data %px\n"
+#ifdef CONFIG_PER_VMA_LOCK
+		"refcnt %x\n"
+#endif
 		"flags: %#lx(%pGv)\n",
 		vma, (void *)vma->vm_start, (void *)vma->vm_end, vma->vm_mm,
 		(unsigned long)pgprot_val(vma->vm_page_prot),
 		vma->anon_vma, vma->vm_ops, vma->vm_pgoff,
 		vma->vm_file, vma->vm_private_data,
+#ifdef CONFIG_PER_VMA_LOCK
+		refcount_read(&vma->vm_refcnt),
+#endif
 		vma->vm_flags, &vma->vm_flags);
 }
 EXPORT_SYMBOL(dump_vma);
@@ -245,6 +251,83 @@ void dump_mm(const struct mm_struct *mm)
 	);
 }
 EXPORT_SYMBOL(dump_mm);
+
+void dump_vmg(const struct vma_merge_struct *vmg, const char *reason)
+{
+	if (reason)
+		pr_warn("vmg %px dumped because: %s\n", vmg, reason);
+
+	if (!vmg) {
+		pr_warn("vmg %px state: (NULL)\n", vmg);
+		return;
+	}
+
+	pr_warn("vmg %px state: mm %px pgoff %lx\n"
+		"vmi %px [%lx,%lx)\n"
+		"prev %px middle %px next %px target %px\n"
+		"start %lx end %lx flags %lx\n"
+		"file %px anon_vma %px policy %px\n"
+		"uffd_ctx %px\n"
+		"anon_name %px\n"
+		"state %x\n"
+		"just_expand %d\n"
+		"__adjust_middle_start %d __adjust_next_start %d\n"
+		"__remove_middle %d __remove_next %d\n",
+		vmg, vmg->mm, vmg->pgoff,
+		vmg->vmi, vmg->vmi ? vma_iter_addr(vmg->vmi) : 0,
+		vmg->vmi ? vma_iter_end(vmg->vmi) : 0,
+		vmg->prev, vmg->middle, vmg->next, vmg->target,
+		vmg->start, vmg->end, vmg->flags,
+		vmg->file, vmg->anon_vma, vmg->policy,
+#ifdef CONFIG_USERFAULTFD
+		vmg->uffd_ctx.ctx,
+#else
+		(void *)0,
+#endif
+		vmg->anon_name,
+		(int)vmg->state,
+		vmg->just_expand,
+		vmg->__adjust_middle_start, vmg->__adjust_next_start,
+		vmg->__remove_middle, vmg->__remove_next);
+
+	if (vmg->mm) {
+		pr_warn("vmg %px mm:\n", vmg);
+		dump_mm(vmg->mm);
+	} else {
+		pr_warn("vmg %px mm: (NULL)\n", vmg);
+	}
+
+	if (vmg->prev) {
+		pr_warn("vmg %px prev:\n", vmg);
+		dump_vma(vmg->prev);
+	} else {
+		pr_warn("vmg %px prev: (NULL)\n", vmg);
+	}
+
+	if (vmg->middle) {
+		pr_warn("vmg %px middle:\n", vmg);
+		dump_vma(vmg->middle);
+	} else {
+		pr_warn("vmg %px middle: (NULL)\n", vmg);
+	}
+
+	if (vmg->next) {
+		pr_warn("vmg %px next:\n", vmg);
+		dump_vma(vmg->next);
+	} else {
+		pr_warn("vmg %px next: (NULL)\n", vmg);
+	}
+
+#ifdef CONFIG_DEBUG_VM_MAPLE_TREE
+	if (vmg->vmi) {
+		pr_warn("vmg %px vmi:\n", vmg);
+		vma_iter_dump_tree(vmg->vmi);
+	} else {
+		pr_warn("vmg %px vmi: (NULL)\n", vmg);
+	}
+#endif
+}
+EXPORT_SYMBOL(dump_vmg);
 
 static bool page_init_poisoning __read_mostly = true;
 

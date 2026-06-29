@@ -34,8 +34,16 @@ static __init pteval_t create_mapping_protection(efi_memory_desc_t *md)
 	u64 attr = md->attribute;
 	u32 type = md->type;
 
-	if (type == EFI_MEMORY_MAPPED_IO)
-		return PROT_DEVICE_nGnRE;
+	if (type == EFI_MEMORY_MAPPED_IO) {
+		pgprot_t prot = __pgprot(PROT_DEVICE_nGnRE);
+
+		if (arm64_is_protected_mmio(md->phys_addr,
+					    md->num_pages << EFI_PAGE_SHIFT))
+			prot = pgprot_encrypted(prot);
+		else
+			prot = pgprot_decrypted(prot);
+		return pgprot_val(prot);
+	}
 
 	if (region_is_misaligned(md)) {
 		static bool __initdata code_is_misaligned;
@@ -161,14 +169,14 @@ static DEFINE_RAW_SPINLOCK(efi_rt_lock);
 void arch_efi_call_virt_setup(void)
 {
 	efi_virtmap_load();
-	__efi_fpsimd_begin();
 	raw_spin_lock(&efi_rt_lock);
+	__efi_fpsimd_begin();
 }
 
 void arch_efi_call_virt_teardown(void)
 {
-	raw_spin_unlock(&efi_rt_lock);
 	__efi_fpsimd_end();
+	raw_spin_unlock(&efi_rt_lock);
 	efi_virtmap_unload();
 }
 

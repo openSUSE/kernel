@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause-Clear */
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef ATH12K_CE_H
@@ -39,8 +39,8 @@
 #define PIPEDIR_INOUT_H2H	4 /* bidirectional, host to host */
 
 /* CE address/mask */
-#define CE_HOST_IE_ADDRESS	0x00A1803C
-#define CE_HOST_IE_2_ADDRESS	0x00A18040
+#define CE_HOST_IE_ADDRESS	0x75804C
+#define CE_HOST_IE_2_ADDRESS	0x758050
 #define CE_HOST_IE_3_ADDRESS	CE_HOST_IE_ADDRESS
 
 #define CE_HOST_IE_3_SHIFT	0xC
@@ -148,7 +148,7 @@ struct ath12k_ce_pipe {
 	void (*send_cb)(struct ath12k_ce_pipe *pipe);
 	void (*recv_cb)(struct ath12k_base *ab, struct sk_buff *skb);
 
-	struct tasklet_struct intr_tq;
+	struct work_struct intr_wq;
 	struct ath12k_ce_ring *src_ring;
 	struct ath12k_ce_ring *dest_ring;
 	struct ath12k_ce_ring *status_ring;

@@ -69,6 +69,7 @@ struct mt792x_fw_features {
 enum {
 	MT792x_CLC_POWER,
 	MT792x_CLC_POWER_EXT,
+	MT792x_CLC_BE_CTRL,
 	MT792x_CLC_MAX_NUM,
 };
 
@@ -206,6 +207,8 @@ struct mt792x_dev {
 		struct mt76_phy mphy;
 	};
 
+	struct mac_address macaddr_list[8];
+
 	const struct mt76_bus_ops *bus_ops;
 	struct mt792x_phy phy;
 
@@ -216,6 +219,9 @@ struct mt792x_dev {
 	bool has_eht:1;
 	bool regd_in_progress:1;
 	bool aspm_supported:1;
+	bool hif_idle:1;
+	bool hif_resumed:1;
+	bool regd_change:1;
 	wait_queue_head_t wait;
 
 	struct work_struct init_work;
@@ -241,6 +247,7 @@ static inline struct mt792x_bss_conf *
 mt792x_vif_to_link(struct mt792x_vif *mvif, u8 link_id)
 {
 	struct ieee80211_vif *vif;
+	struct mt792x_bss_conf *bss_conf;
 
 	vif = container_of((void *)mvif, struct ieee80211_vif, drv_priv);
 
@@ -248,8 +255,10 @@ mt792x_vif_to_link(struct mt792x_vif *mvif, u8 link_id)
 	    link_id >= IEEE80211_LINK_UNSPECIFIED)
 		return &mvif->bss_conf;
 
-	return rcu_dereference_protected(mvif->link_conf[link_id],
-		lockdep_is_held(&mvif->phy->dev->mt76.mutex));
+	bss_conf = rcu_dereference_protected(mvif->link_conf[link_id],
+					     lockdep_is_held(&mvif->phy->dev->mt76.mutex));
+
+	return bss_conf ? bss_conf : &mvif->bss_conf;
 }
 
 static inline struct mt792x_link_sta *
@@ -414,6 +423,7 @@ int mt792x_mcu_fw_pmctrl(struct mt792x_dev *dev);
 void mt792x_mac_link_bss_remove(struct mt792x_dev *dev,
 				struct mt792x_bss_conf *mconf,
 				struct mt792x_link_sta *mlink);
+void mt792x_config_mac_addr_list(struct mt792x_dev *dev);
 
 static inline char *mt792x_ram_name(struct mt792x_dev *dev)
 {

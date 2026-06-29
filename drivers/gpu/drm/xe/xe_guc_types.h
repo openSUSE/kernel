@@ -58,6 +58,8 @@ struct xe_guc {
 	struct xe_guc_ads ads;
 	/** @ct: GuC ct */
 	struct xe_guc_ct ct;
+	/** @capture: the error-state-capture module's data and objects */
+	struct xe_guc_state_capture *capture;
 	/** @pc: GuC Power Conservation */
 	struct xe_guc_pc pc;
 	/** @dbm: GuC Doorbell Manager */
@@ -74,6 +76,11 @@ struct xe_guc {
 		struct mutex lock;
 		/** @submission_state.enabled: submission is enabled */
 		bool enabled;
+		/**
+		 * @submission_state.initialized: mark when submission state is
+		 * even initialized - before that not even the lock is valid
+		 */
+		bool initialized;
 		/** @submission_state.fini_wq: submit fini wait queue */
 		wait_queue_head_t fini_wq;
 	} submission_state;

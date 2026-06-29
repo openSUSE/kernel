@@ -45,7 +45,7 @@
  * here if set to avoid blocking other users of this pipe if splice is
  * being done on it.
  */
-static noinline void noinline pipe_clear_nowait(struct file *file)
+static noinline void pipe_clear_nowait(struct file *file)
 {
 	fmode_t fmode = READ_ONCE(file->f_mode);
 
@@ -744,6 +744,9 @@ iter_file_splice_write(struct pipe_inode_info *pipe, struct file *out,
 		sd.pos = kiocb.ki_pos;
 		if (ret <= 0)
 			break;
+		WARN_ONCE(ret > sd.total_len - left,
+			  "Splice Exceeded! ret=%zd tot=%zu left=%zu\n",
+			  ret, sd.total_len, left);
 
 		sd.num_spliced += ret;
 		sd.total_len -= ret;
@@ -1635,27 +1638,22 @@ SYSCALL_DEFINE6(splice, int, fd_in, loff_t __user *, off_in,
 		int, fd_out, loff_t __user *, off_out,
 		size_t, len, unsigned int, flags)
 {
-	struct fd in, out;
-	ssize_t error;
-
 	if (unlikely(!len))
 		return 0;
 
 	if (unlikely(flags & ~SPLICE_F_ALL))
 		return -EINVAL;
 
-	error = -EBADF;
-	in = fdget(fd_in);
-	if (fd_file(in)) {
-		out = fdget(fd_out);
-		if (fd_file(out)) {
-			error = __do_splice(fd_file(in), off_in, fd_file(out), off_out,
+	CLASS(fd, in)(fd_in);
+	if (fd_empty(in))
+		return -EBADF;
+
+	CLASS(fd, out)(fd_out);
+	if (fd_empty(out))
+		return -EBADF;
+
+	return __do_splice(fd_file(in), off_in, fd_file(out), off_out,
 					    len, flags);
-			fdput(out);
-		}
-		fdput(in);
-	}
-	return error;
 }
 
 /*
@@ -2005,25 +2003,19 @@ ssize_t do_tee(struct file *in, struct file *out, size_t len,
 
 SYSCALL_DEFINE4(tee, int, fdin, int, fdout, size_t, len, unsigned int, flags)
 {
-	struct fd in, out;
-	ssize_t error;
-
 	if (unlikely(flags & ~SPLICE_F_ALL))
 		return -EINVAL;
 
 	if (unlikely(!len))
 		return 0;
 
-	error = -EBADF;
-	in = fdget(fdin);
-	if (fd_file(in)) {
-		out = fdget(fdout);
-		if (fd_file(out)) {
-			error = do_tee(fd_file(in), fd_file(out), len, flags);
-			fdput(out);
-		}
- 		fdput(in);
- 	}
+	CLASS(fd, in)(fdin);
+	if (fd_empty(in))
+		return -EBADF;
 
-	return error;
+	CLASS(fd, out)(fdout);
+	if (fd_empty(out))
+		return -EBADF;
+
+	return do_tee(fd_file(in), fd_file(out), len, flags);
 }

@@ -113,13 +113,16 @@
 #define ETHTOOL_PRIO_NUM_LEVELS 1
 #define ETHTOOL_NUM_PRIOS 11
 #define ETHTOOL_MIN_LEVEL (KERNEL_MIN_LEVEL + ETHTOOL_NUM_PRIOS)
-/* Promiscuous, Vlan, mac, ttc, inner ttc, {UDP/ANY/aRFS/accel/{esp, esp_err}}, IPsec policy,
+/* Vlan, mac, ttc, inner ttc, {UDP/ANY/aRFS/accel/{esp, esp_err}}, IPsec policy,
  * {IPsec RoCE MPV,Alias table},IPsec RoCE policy
  */
-#define KERNEL_NIC_PRIO_NUM_LEVELS 11
+#define KERNEL_NIC_PRIO_NUM_LEVELS 10
 #define KERNEL_NIC_NUM_PRIOS 1
-/* One more level for tc */
-#define KERNEL_MIN_LEVEL (KERNEL_NIC_PRIO_NUM_LEVELS + 1)
+/* One more level for tc, and one more for promisc */
+#define KERNEL_MIN_LEVEL (KERNEL_NIC_PRIO_NUM_LEVELS + 2)
+
+#define KERNEL_NIC_PROMISC_NUM_PRIOS 1
+#define KERNEL_NIC_PROMISC_NUM_LEVELS 1
 
 #define KERNEL_NIC_TC_NUM_PRIOS  1
 #define KERNEL_NIC_TC_NUM_LEVELS 3
@@ -187,6 +190,8 @@ static struct init_tree_node {
 			   ADD_NS(MLX5_FLOW_TABLE_MISS_ACTION_DEF,
 				  ADD_MULTIPLE_PRIO(KERNEL_NIC_TC_NUM_PRIOS,
 						    KERNEL_NIC_TC_NUM_LEVELS),
+				  ADD_MULTIPLE_PRIO(KERNEL_NIC_PROMISC_NUM_PRIOS,
+						    KERNEL_NIC_PROMISC_NUM_LEVELS),
 				  ADD_MULTIPLE_PRIO(KERNEL_NIC_NUM_PRIOS,
 						    KERNEL_NIC_PRIO_NUM_LEVELS))),
 		  ADD_PRIO(0, BY_PASS_MIN_LEVEL, 0, FS_CHAINING_CAPS,
@@ -658,6 +663,7 @@ static void del_sw_hw_rule(struct fs_node *node)
 			BIT(MLX5_SET_FTE_MODIFY_ENABLE_MASK_ACTION) |
 			BIT(MLX5_SET_FTE_MODIFY_ENABLE_MASK_FLOW_COUNTERS);
 		fte->act_dests.action.action &= ~MLX5_FLOW_CONTEXT_ACTION_COUNT;
+		mlx5_fc_local_put(rule->dest_attr.counter);
 		goto out;
 	}
 
@@ -820,11 +826,17 @@ static int insert_fte(struct mlx5_flow_group *fg, struct fs_fte *fte)
 		return index;
 
 	fte->index = index + fg->start_index;
+retry_insert:
 	ret = rhashtable_insert_fast(&fg->ftes_hash,
 				     &fte->hash,
 				     rhash_fte);
-	if (ret)
+	if (ret) {
+		if (ret == -EBUSY) {
+			cond_resched();
+			goto retry_insert;
+		}
 		goto err_ida_remove;
+	}
 
 	tree_add_node(&fte->node, &fg->node);
 	list_add_tail(&fte->node.list, &fg->node.children);
@@ -2200,6 +2212,7 @@ try_add_to_existing_fg(struct mlx5_flow_table *ft,
 	struct mlx5_flow_handle *rule;
 	struct match_list *iter;
 	bool take_write = false;
+	bool try_again = false;
 	struct fs_fte *fte;
 	u64  version = 0;
 	int err;
@@ -2264,6 +2277,7 @@ skip_search:
 		nested_down_write_ref_node(&g->node, FS_LOCK_PARENT);
 
 		if (!g->node.active) {
+			try_again = true;
 			up_write_ref_node(&g->node, false);
 			continue;
 		}
@@ -2285,7 +2299,8 @@ skip_search:
 			tree_put_node(&fte->node, false);
 		return rule;
 	}
-	rule = ERR_PTR(-ENOENT);
+	err = try_again ? -EAGAIN : -ENOENT;
+	rule = ERR_PTR(err);
 out:
 	kmem_cache_free(steering->ftes_cache, fte);
 	return rule;
@@ -2709,6 +2724,7 @@ struct mlx5_flow_namespace *mlx5_get_flow_namespace(struct mlx5_core_dev *dev,
 		break;
 	case MLX5_FLOW_NAMESPACE_RDMA_TX:
 		root_ns = steering->rdma_tx_root_ns;
+		prio = RDMA_TX_BYPASS_PRIO;
 		break;
 	case MLX5_FLOW_NAMESPACE_RDMA_RX_COUNTERS:
 		root_ns = steering->rdma_rx_root_ns;
@@ -3528,35 +3544,41 @@ static int mlx5_fs_mode_validate(struct devlink *devlink, u32 id,
 {
 	struct mlx5_core_dev *dev = devlink_priv(devlink);
 	char *value = val.vstr;
-	int err = 0;
+	u8 eswitch_mode;
 
-	if (!strcmp(value, "dmfs")) {
+	eswitch_mode = mlx5_eswitch_mode(dev);
+	if (eswitch_mode == MLX5_ESWITCH_OFFLOADS) {
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "Changing fs mode is not supported when eswitch offloads enabled.");
+		return -EOPNOTSUPP;
+	}
+
+	if (!strcmp(value, "dmfs"))
 		return 0;
-	} else if (!strcmp(value, "smfs")) {
-		u8 eswitch_mode;
-		bool smfs_cap;
 
-		eswitch_mode = mlx5_eswitch_mode(dev);
-		smfs_cap = mlx5_fs_dr_is_supported(dev);
+	if (!strcmp(value, "smfs")) {
+		bool smfs_cap = mlx5_fs_dr_is_supported(dev);
 
 		if (!smfs_cap) {
-			err = -EOPNOTSUPP;
 			NL_SET_ERR_MSG_MOD(extack,
 					   "Software managed steering is not supported by current device");
+			return -EOPNOTSUPP;
 		}
+	} else if (!strcmp(value, "hmfs")) {
+		bool hmfs_cap = mlx5_fs_hws_is_supported(dev);
 
-		else if (eswitch_mode == MLX5_ESWITCH_OFFLOADS) {
+		if (!hmfs_cap) {
 			NL_SET_ERR_MSG_MOD(extack,
-					   "Software managed steering is not supported when eswitch offloads enabled.");
-			err = -EOPNOTSUPP;
+					   "Hardware steering is not supported by current device");
+			return -EOPNOTSUPP;
 		}
 	} else {
 		NL_SET_ERR_MSG_MOD(extack,
-				   "Bad parameter: supported values are [\"dmfs\", \"smfs\"]");
-		err = -EINVAL;
+				   "Bad parameter: supported values are [\"dmfs\", \"smfs\", \"hmfs\"]");
+		return -EINVAL;
 	}
 
-	return err;
+	return 0;
 }
 
 static int mlx5_fs_mode_set(struct devlink *devlink, u32 id,
@@ -3568,6 +3590,8 @@ static int mlx5_fs_mode_set(struct devlink *devlink, u32 id,
 
 	if (!strcmp(ctx->val.vstr, "smfs"))
 		mode = MLX5_FLOW_STEERING_MODE_SMFS;
+	else if (!strcmp(ctx->val.vstr, "hmfs"))
+		mode = MLX5_FLOW_STEERING_MODE_HMFS;
 	else
 		mode = MLX5_FLOW_STEERING_MODE_DMFS;
 	dev->priv.steering->mode = mode;
@@ -3580,10 +3604,17 @@ static int mlx5_fs_mode_get(struct devlink *devlink, u32 id,
 {
 	struct mlx5_core_dev *dev = devlink_priv(devlink);
 
-	if (dev->priv.steering->mode == MLX5_FLOW_STEERING_MODE_SMFS)
+	switch (dev->priv.steering->mode) {
+	case MLX5_FLOW_STEERING_MODE_SMFS:
 		strscpy(ctx->val.vstr, "smfs", sizeof(ctx->val.vstr));
-	else
+		break;
+	case MLX5_FLOW_STEERING_MODE_HMFS:
+		strscpy(ctx->val.vstr, "hmfs", sizeof(ctx->val.vstr));
+		break;
+	default:
 		strscpy(ctx->val.vstr, "dmfs", sizeof(ctx->val.vstr));
+	}
+
 	return 0;
 }
 
@@ -3658,8 +3689,7 @@ int mlx5_fs_core_init(struct mlx5_core_dev *dev)
 			goto err;
 	}
 
-	if (MLX5_CAP_FLOWTABLE_RDMA_RX(dev, ft_support) &&
-	    MLX5_CAP_FLOWTABLE_RDMA_RX(dev, table_miss_action_domain)) {
+	if (MLX5_CAP_FLOWTABLE_RDMA_RX(dev, ft_support)) {
 		err = init_rdma_rx_root_ns(steering);
 		if (err)
 			goto err;
@@ -3698,6 +3728,7 @@ void mlx5_fs_core_free(struct mlx5_core_dev *dev)
 int mlx5_fs_core_alloc(struct mlx5_core_dev *dev)
 {
 	struct mlx5_flow_steering *steering;
+	char name[80];
 	int err = 0;
 
 	err = mlx5_init_fc_stats(dev);
@@ -3722,10 +3753,12 @@ int mlx5_fs_core_alloc(struct mlx5_core_dev *dev)
 	else
 		steering->mode = MLX5_FLOW_STEERING_MODE_DMFS;
 
-	steering->fgs_cache = kmem_cache_create("mlx5_fs_fgs",
+	snprintf(name, sizeof(name), "%s-mlx5_fs_fgs", dev_name(dev->device));
+	steering->fgs_cache = kmem_cache_create(name,
 						sizeof(struct mlx5_flow_group), 0,
 						0, NULL);
-	steering->ftes_cache = kmem_cache_create("mlx5_fs_ftes", sizeof(struct fs_fte), 0,
+	snprintf(name, sizeof(name), "%s-mlx5_fs_ftes", dev_name(dev->device));
+	steering->ftes_cache = kmem_cache_create(name, sizeof(struct fs_fte), 0,
 						 0, NULL);
 	if (!steering->ftes_cache || !steering->fgs_cache) {
 		err = -ENOMEM;
@@ -4000,6 +4033,8 @@ int mlx5_flow_namespace_set_mode(struct mlx5_flow_namespace *ns,
 
 	if (mode == MLX5_FLOW_STEERING_MODE_SMFS)
 		cmds = mlx5_fs_cmd_get_dr_cmds();
+	else if (mode == MLX5_FLOW_STEERING_MODE_HMFS)
+		cmds = mlx5_fs_cmd_get_hws_cmds();
 	else
 		cmds = mlx5_fs_cmd_get_fw_cmds();
 	if (!cmds)

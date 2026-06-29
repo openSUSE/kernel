@@ -27,6 +27,8 @@
 #define VIDC_VCODEC_CLKS_NUM_MAX	2
 #define VIDC_RESETS_NUM_MAX		2
 
+#define VENUS_MAX_FPS			240
+
 extern int venus_fw_debug;
 
 struct freq_tbl {
@@ -509,6 +511,7 @@ struct venus_inst {
 	bool drain_active;
 	enum venus_inst_modes flags;
 	struct ida dpb_ids;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define IS_V1(core)	((core)->res->hfi_version == HFI_VERSION_1XX)

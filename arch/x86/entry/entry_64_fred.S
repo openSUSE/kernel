@@ -16,7 +16,7 @@
 
 .macro FRED_ENTER
 	UNWIND_HINT_END_OF_STACK
-	ENDBR
+	ANNOTATE_NOENDBR
 	PUSH_AND_CLEAR_REGS
 	movq	%rsp, %rdi	/* %rdi -> pt_regs */
 .endm
@@ -58,6 +58,7 @@ SYM_CODE_END(asm_fred_entrypoint_kernel)
 
 #if IS_ENABLED(CONFIG_KVM_INTEL)
 SYM_FUNC_START(asm_fred_entry_from_kvm)
+	ANNOTATE_NOENDBR
 	push %rbp
 	mov %rsp, %rbp
 

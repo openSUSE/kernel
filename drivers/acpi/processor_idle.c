@@ -24,6 +24,8 @@
 #include <acpi/processor.h>
 #include <linux/context_tracking.h>
 
+#include "internal.h"
+
 /*
  * Include the apic definitions for x86 to have the APIC timer related defines
  * available also for UP (on SMP it gets magically included via linux/smp.h).
@@ -55,6 +57,12 @@ struct cpuidle_driver acpi_idle_driver = {
 };
 
 #ifdef CONFIG_ACPI_PROCESSOR_CSTATE
+void acpi_idle_rescan_dead_smt_siblings(void)
+{
+	if (cpuidle_get_driver() == &acpi_idle_driver)
+		arch_cpu_rescan_dead_smt_siblings();
+}
+
 static
 DEFINE_PER_CPU(struct acpi_processor_cx * [CPUIDLE_STATE_MAX], acpi_cstate);
 
@@ -267,6 +275,10 @@ static int acpi_processor_get_power_info_fadt(struct acpi_processor *pr)
 	snprintf(pr->power.states[ACPI_STATE_C3].desc,
 			 ACPI_CX_DESC_LEN, "ACPI P_LVL3 IOPORT 0x%x",
 			 pr->power.states[ACPI_STATE_C3].address);
+
+	if (!pr->power.states[ACPI_STATE_C2].address &&
+	    !pr->power.states[ACPI_STATE_C3].address)
+		return -ENODEV;
 
 	return 0;
 }
@@ -590,6 +602,8 @@ static int acpi_idle_play_dead(struct cpuidle_device *dev, int index)
 			raw_safe_halt();
 		else if (cx->entry_method == ACPI_CSTATE_SYSTEMIO) {
 			io_idle(cx->address);
+		} else if (cx->entry_method == ACPI_CSTATE_FFH) {
+			acpi_processor_ffh_play_dead(cx);
 		} else
 			return -ENODEV;
 	}
@@ -1406,6 +1420,9 @@ int acpi_processor_power_init(struct acpi_processor *pr)
 		if (retval) {
 			if (acpi_processor_registered == 0)
 				cpuidle_unregister_driver(&acpi_idle_driver);
+
+			per_cpu(acpi_cpuidle_device, pr->id) = NULL;
+			kfree(dev);
 			return retval;
 		}
 		acpi_processor_registered++;

@@ -89,6 +89,9 @@ struct btrfs_fs_context {
 	refcount_t refs;
 };
 
+static void btrfs_emit_options(struct btrfs_fs_info *info,
+			       struct btrfs_fs_context *old);
+
 enum {
 	Opt_acl,
 	Opt_clear_cache,
@@ -694,12 +697,9 @@ bool btrfs_check_options(const struct btrfs_fs_info *info,
 
 	if (!test_bit(BTRFS_FS_STATE_REMOUNTING, &info->fs_state)) {
 		if (btrfs_raw_test_opt(*mount_opt, SPACE_CACHE)) {
-			btrfs_info(info, "disk space caching is enabled");
 			btrfs_warn(info,
 "space cache v1 is being deprecated and will be removed in a future release, please use -o space_cache=v2");
 		}
-		if (btrfs_raw_test_opt(*mount_opt, FREE_SPACE_TREE))
-			btrfs_info(info, "using free-space-tree");
 	}
 
 	return ret;
@@ -719,14 +719,12 @@ bool btrfs_check_options(const struct btrfs_fs_info *info,
  */
 void btrfs_set_free_space_cache_settings(struct btrfs_fs_info *fs_info)
 {
-	if (fs_info->sectorsize < PAGE_SIZE) {
+	if (fs_info->sectorsize < PAGE_SIZE && btrfs_test_opt(fs_info, SPACE_CACHE)) {
+		btrfs_info(fs_info,
+			   "forcing free space tree for sector size %u with page size %lu",
+			   fs_info->sectorsize, PAGE_SIZE);
 		btrfs_clear_opt(fs_info->mount_opt, SPACE_CACHE);
-		if (!btrfs_test_opt(fs_info, FREE_SPACE_TREE)) {
-			btrfs_info(fs_info,
-				   "forcing free space tree for sector size %u with page size %lu",
-				   fs_info->sectorsize, PAGE_SIZE);
-			btrfs_set_opt(fs_info->mount_opt, FREE_SPACE_TREE);
-		}
+		btrfs_set_opt(fs_info->mount_opt, FREE_SPACE_TREE);
 	}
 
 	/*
@@ -949,7 +947,7 @@ static int btrfs_fill_super(struct super_block *sb,
 			    struct btrfs_fs_devices *fs_devices,
 			    void *data)
 {
-	struct inode *inode;
+	struct btrfs_inode *inode;
 	struct btrfs_fs_info *fs_info = btrfs_sb(sb);
 	int err;
 
@@ -977,6 +975,8 @@ static int btrfs_fill_super(struct super_block *sb,
 		return err;
 	}
 
+	btrfs_emit_options(fs_info, NULL);
+
 	inode = btrfs_iget(BTRFS_FIRST_FREE_OBJECTID, fs_info->fs_root);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
@@ -984,7 +984,7 @@ static int btrfs_fill_super(struct super_block *sb,
 		goto fail_close;
 	}
 
-	sb->s_root = d_make_root(inode);
+	sb->s_root = d_make_root(&inode->vfs_inode);
 	if (!sb->s_root) {
 		err = -ENOMEM;
 		goto fail_close;
@@ -1141,8 +1141,7 @@ static int btrfs_show_options(struct seq_file *seq, struct dentry *dentry)
 	subvol_name = btrfs_get_subvol_name_from_objectid(info,
 			btrfs_root_id(BTRFS_I(d_inode(dentry))->root));
 	if (!IS_ERR(subvol_name)) {
-		seq_puts(seq, ",subvol=");
-		seq_escape(seq, subvol_name, " \t\n\\");
+		seq_show_option(seq, "subvol", subvol_name);
 		kfree(subvol_name);
 	}
 	return 0;
@@ -1435,7 +1434,7 @@ static void btrfs_emit_options(struct btrfs_fs_info *info,
 {
 	btrfs_info_if_set(info, old, NODATASUM, "setting nodatasum");
 	btrfs_info_if_set(info, old, DEGRADED, "allowing degraded mounts");
-	btrfs_info_if_set(info, old, NODATASUM, "setting nodatasum");
+	btrfs_info_if_set(info, old, NODATACOW, "setting nodatacow");
 	btrfs_info_if_set(info, old, SSD, "enabling ssd optimizations");
 	btrfs_info_if_set(info, old, SSD_SPREAD, "using spread ssd allocation scheme");
 	btrfs_info_if_set(info, old, NOBARRIER, "turning off barriers");
@@ -1457,10 +1456,11 @@ static void btrfs_emit_options(struct btrfs_fs_info *info,
 	btrfs_info_if_set(info, old, IGNOREMETACSUMS, "ignoring meta csums");
 	btrfs_info_if_set(info, old, IGNORESUPERFLAGS, "ignoring unknown super block flags");
 
+	btrfs_info_if_unset(info, old, NODATASUM, "setting datasum");
 	btrfs_info_if_unset(info, old, NODATACOW, "setting datacow");
 	btrfs_info_if_unset(info, old, SSD, "not using ssd optimizations");
 	btrfs_info_if_unset(info, old, SSD_SPREAD, "not using spread ssd allocation scheme");
-	btrfs_info_if_unset(info, old, NOBARRIER, "turning off barriers");
+	btrfs_info_if_unset(info, old, NOBARRIER, "turning on barriers");
 	btrfs_info_if_unset(info, old, NOTREELOG, "enabling tree log");
 	btrfs_info_if_unset(info, old, SPACE_CACHE, "disabling disk space caching");
 	btrfs_info_if_unset(info, old, FREE_SPACE_TREE, "disabling free space tree");
@@ -1887,18 +1887,21 @@ static int btrfs_get_tree_super(struct fs_context *fc)
 
 	if (sb->s_root) {
 		btrfs_close_devices(fs_devices);
-		if ((fc->sb_flags ^ sb->s_flags) & SB_RDONLY)
-			ret = -EBUSY;
+		/*
+		 * At this stage we may have RO flag mismatch between
+		 * fc->sb_flags and sb->s_flags.  Caller should detect such
+		 * mismatch and reconfigure with sb->s_umount rwsem held if
+		 * needed.
+		 */
 	} else {
 		snprintf(sb->s_id, sizeof(sb->s_id), "%pg", bdev);
 		shrinker_debugfs_rename(sb->s_shrink, "sb-btrfs:%s", sb->s_id);
 		btrfs_sb(sb)->bdev_holder = &btrfs_fs_type;
 		ret = btrfs_fill_super(sb, fs_devices, NULL);
-	}
-
-	if (ret) {
-		deactivate_locked_super(sb);
-		return ret;
+		if (ret) {
+			deactivate_locked_super(sb);
+			return ret;
+		}
 	}
 
 	btrfs_clear_oneshot_options(fs_info);
@@ -1984,39 +1987,18 @@ error:
  * btrfs or not, setting the whole super block RO.  To make per-subvolume mounting
  * work with different options work we need to keep backward compatibility.
  */
-static struct vfsmount *btrfs_reconfigure_for_mount(struct fs_context *fc)
+static int btrfs_reconfigure_for_mount(struct fs_context *fc, struct vfsmount *mnt)
 {
-	struct vfsmount *mnt;
-	int ret;
-	const bool ro2rw = !(fc->sb_flags & SB_RDONLY);
+	int ret = 0;
 
-	/*
-	 * We got an EBUSY because our SB_RDONLY flag didn't match the existing
-	 * super block, so invert our setting here and retry the mount so we
-	 * can get our vfsmount.
-	 */
-	if (ro2rw)
-		fc->sb_flags |= SB_RDONLY;
-	else
-		fc->sb_flags &= ~SB_RDONLY;
+	if (fc->sb_flags & SB_RDONLY)
+		return ret;
 
-	mnt = fc_mount(fc);
-	if (IS_ERR(mnt))
-		return mnt;
-
-	if (!ro2rw)
-		return mnt;
-
-	/* We need to convert to rw, call reconfigure. */
-	fc->sb_flags &= ~SB_RDONLY;
 	down_write(&mnt->mnt_sb->s_umount);
-	ret = btrfs_reconfigure(fc);
+	if (!(fc->sb_flags & SB_RDONLY) && (mnt->mnt_sb->s_flags & SB_RDONLY))
+		ret = btrfs_reconfigure(fc);
 	up_write(&mnt->mnt_sb->s_umount);
-	if (ret) {
-		mntput(mnt);
-		return ERR_PTR(ret);
-	}
-	return mnt;
+	return ret;
 }
 
 static int btrfs_get_tree_subvol(struct fs_context *fc)
@@ -2026,6 +2008,7 @@ static int btrfs_get_tree_subvol(struct fs_context *fc)
 	struct fs_context *dup_fc;
 	struct dentry *dentry;
 	struct vfsmount *mnt;
+	int ret = 0;
 
 	/*
 	 * Setup a dummy root and fs_info for test/set super.  This is because
@@ -2042,7 +2025,13 @@ static int btrfs_get_tree_subvol(struct fs_context *fc)
 	fs_info->super_copy = kzalloc(BTRFS_SUPER_INFO_SIZE, GFP_KERNEL);
 	fs_info->super_for_commit = kzalloc(BTRFS_SUPER_INFO_SIZE, GFP_KERNEL);
 	if (!fs_info->super_copy || !fs_info->super_for_commit) {
-		btrfs_free_fs_info(fs_info);
+		/*
+		 * Dont call btrfs_free_fs_info() to free it as it's still
+		 * initialized partially.
+		 */
+		kfree(fs_info->super_copy);
+		kfree(fs_info->super_for_commit);
+		kvfree(fs_info);
 		return -ENOMEM;
 	}
 	btrfs_init_fs_info(fs_info);
@@ -2068,11 +2057,16 @@ static int btrfs_get_tree_subvol(struct fs_context *fc)
 	fc->security = NULL;
 
 	mnt = fc_mount(dup_fc);
-	if (PTR_ERR_OR_ZERO(mnt) == -EBUSY)
-		mnt = btrfs_reconfigure_for_mount(dup_fc);
-	put_fs_context(dup_fc);
-	if (IS_ERR(mnt))
+	if (IS_ERR(mnt)) {
+		put_fs_context(dup_fc);
 		return PTR_ERR(mnt);
+	}
+	ret = btrfs_reconfigure_for_mount(dup_fc, mnt);
+	put_fs_context(dup_fc);
+	if (ret) {
+		mntput(mnt);
+		return ret;
+	}
 
 	/*
 	 * This free's ->subvol_name, because if it isn't set we have to
@@ -2421,6 +2415,11 @@ static long btrfs_free_cached_objects(struct super_block *sb, struct shrink_cont
 	return btrfs_free_extent_maps(fs_info, nr_to_scan);
 }
 
+static dev_t btrfs_get_inode_dev(const struct inode *inode)
+{
+	return BTRFS_I(inode)->root->anon_dev;
+}
+
 static const struct super_operations btrfs_super_ops = {
 	.drop_inode	= btrfs_drop_inode,
 	.evict_inode	= btrfs_evict_inode,
@@ -2436,6 +2435,7 @@ static const struct super_operations btrfs_super_ops = {
 	.unfreeze_fs	= btrfs_unfreeze,
 	.nr_cached_objects = btrfs_nr_cached_objects,
 	.free_cached_objects = btrfs_free_cached_objects,
+	.get_inode_dev	= btrfs_get_inode_dev,
 };
 
 static const struct file_operations btrfs_ctl_fops = {

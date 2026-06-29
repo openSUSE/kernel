@@ -55,8 +55,8 @@ static int ucsi_psy_get_online(struct ucsi_connector *con,
 			       union power_supply_propval *val)
 {
 	val->intval = UCSI_PSY_OFFLINE;
-	if (con->status.flags & UCSI_CONSTAT_CONNECTED &&
-	    (con->status.flags & UCSI_CONSTAT_PWR_DIR) == TYPEC_SINK)
+	if (UCSI_CONSTAT(con, CONNECTED) &&
+	    (UCSI_CONSTAT(con, PWR_DIR) == TYPEC_SINK))
 		val->intval = UCSI_PSY_FIXED_ONLINE;
 	return 0;
 }
@@ -66,7 +66,7 @@ static int ucsi_psy_get_voltage_min(struct ucsi_connector *con,
 {
 	u32 pdo;
 
-	switch (UCSI_CONSTAT_PWR_OPMODE(con->status.flags)) {
+	switch (UCSI_CONSTAT(con, PWR_OPMODE)) {
 	case UCSI_CONSTAT_PWR_OPMODE_PD:
 		pdo = con->src_pdos[0];
 		val->intval = pdo_fixed_voltage(pdo) * 1000;
@@ -88,15 +88,20 @@ static int ucsi_psy_get_voltage_max(struct ucsi_connector *con,
 				    union power_supply_propval *val)
 {
 	u32 pdo;
+	int max_voltage = 0;
 
-	switch (UCSI_CONSTAT_PWR_OPMODE(con->status.flags)) {
+	switch (UCSI_CONSTAT(con, PWR_OPMODE)) {
 	case UCSI_CONSTAT_PWR_OPMODE_PD:
-		if (con->num_pdos > 0) {
-			pdo = con->src_pdos[con->num_pdos - 1];
-			val->intval = pdo_fixed_voltage(pdo) * 1000;
-		} else {
-			val->intval = 0;
+		for (int i = 0; i < con->num_pdos; i++) {
+			int pdo_voltage = 0;
+
+			pdo = con->src_pdos[i];
+			if (pdo_type(pdo) == PDO_TYPE_FIXED)
+				pdo_voltage = pdo_fixed_voltage(pdo) * 1000;
+			max_voltage = (pdo_voltage > max_voltage) ? pdo_voltage
+								  : max_voltage;
 		}
+		val->intval = max_voltage;
 		break;
 	case UCSI_CONSTAT_PWR_OPMODE_TYPEC3_0:
 	case UCSI_CONSTAT_PWR_OPMODE_TYPEC1_5:
@@ -117,7 +122,7 @@ static int ucsi_psy_get_voltage_now(struct ucsi_connector *con,
 	int index;
 	u32 pdo;
 
-	switch (UCSI_CONSTAT_PWR_OPMODE(con->status.flags)) {
+	switch (UCSI_CONSTAT(con, PWR_OPMODE)) {
 	case UCSI_CONSTAT_PWR_OPMODE_PD:
 		index = rdo_index(con->rdo);
 		if (index > 0) {
@@ -144,15 +149,25 @@ static int ucsi_psy_get_current_max(struct ucsi_connector *con,
 				    union power_supply_propval *val)
 {
 	u32 pdo;
+	int max_current = 0;
 
-	switch (UCSI_CONSTAT_PWR_OPMODE(con->status.flags)) {
+	if (!UCSI_CONSTAT(con, CONNECTED)) {
+		val->intval = 0;
+		return 0;
+	}
+
+	switch (UCSI_CONSTAT(con, PWR_OPMODE)) {
 	case UCSI_CONSTAT_PWR_OPMODE_PD:
-		if (con->num_pdos > 0) {
-			pdo = con->src_pdos[con->num_pdos - 1];
-			val->intval = pdo_max_current(pdo) * 1000;
-		} else {
-			val->intval = 0;
+		for (int i = 0; i < con->num_pdos; i++) {
+			int pdo_current = 0;
+
+			pdo = con->src_pdos[i];
+			if (pdo_type(pdo) == PDO_TYPE_FIXED)
+				pdo_current = pdo_max_current(pdo) * 1000;
+			max_current = (pdo_current > max_current) ? pdo_current
+								  : max_current;
 		}
+		val->intval = max_current;
 		break;
 	case UCSI_CONSTAT_PWR_OPMODE_TYPEC1_5:
 		val->intval = UCSI_TYPEC_1_5_CURRENT * 1000;
@@ -164,7 +179,7 @@ static int ucsi_psy_get_current_max(struct ucsi_connector *con,
 	case UCSI_CONSTAT_PWR_OPMODE_DEFAULT:
 	/* UCSI can't tell b/w DCP/CDP or USB2/3x1/3x2 SDP chargers */
 	default:
-		val->intval = 0;
+		val->intval = UCSI_TYPEC_DEFAULT_CURRENT * 1000;
 		break;
 	}
 	return 0;
@@ -173,9 +188,7 @@ static int ucsi_psy_get_current_max(struct ucsi_connector *con,
 static int ucsi_psy_get_current_now(struct ucsi_connector *con,
 				    union power_supply_propval *val)
 {
-	u16 flags = con->status.flags;
-
-	if (UCSI_CONSTAT_PWR_OPMODE(flags) == UCSI_CONSTAT_PWR_OPMODE_PD)
+	if (UCSI_CONSTAT(con, PWR_OPMODE) == UCSI_CONSTAT_PWR_OPMODE_PD)
 		val->intval = rdo_op_current(con->rdo) * 1000;
 	else
 		val->intval = 0;
@@ -185,11 +198,9 @@ static int ucsi_psy_get_current_now(struct ucsi_connector *con,
 static int ucsi_psy_get_usb_type(struct ucsi_connector *con,
 				 union power_supply_propval *val)
 {
-	u16 flags = con->status.flags;
-
 	val->intval = POWER_SUPPLY_USB_TYPE_C;
-	if (flags & UCSI_CONSTAT_CONNECTED &&
-	    UCSI_CONSTAT_PWR_OPMODE(flags) == UCSI_CONSTAT_PWR_OPMODE_PD)
+	if (UCSI_CONSTAT(con, CONNECTED) &&
+	    UCSI_CONSTAT(con, PWR_OPMODE) == UCSI_CONSTAT_PWR_OPMODE_PD)
 		val->intval = POWER_SUPPLY_USB_TYPE_PD;
 
 	return 0;
@@ -197,18 +208,18 @@ static int ucsi_psy_get_usb_type(struct ucsi_connector *con,
 
 static int ucsi_psy_get_charge_type(struct ucsi_connector *con, union power_supply_propval *val)
 {
-	if (!(con->status.flags & UCSI_CONSTAT_CONNECTED)) {
+	if (!(UCSI_CONSTAT(con, CONNECTED))) {
 		val->intval = POWER_SUPPLY_CHARGE_TYPE_NONE;
 		return 0;
 	}
 
 	/* The Battery Charging Cabability Status field is only valid in sink role. */
-	if ((con->status.flags & UCSI_CONSTAT_PWR_DIR) != TYPEC_SINK) {
+	if (UCSI_CONSTAT(con, PWR_DIR) != TYPEC_SINK) {
 		val->intval = POWER_SUPPLY_CHARGE_TYPE_UNKNOWN;
 		return 0;
 	}
 
-	switch (UCSI_CONSTAT_BC_STATUS(con->status.pwr_status)) {
+	switch (UCSI_CONSTAT(con, BC_STATUS)) {
 	case UCSI_CONSTAT_BC_NOMINAL_CHARGING:
 		val->intval = POWER_SUPPLY_CHARGE_TYPE_STANDARD;
 		break;

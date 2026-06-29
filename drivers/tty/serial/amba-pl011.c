@@ -618,7 +618,7 @@ static int pl011_dma_tx_refill(struct uart_amba_port *uap)
 	dmatx->len = count;
 	dmatx->dma = dma_map_single(dma_dev->dev, dmatx->buf, count,
 				    DMA_TO_DEVICE);
-	if (dmatx->dma == DMA_MAPPING_ERROR) {
+	if (dma_mapping_error(dma_dev->dev, dmatx->dma)) {
 		uap->dmatx.queued = false;
 		dev_dbg(uap->port.dev, "unable to map TX DMA\n");
 		return -EBUSY;
@@ -1818,6 +1818,13 @@ static void pl011_unthrottle_rx(struct uart_port *port)
 		uap->im |= UART011_RXIM;
 
 	pl011_write(uap->im, uap, REG_IMSC);
+
+#ifdef CONFIG_DMA_ENGINE
+	if (uap->using_rx_dma) {
+		uap->dmacr |= UART011_RXDMAE;
+		pl011_write(uap->dmacr, uap, REG_DMACR);
+	}
+#endif
 
 	uart_port_unlock_irqrestore(&uap->port, flags);
 }

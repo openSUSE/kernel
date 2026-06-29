@@ -190,7 +190,7 @@ static struct {
 	{"IBM", "2076", NULL, BLIST_NO_VPD_SIZE},
 	{"IBM", "2105", NULL, BLIST_RETRY_HWERROR},
 	{"iomega", "jaz 1GB", "J.86", BLIST_NOTQ | BLIST_NOLUN},
-	{"IOMEGA", "ZIP", NULL, BLIST_NOTQ | BLIST_NOLUN},
+	{"IOMEGA", "ZIP", NULL, BLIST_NOTQ | BLIST_NOLUN | BLIST_SKIP_IO_HINTS},
 	{"IOMEGA", "Io20S         *F", NULL, BLIST_KEY},
 	{"INSITE", "Floptical   F*8I", NULL, BLIST_KEY},
 	{"INSITE", "I325VM", NULL, BLIST_KEY},
@@ -256,6 +256,7 @@ static struct {
 	{"TOSHIBA", "CD-ROM", NULL, BLIST_ISROM},
 	{"Traxdata", "CDR4120", NULL, BLIST_NOLUN},	/* locks up */
 	{"USB2.0", "SMARTMEDIA/XD", NULL, BLIST_FORCELUN | BLIST_INQUIRY_36},
+	{"VMware", "VMware", NULL, BLIST_NO_MATCH_VENDOR | BLIST_NO_TRAY},
 	{"WangDAT", "Model 2600", "01.7", BLIST_SELECT_NO_ATN},
 	{"WangDAT", "Model 3200", "02.2", BLIST_SELECT_NO_ATN},
 	{"WangDAT", "Model 1300", "02.4", BLIST_SELECT_NO_ATN},
@@ -460,10 +461,11 @@ static struct scsi_dev_info_list *scsi_dev_info_list_find(const char *vendor,
 			/*
 			 * vendor strings must be an exact match
 			 */
-			if (vmax != strnlen(devinfo->vendor,
-					    sizeof(devinfo->vendor)) ||
-			    memcmp(devinfo->vendor, vskip, vmax))
-				continue;
+			if (!(devinfo->flags & BLIST_NO_MATCH_VENDOR))
+				if (vmax != strnlen(devinfo->vendor,
+						    sizeof(devinfo->vendor)) ||
+				    memcmp(devinfo->vendor, vskip, vmax))
+					continue;
 
 			/*
 			 * @model specifies the full string, and
@@ -474,8 +476,9 @@ static struct scsi_dev_info_list *scsi_dev_info_list_find(const char *vendor,
 				continue;
 			return devinfo;
 		} else {
-			if (!memcmp(devinfo->vendor, vendor,
-				    sizeof(devinfo->vendor)) &&
+			if ((!memcmp(devinfo->vendor, vendor,
+				    sizeof(devinfo->vendor))
+			       || (devinfo->flags & BLIST_NO_MATCH_VENDOR)) &&
 			    !memcmp(devinfo->model, model,
 				    sizeof(devinfo->model)))
 				return devinfo;

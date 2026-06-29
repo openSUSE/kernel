@@ -1103,6 +1103,10 @@ static int compat_standard_call(struct net_device	*dev,
 		return ioctl_standard_call(dev, iwr, cmd, info, handler);
 
 	iwp_compat = (struct compat_iw_point *) &iwr->u.data;
+
+	/* struct iw_point has a 32bit hole on 64bit arches. */
+	memset(&iwp, 0, sizeof(iwp));
+
 	iwp.pointer = compat_ptr(iwp_compat->pointer);
 	iwp.length = iwp_compat->length;
 	iwp.flags = iwp_compat->flags;
@@ -1159,7 +1163,7 @@ char *iwe_stream_add_event(struct iw_request_info *info, char *stream,
 	/* Check if it's possible */
 	if (likely((stream + event_len) < ends)) {
 		iwe->len = event_len;
-		/* Beware of alignement issues on 64 bits */
+		/* Beware of alignment issues on 64 bits */
 		memcpy(stream, (char *) iwe, IW_EV_LCP_PK_LEN);
 		memcpy(stream + lcp_len, &iwe->u,
 		       event_len - lcp_len);

@@ -231,7 +231,7 @@ static int vb2_fill_vb2_v4l2_buffer(struct vb2_buffer *vb, struct v4l2_buffer *b
 			break;
 		}
 
-		/* Fill in driver-provided information for OUTPUT types */
+		/* Fill in user-provided information for OUTPUT types */
 		if (V4L2_TYPE_IS_OUTPUT(b->type)) {
 			/*
 			 * Will have to go up to b->length when API starts
@@ -1014,6 +1014,11 @@ int vb2_ioctl_remove_bufs(struct file *file, void *priv,
 
 	if (vb2_queue_is_busy(vdev->queue, file))
 		return -EBUSY;
+
+	if (vb2_fileio_is_active(vdev->queue)) {
+		dprintk(vdev->queue, 1, "file io in progress\n");
+		return -EBUSY;
+	}
 
 	return vb2_core_remove_bufs(vdev->queue, d->index, d->count);
 }

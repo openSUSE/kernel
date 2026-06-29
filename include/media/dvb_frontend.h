@@ -704,6 +704,7 @@ struct dvb_frontend {
 	int (*callback)(void *adapter_priv, int component, int cmd, int arg);
 	int id;
 	unsigned int exit;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

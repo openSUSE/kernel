@@ -42,6 +42,12 @@ struct poll_table_struct;
 #define SUBSYS(_x) _x ## _cgrp_id,
 enum cgroup_subsys_id {
 #include <linux/cgroup_subsys.h>
+	SUSE_KABI_CGROUP_SUBSYS_PADDING1,
+#ifndef __GENKSYMS__
+	CGROUP_SUBSYS_COUNT_USED = SUSE_KABI_CGROUP_SUBSYS_PADDING1,
+#endif
+	SUSE_KABI_CGROUP_SUBSYS_PADDING2,
+	SUSE_KABI_CGROUP_SUBSYS_PADDING3,
 	CGROUP_SUBSYS_COUNT,
 };
 #undef SUBSYS
@@ -71,9 +77,6 @@ enum {
 
 	/* Cgroup is frozen. */
 	CGRP_FROZEN,
-
-	/* Control group has to be killed. */
-	CGRP_KILL,
 };
 
 /* cgroup_root->flags */
@@ -222,6 +225,7 @@ struct cgroup_subsys_state {
 	 * Protected by cgroup_mutex.
 	 */
 	int nr_descendants;
+	void *suse_kabi_padding;
 };
 
 /*
@@ -327,6 +331,7 @@ struct cgroup_base_stat {
 #ifdef CONFIG_SCHED_CORE
 	u64 forceidle_sum;
 #endif
+	u64 ntime;
 };
 
 /*
@@ -390,6 +395,11 @@ struct cgroup_rstat_cpu {
 	 */
 	struct cgroup *updated_children;	/* terminated by self cgroup */
 	struct cgroup *updated_next;		/* NULL iff not on the list */
+
+#ifndef __GENKSYMS__
+	struct llist_node lnode;		/* lockless list for update */
+	struct cgroup *owner;			/* back pointer */
+#endif
 };
 
 struct cgroup_freezer_state {
@@ -459,6 +469,9 @@ struct cgroup {
 	int nr_populated_threaded_children;
 
 	int nr_threaded_children;	/* # of live threaded child cgroups */
+
+	/* sequence number for cgroup.kill, serialized by css_set_lock. */
+	unsigned int kill_seq;
 
 	struct kernfs_node *kn;		/* cgroup kernfs entry */
 	struct cgroup_file procs_file;	/* handle for "cgroup.procs" */
@@ -789,6 +802,9 @@ struct cgroup_subsys {
 	 * specifies the mask of subsystems that this one depends on.
 	 */
 	unsigned int depends_on;
+#ifndef __GENKSYMS__
+	void (*css_killed)(struct cgroup_subsys_state *css);
+#endif
 };
 
 extern struct percpu_rw_semaphore cgroup_threadgroup_rwsem;

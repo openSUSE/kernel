@@ -1197,7 +1197,7 @@ static int iwl_parse_tlv_firmware(struct iwl_drv *drv,
 
 			if (tlv_len != sizeof(*fseq_ver))
 				goto invalid_tlv_len;
-			IWL_INFO(drv, "TLV_FW_FSEQ_VERSION: %s\n",
+			IWL_INFO(drv, "TLV_FW_FSEQ_VERSION: %.32s\n",
 				 fseq_ver->version);
 			}
 			break;
@@ -1429,7 +1429,7 @@ _iwl_op_mode_start(struct iwl_drv *drv, struct iwlwifi_opmode_table *op)
 		op_mode = ops->start(drv->trans, drv->trans->cfg,
 				     &drv->fw, dbgfs_dir);
 
-		if (op_mode)
+		if (!IS_ERR(op_mode))
 			return op_mode;
 
 		if (test_bit(STATUS_TRANS_DEAD, &drv->trans->status))

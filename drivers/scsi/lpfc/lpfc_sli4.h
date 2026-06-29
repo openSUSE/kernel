@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2024 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2009-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -246,6 +246,8 @@ struct lpfc_queue {
 	uint32_t q_cnt_2;
 	uint32_t q_cnt_3;
 	uint64_t q_cnt_4;
+	uint32_t q_cnt_5;
+
 /* defines for EQ stats */
 #define	EQ_max_eqe		q_cnt_1
 #define	EQ_no_entry		q_cnt_2
@@ -268,6 +270,7 @@ struct lpfc_queue {
 #define	RQ_no_buf_found		q_cnt_2
 #define	RQ_buf_posted		q_cnt_3
 #define	RQ_rcv_buf		q_cnt_4
+#define RQ_discard_frm		q_cnt_5
 
 	struct work_struct	irqwork;
 	struct work_struct	spwork;
@@ -575,8 +578,10 @@ struct lpfc_pc_sli4_params {
 
 #define LPFC_CQ_4K_PAGE_SZ	0x1
 #define LPFC_CQ_16K_PAGE_SZ	0x4
+#define LPFC_CQ_32K_PAGE_SZ	0x8
 #define LPFC_WQ_4K_PAGE_SZ	0x1
 #define LPFC_WQ_16K_PAGE_SZ	0x4
+#define LPFC_WQ_32K_PAGE_SZ	0x8
 
 struct lpfc_iov {
 	uint32_t pf_number;
@@ -783,6 +788,9 @@ struct lpfc_sli4_hba {
 	void __iomem *dpp_regs_memmap_p;  /* Kernel memory mapped address for
 					   * dpp registers
 					   */
+	void __iomem *dpp_regs_memmap_wc_p;/* Kernel memory mapped address for
+					    * dpp registers with write combining
+					    */
 	union {
 		struct {
 			/* IF Type 0, BAR 0 PCI cfg space reg mem map */
@@ -833,6 +841,7 @@ struct lpfc_sli4_hba {
 	uint32_t ue_to_sr;
 	uint32_t ue_to_rp;
 	struct lpfc_register sli_intf;
+	struct lpfc_register asic_id;
 	struct lpfc_pc_sli4_params pc_sli4_params;
 	struct lpfc_bbscn_params bbscn_params;
 	struct lpfc_hba_eq_hdl *hba_eq_hdl; /* HBA per-WQ handle */
@@ -865,8 +874,6 @@ struct lpfc_sli4_hba {
 	struct lpfc_name wwpn;
 
 	uint32_t fw_func_mode;	/* FW function protocol mode */
-	uint32_t ulp0_mode;	/* ULP0 protocol mode */
-	uint32_t ulp1_mode;	/* ULP1 protocol mode */
 
 	/* Optimized Access Storage specific queues/structures */
 	uint64_t oas_next_lun;

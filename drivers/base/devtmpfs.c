@@ -285,7 +285,7 @@ static int delete_path(const char *nodepath)
 	return err;
 }
 
-static int dev_mynode(struct device *dev, struct inode *inode, struct kstat *stat)
+static int dev_mynode(struct device *dev, struct inode *inode)
 {
 	/* did we create it */
 	if (inode->i_private != &thread)
@@ -293,13 +293,13 @@ static int dev_mynode(struct device *dev, struct inode *inode, struct kstat *sta
 
 	/* does the dev_t match */
 	if (is_blockdev(dev)) {
-		if (!S_ISBLK(stat->mode))
+		if (!S_ISBLK(inode->i_mode))
 			return 0;
 	} else {
-		if (!S_ISCHR(stat->mode))
+		if (!S_ISCHR(inode->i_mode))
 			return 0;
 	}
-	if (stat->rdev != dev->devt)
+	if (inode->i_rdev != dev->devt)
 		return 0;
 
 	/* ours */
@@ -318,11 +318,11 @@ static int handle_remove(const char *nodename, struct device *dev)
 		return PTR_ERR(dentry);
 
 	if (d_really_is_positive(dentry)) {
-		struct kstat stat;
-		struct path p = {.mnt = parent.mnt, .dentry = dentry};
-		err = vfs_getattr(&p, &stat, STATX_TYPE | STATX_MODE,
-				  AT_STATX_SYNC_AS_STAT);
-		if (!err && dev_mynode(dev, d_inode(dentry), &stat)) {
+		struct inode *inode;
+		int err = 0;
+
+		inode = d_inode(dentry);
+		if (dev_mynode(dev, inode)) {
 			struct iattr newattrs;
 			/*
 			 * before unlinking this node, reset permissions
@@ -330,7 +330,7 @@ static int handle_remove(const char *nodename, struct device *dev)
 			 */
 			newattrs.ia_uid = GLOBAL_ROOT_UID;
 			newattrs.ia_gid = GLOBAL_ROOT_GID;
-			newattrs.ia_mode = stat.mode & ~0777;
+			newattrs.ia_mode = inode->i_mode & ~0777;
 			newattrs.ia_valid =
 				ATTR_UID|ATTR_GID|ATTR_MODE;
 			inode_lock(d_inode(dentry));

@@ -21,6 +21,11 @@
 #include <linux/sysfs.h>
 #include <linux/minmax.h>
 
+/* Needed to determine default cpufreq governor */
+#ifdef CONFIG_ACPI
+#include <linux/acpi.h>
+#endif
+
 /*********************************************************************
  *                        CPUFREQ INTERFACE                          *
  *********************************************************************/
@@ -32,6 +37,9 @@
  */
 
 #define CPUFREQ_ETERNAL			(-1)
+
+#define CPUFREQ_DEFAULT_TRANSITION_LATENCY_NS	NSEC_PER_MSEC
+
 #define CPUFREQ_NAME_LEN		16
 /* Print length for names. Extra 1 space for accommodating '\n' in prints */
 #define CPUFREQ_NAME_PLEN		(CPUFREQ_NAME_LEN + 1)
@@ -209,6 +217,9 @@ static inline struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu)
 }
 static inline void cpufreq_cpu_put(struct cpufreq_policy *policy) { }
 #endif
+
+/* Scope based cleanup macro for cpufreq_policy kobject reference counting */
+DEFINE_FREE(put_cpufreq_policy, struct cpufreq_policy *, if (_T) cpufreq_cpu_put(_T))
 
 static inline bool policy_is_inactive(struct cpufreq_policy *policy)
 {
@@ -640,6 +651,8 @@ module_exit(__governor##_exit)
 
 struct cpufreq_governor *cpufreq_default_governor(void);
 struct cpufreq_governor *cpufreq_fallback_governor(void);
+struct cpufreq_governor *cpufreq_get_performance_governor(void);
+bool cpufreq_should_get_performance_governor(void);
 
 static inline void cpufreq_policy_apply_limits(struct cpufreq_policy *policy)
 {
@@ -1184,7 +1197,7 @@ static inline int of_perf_domain_get_sharing_cpumask(int pcpu, const char *list_
 }
 #endif
 
-extern unsigned int arch_freq_get_on_cpu(int cpu);
+extern int arch_freq_get_on_cpu(int cpu);
 
 #ifndef arch_set_freq_scale
 static __always_inline

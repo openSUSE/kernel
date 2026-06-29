@@ -57,7 +57,7 @@ struct dmub_notification;
 
 #define DC_VER "3.2.301"
 
-#define MAX_SURFACES 3
+#define MAX_SURFACES 4
 #define MAX_PLANES 6
 #define MAX_STREAMS 6
 #define MIN_VIEWPORT_SIZE 12
@@ -285,6 +285,7 @@ struct dc_caps {
 	uint16_t subvp_vertical_int_margin_us;
 	bool seamless_odm;
 	uint32_t max_v_total;
+	bool vtotal_limited_by_fp2;
 	uint32_t max_disp_clock_khz_at_vmin;
 	uint8_t subvp_drr_vblank_start_margin_us;
 	bool cursor_not_scaled;
@@ -1258,7 +1259,6 @@ union surface_update_flags {
 		uint32_t in_transfer_func_change:1;
 		uint32_t input_csc_change:1;
 		uint32_t coeff_reduction_change:1;
-		uint32_t output_tf_change:1;
 		uint32_t pixel_format_change:1;
 		uint32_t plane_size_change:1;
 		uint32_t gamut_remap_change:1;
@@ -1389,7 +1389,7 @@ struct dc_scratch_space {
 	 * store current value in plane states so we can still recover
 	 * a valid current state during dc update.
 	 */
-	struct dc_plane_state plane_states[MAX_SURFACE_NUM];
+	struct dc_plane_state plane_states[MAX_SURFACES];
 
 	struct dc_stream_state stream_state;
 };
@@ -1771,7 +1771,9 @@ struct dc_link {
 		bool blank_stream_on_ocs_change;
 		bool read_dpcd204h_on_irq_hpd;
 		bool disable_assr_for_uhbr;
+		bool force_dp_ffe_preset;
 	} wa_flags;
+	union dc_dp_ffe_preset forced_dp_ffe_preset;
 	struct link_mst_stream_allocation_table mst_stream_alloc_table;
 
 	struct dc_link_status link_status;
@@ -2542,6 +2544,8 @@ struct dc_power_profile {
 };
 
 struct dc_power_profile dc_get_power_profile_for_dc_state(const struct dc_state *context);
+
+unsigned int dc_get_det_buffer_size_from_state(const struct dc_state *context);
 
 /* DSC Interfaces */
 #include "dc_dsc.h"

@@ -150,11 +150,46 @@ static enum hrtimer_restart xen_timer_callback(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
+static int xen_get_guest_pvclock(struct kvm_vcpu *vcpu,
+				 struct pvclock_vcpu_time_info *hv_clock,
+				 struct gfn_to_pfn_cache *gpc,
+				 unsigned int offset)
+{
+	unsigned long flags;
+	int r;
+
+	read_lock_irqsave(&gpc->lock, flags);
+	while (!kvm_gpc_check(gpc, offset + sizeof(*hv_clock))) {
+		read_unlock_irqrestore(&gpc->lock, flags);
+
+		r = kvm_gpc_refresh(gpc, offset + sizeof(*hv_clock));
+		if (r)
+			return r;
+
+		read_lock_irqsave(&gpc->lock, flags);
+	}
+
+	memcpy(hv_clock, gpc->khva + offset, sizeof(*hv_clock));
+	read_unlock_irqrestore(&gpc->lock, flags);
+
+	/*
+	 * Sanity check TSC shift+multiplier to verify the guest's view of time
+	 * is more or less consistent.
+	 */
+	if (hv_clock->tsc_shift != vcpu->arch.hv_clock.tsc_shift ||
+	    hv_clock->tsc_to_system_mul != vcpu->arch.hv_clock.tsc_to_system_mul)
+		return -EINVAL;
+
+	return 0;
+}
+
 static void kvm_xen_start_timer(struct kvm_vcpu *vcpu, u64 guest_abs,
 				bool linux_wa)
 {
+	struct kvm_vcpu_xen *xen = &vcpu->arch.xen;
 	int64_t kernel_now, delta;
 	uint64_t guest_now;
+	int r = -EOPNOTSUPP;
 
 	/*
 	 * The guest provides the requested timeout in absolute nanoseconds
@@ -173,9 +208,28 @@ static void kvm_xen_start_timer(struct kvm_vcpu *vcpu, u64 guest_abs,
 	 * the absolute CLOCK_MONOTONIC time at which the timer should
 	 * fire.
 	 */
-	if (vcpu->arch.hv_clock.version && vcpu->kvm->arch.use_master_clock &&
-	    static_cpu_has(X86_FEATURE_CONSTANT_TSC)) {
+	do {
+		struct pvclock_vcpu_time_info hv_clock;
 		uint64_t host_tsc, guest_tsc;
+
+		if (!static_cpu_has(X86_FEATURE_CONSTANT_TSC) ||
+		    !vcpu->kvm->arch.use_master_clock)
+			break;
+
+		/*
+		 * If both Xen PV clocks are active, arbitrarily try to use the
+		 * compat clock first, but also try to use the non-compat clock
+		 * if the compat clock is unusable.  The two PV clocks hold the
+		 * same information, but it's possible one (or both) is stale
+		 * and/or currently unreachable.
+		 */
+		if (xen->vcpu_info_cache.active)
+			r = xen_get_guest_pvclock(vcpu, &hv_clock, &xen->vcpu_info_cache,
+						  offsetof(struct compat_vcpu_info, time));
+		if (r && xen->vcpu_time_info_cache.active)
+			r = xen_get_guest_pvclock(vcpu, &hv_clock, &xen->vcpu_time_info_cache, 0);
+		if (r)
+			break;
 
 		if (!IS_ENABLED(CONFIG_64BIT) ||
 		    !kvm_get_monotonic_and_clockread(&kernel_now, &host_tsc)) {
@@ -197,9 +251,10 @@ static void kvm_xen_start_timer(struct kvm_vcpu *vcpu, u64 guest_abs,
 
 		/* Calculate the guest kvmclock as the guest would do it. */
 		guest_tsc = kvm_read_l1_tsc(vcpu, host_tsc);
-		guest_now = __pvclock_read_cycles(&vcpu->arch.hv_clock,
-						  guest_tsc);
-	} else {
+		guest_now = __pvclock_read_cycles(&hv_clock, guest_tsc);
+	} while (0);
+
+	if (r) {
 		/*
 		 * Without CONSTANT_TSC, get_kvmclock_ns() is the only option.
 		 *
@@ -261,13 +316,6 @@ static void kvm_xen_stop_timer(struct kvm_vcpu *vcpu)
 	hrtimer_cancel(&vcpu->arch.xen.timer);
 	vcpu->arch.xen.timer_expires = 0;
 	atomic_set(&vcpu->arch.xen.timer_pending, 0);
-}
-
-static void kvm_xen_init_timer(struct kvm_vcpu *vcpu)
-{
-	hrtimer_init(&vcpu->arch.xen.timer, CLOCK_MONOTONIC,
-		     HRTIMER_MODE_ABS_HARD);
-	vcpu->arch.xen.timer.function = xen_timer_callback;
 }
 
 static void kvm_xen_update_runstate_guest(struct kvm_vcpu *v, bool atomic)
@@ -1070,9 +1118,6 @@ int kvm_xen_vcpu_set_attr(struct kvm_vcpu *vcpu, struct kvm_xen_vcpu_attr *data)
 			break;
 		}
 
-		if (!vcpu->arch.xen.timer.function)
-			kvm_xen_init_timer(vcpu);
-
 		/* Stop the timer (if it's running) before changing the vector */
 		kvm_xen_stop_timer(vcpu);
 		vcpu->arch.xen.timer_virq = data->u.timer.port;
@@ -1472,7 +1517,7 @@ static bool kvm_xen_schedop_poll(struct kvm_vcpu *vcpu, bool longmode,
 	if (kvm_read_guest_virt(vcpu, (gva_t)sched_poll.ports, ports,
 				sched_poll.nr_ports * sizeof(*ports), &e)) {
 		*r = -EFAULT;
-		return true;
+		goto out;
 	}
 
 	for (i = 0; i < sched_poll.nr_ports; i++) {
@@ -1490,7 +1535,7 @@ static bool kvm_xen_schedop_poll(struct kvm_vcpu *vcpu, bool longmode,
 	set_bit(vcpu->vcpu_idx, vcpu->kvm->arch.xen.poll_mask);
 
 	if (!wait_pending_event(vcpu, sched_poll.nr_ports, ports)) {
-		vcpu->arch.mp_state = KVM_MP_STATE_HALTED;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_HALTED);
 
 		if (sched_poll.timeout)
 			mod_timer(&vcpu->arch.xen.poll_timer,
@@ -1501,7 +1546,7 @@ static bool kvm_xen_schedop_poll(struct kvm_vcpu *vcpu, bool longmode,
 		if (sched_poll.timeout)
 			del_timer(&vcpu->arch.xen.poll_timer);
 
-		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 	}
 
 	vcpu->arch.xen.poll_evtchn = 0;
@@ -1916,8 +1961,19 @@ int kvm_xen_setup_evtchn(struct kvm *kvm,
 {
 	struct kvm_vcpu *vcpu;
 
-	if (ue->u.xen_evtchn.port >= max_evtchn_port(kvm))
-		return -EINVAL;
+	/*
+	 * Don't check for the port being within range of max_evtchn_port().
+	 * Userspace can configure what ever targets it likes; events just won't
+	 * be delivered if/while the target is invalid, just like userspace can
+	 * configure MSIs which target non-existent APICs.
+	 *
+	 * This allow on Live Migration and Live Update, the IRQ routing table
+	 * can be restored *independently* of other things like creating vCPUs,
+	 * without imposing an ordering dependency on userspace.  In this
+	 * particular case, the problematic ordering would be with setting the
+	 * Xen 'long mode' flag, which changes max_evtchn_port() to allow 4096
+	 * instead of 1024 event channels.
+	 */
 
 	/* We only support 2 level event channels for now */
 	if (ue->u.xen_evtchn.priority != KVM_IRQ_ROUTING_XEN_EVTCHN_PRIO_2LEVEL)
@@ -2235,6 +2291,8 @@ void kvm_xen_init_vcpu(struct kvm_vcpu *vcpu)
 	vcpu->arch.xen.poll_evtchn = 0;
 
 	timer_setup(&vcpu->arch.xen.poll_timer, cancel_evtchn_poll, 0);
+	hrtimer_init(&vcpu->arch.xen.timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS_HARD);
+	vcpu->arch.xen.timer.function = xen_timer_callback;
 
 	kvm_gpc_init(&vcpu->arch.xen.runstate_cache, vcpu->kvm);
 	kvm_gpc_init(&vcpu->arch.xen.runstate2_cache, vcpu->kvm);

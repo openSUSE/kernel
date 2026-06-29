@@ -66,7 +66,6 @@
 #define VCN_ENC_CMD_REG_WAIT		0x0000000c
 
 #define VCN_AON_SOC_ADDRESS_2_0 	0x1f800
-#define VCN1_AON_SOC_ADDRESS_3_0 	0x48000
 #define VCN_VID_IP_ADDRESS_2_0		0x0
 #define VCN_AON_IP_ADDRESS_2_0		0x30000
 
@@ -333,6 +332,9 @@ struct amdgpu_vcn {
 
 	/* IP reg dump */
 	uint32_t		*ip_dump;
+
+	bool			workload_profile_active;
+	struct mutex            workload_profile_mutex;
 };
 
 struct amdgpu_fw_shared_rb_ptrs_struct {

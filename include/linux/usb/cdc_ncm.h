@@ -150,6 +150,10 @@ struct cdc_ncm_ctx {
 	u64 tx_ntbs;
 	u64 rx_overhead;
 	u64 rx_ntbs;
+
+#ifndef __GENKSYMS__
+	u8 filtering_supported;
+#endif
 };
 
 u8 cdc_ncm_select_altsetting(struct usb_interface *intf);

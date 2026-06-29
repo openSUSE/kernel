@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause-Clear */
 /*
  * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef ATH11K_CORE_H
@@ -16,6 +16,7 @@
 #include <linux/rhashtable.h>
 #include <linux/average.h>
 #include <linux/firmware.h>
+#include <linux/suspend.h>
 
 #include "qmi.h"
 #include "htc.h"
@@ -340,7 +341,6 @@ struct ath11k_chan_power_info {
  * @ap_power_type: type of power (SP/LPI/VLP)
  * @num_pwr_levels: number of power levels
  * @reg_max: Array of maximum TX power (dBm) per PSD value
- * @ap_constraint_power: AP constraint power (dBm)
  * @tpe: TPE values processed from TPE IE
  * @chan_power_info: power info to send to firmware
  */
@@ -350,7 +350,6 @@ struct ath11k_reg_tpc_power_info {
 	enum wmi_reg_6ghz_ap_type ap_power_type;
 	u8 num_pwr_levels;
 	u8 reg_max[ATH11K_NUM_PWR_LEVELS];
-	u8 ap_constraint_power;
 	s8 tpe[ATH11K_NUM_PWR_LEVELS];
 	struct ath11k_chan_power_info chan_power_info[ATH11K_NUM_PWR_LEVELS];
 };
@@ -372,6 +371,7 @@ struct ath11k_vif {
 
 	u16 tx_seq_no;
 	struct wmi_wmm_params_all_arg wmm_params;
+	struct wmi_wmm_params_all_arg muedca_params;
 	struct list_head list;
 	union {
 		struct {
@@ -409,6 +409,8 @@ struct ath11k_vif {
 	bool do_not_send_tmpl;
 	struct ath11k_arp_ns_offload arp_ns_offload;
 	struct ath11k_rekey_data rekey_data;
+	u32 num_stations;
+	bool reinstall_group_keys;
 
 	struct ath11k_reg_tpc_power_info reg_tpc_info;
 
@@ -599,6 +601,8 @@ struct ath11k_fw_stats {
 	struct list_head pdevs;
 	struct list_head vdevs;
 	struct list_head bcn;
+	u32 num_vdev_recvd;
+	u32 num_bcn_recvd;
 };
 
 struct ath11k_dbg_htt_stats {
@@ -687,7 +691,7 @@ struct ath11k {
 	struct mutex conf_mutex;
 	/* protects the radio specific data like debug stats, ppdu_stats_info stats,
 	 * vdev_stop_status info, scan data, ath11k_sta info, ath11k_vif info,
-	 * channel context data, survey info, test mode data.
+	 * channel context data, survey info, test mode data, channel_update_queue.
 	 */
 	spinlock_t data_lock;
 
@@ -745,6 +749,9 @@ struct ath11k {
 	struct completion bss_survey_done;
 
 	struct work_struct regd_update_work;
+	struct work_struct channel_update_work;
+	/* protected with data_lock */
+	struct list_head channel_update_queue;
 
 	struct work_struct wmi_mgmt_tx_work;
 	struct sk_buff_head wmi_mgmt_tx_queue;
@@ -780,7 +787,7 @@ struct ath11k {
 	u8 alpha2[REG_ALPHA2_LEN + 1];
 	struct ath11k_fw_stats fw_stats;
 	struct completion fw_stats_complete;
-	bool fw_stats_done;
+	struct completion fw_stats_done;
 
 	/* protected by conf_mutex */
 	bool ps_state_enable;
@@ -887,6 +894,11 @@ struct ath11k_msi_config {
 	int total_users;
 	struct ath11k_msi_user *users;
 	u16 hw_rev;
+};
+
+enum ath11k_pm_policy {
+	ATH11K_PM_DEFAULT,
+	ATH11K_PM_WOW,
 };
 
 /* Master structure to hold the hw data which may be used in core module */
@@ -1043,6 +1055,8 @@ struct ath11k_base {
 		DECLARE_BITMAP(fw_features, ATH11K_FW_FEATURE_COUNT);
 	} fw;
 
+	struct completion restart_completed;
+
 #ifdef CONFIG_NL80211_TESTMODE
 	struct {
 		u32 data_pos;
@@ -1050,6 +1064,10 @@ struct ath11k_base {
 		u8 *eventdata;
 	} testmode;
 #endif
+
+	enum ath11k_pm_policy pm_policy;
+	enum ath11k_pm_policy actual_pm_policy;
+	struct notifier_block pm_nb;
 
 	/* must be last */
 	u8 drv_priv[] __aligned(sizeof(void *));
@@ -1242,8 +1260,10 @@ void ath11k_core_free_bdf(struct ath11k_base *ab, struct ath11k_board_data *bd);
 int ath11k_core_check_dt(struct ath11k_base *ath11k);
 int ath11k_core_check_smbios(struct ath11k_base *ab);
 void ath11k_core_halt(struct ath11k *ar);
+int ath11k_core_resume_early(struct ath11k_base *ab);
 int ath11k_core_resume(struct ath11k_base *ab);
 int ath11k_core_suspend(struct ath11k_base *ab);
+int ath11k_core_suspend_late(struct ath11k_base *ab);
 void ath11k_core_pre_reconfigure_recovery(struct ath11k_base *ab);
 bool ath11k_core_coldboot_cal_support(struct ath11k_base *ab);
 
@@ -1314,5 +1334,7 @@ static inline const char *ath11k_bus_str(enum ath11k_bus bus)
 
 	return "unknown";
 }
+
+void ath11k_core_pm_notifier_unregister(struct ath11k_base *ab);
 
 #endif /* _CORE_H_ */

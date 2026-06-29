@@ -82,6 +82,7 @@ struct gpio_device {
 	 */
 	struct list_head pin_ranges;
 #endif
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline struct gpio_device *to_gpio_device(struct device *dev)
@@ -110,7 +111,7 @@ extern const char *const gpio_suffixes[];
  *
  * @desc:		Array of pointers to the GPIO descriptors
  * @size:		Number of elements in desc
- * @chip:		Parent GPIO chip
+ * @gdev:		Parent GPIO device
  * @get_mask:		Get mask used in fastpath
  * @set_mask:		Set mask used in fastpath
  * @invert_mask:	Invert mask used in fastpath
@@ -122,7 +123,7 @@ extern const char *const gpio_suffixes[];
 struct gpio_array {
 	struct gpio_desc	**desc;
 	unsigned int		size;
-	struct gpio_chip	*chip;
+	struct gpio_device	*gdev;
 	unsigned long		*get_mask;
 	unsigned long		*set_mask;
 	unsigned long		invert_mask[];

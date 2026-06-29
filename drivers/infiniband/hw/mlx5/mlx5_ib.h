@@ -521,6 +521,7 @@ struct mlx5_ib_qp {
 	struct mlx5_bf	        bf;
 	u8			has_rq:1;
 	u8			is_rss:1;
+	u8			is_ooo_rq:1;
 
 	/* only for user space QPs. For kernel
 	 * we have it from the bf object
@@ -667,6 +668,12 @@ struct mlx5_ib_mkey {
 
 #define mlx5_update_odp_stats(mr, counter_name, value)		\
 	atomic64_add(value, &((mr)->odp_stats.counter_name))
+
+#define mlx5_update_odp_stats_with_handled(mr, counter_name, value)         \
+	do {                                                                \
+		mlx5_update_odp_stats(mr, counter_name, value);             \
+		atomic64_add(1, &((mr)->odp_stats.counter_name##_handled)); \
+	} while (0)
 
 struct mlx5_ib_mr {
 	struct ib_mr ibmr;
@@ -972,7 +979,6 @@ enum mlx5_ib_stages {
 	MLX5_IB_STAGE_QP,
 	MLX5_IB_STAGE_SRQ,
 	MLX5_IB_STAGE_DEVICE_RESOURCES,
-	MLX5_IB_STAGE_DEVICE_NOTIFIER,
 	MLX5_IB_STAGE_ODP,
 	MLX5_IB_STAGE_COUNTERS,
 	MLX5_IB_STAGE_CONG_DEBUGFS,
@@ -981,6 +987,7 @@ enum mlx5_ib_stages {
 	MLX5_IB_STAGE_PRE_IB_REG_UMR,
 	MLX5_IB_STAGE_WHITELIST_UID,
 	MLX5_IB_STAGE_IB_REG,
+	MLX5_IB_STAGE_DEVICE_NOTIFIER,
 	MLX5_IB_STAGE_POST_IB_REG_UMR,
 	MLX5_IB_STAGE_DELAY_DROP,
 	MLX5_IB_STAGE_RESTRACK,
@@ -1083,6 +1090,7 @@ struct mlx5_ib_lb_state {
 	u32			user_td;
 	int			qps;
 	bool			enabled;
+	bool			force_enable;
 };
 
 struct mlx5_ib_pf_eq {

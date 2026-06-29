@@ -50,7 +50,7 @@
 #include <asm/xive.h>
 #include <asm/opal.h>
 #include <asm/firmware.h>
-#include <asm/code-patching.h>
+#include <asm/text-patching.h>
 #include <asm/sections.h>
 #include <asm/inst.h>
 #include <asm/interrupt.h>
@@ -1787,7 +1787,7 @@ static void xmon_show_stack(unsigned long sp, unsigned long lr,
 				       sp + STACK_INT_FRAME_REGS);
 				break;
 			}
-			printf("--- Exception: %lx %s at ", regs.trap,
+			printf("---- Exception: %lx %s at ", regs.trap,
 			       getvecname(TRAP(&regs)));
 			pc = regs.nip;
 			lr = regs.link;

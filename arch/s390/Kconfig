@@ -52,6 +52,13 @@ config KASAN_SHADOW_OFFSET
 	depends on KASAN
 	default 0x1C000000000000
 
+config GCC_ASM_FLAG_OUTPUT_BROKEN
+	def_bool CC_IS_GCC && GCC_VERSION < 140200
+	help
+	  GCC versions before 14.2.0 may die with an internal
+	  compiler error in some configurations if flag output
+	  operands are used within inline assemblies.
+
 config S390
 	def_bool y
 	#
@@ -65,6 +72,7 @@ config S390
 	select ARCH_ENABLE_MEMORY_HOTPLUG if SPARSEMEM
 	select ARCH_ENABLE_MEMORY_HOTREMOVE
 	select ARCH_ENABLE_SPLIT_PMD_PTLOCK if PGTABLE_LEVELS > 2
+	select ARCH_HAS_CPU_FINALIZE_INIT
 	select ARCH_HAS_CURRENT_STACK_POINTER
 	select ARCH_HAS_DEBUG_VIRTUAL
 	select ARCH_HAS_DEBUG_VM_PGTABLE
@@ -134,7 +142,6 @@ config S390
 	select ARCH_WANT_IPC_PARSE_VERSION
 	select ARCH_WANT_KERNEL_PMD_MKWRITE
 	select ARCH_WANT_LD_ORPHAN_WARN
-	select ARCH_WANT_OPTIMIZE_HUGETLB_VMEMMAP
 	select BUILDTIME_TABLE_SORT
 	select CLONE_BACKWARDS2
 	select DCACHE_WORD_ACCESS if !KMSAN

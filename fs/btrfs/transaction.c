@@ -141,8 +141,7 @@ void btrfs_put_transaction(struct btrfs_transaction *transaction)
 	WARN_ON(refcount_read(&transaction->use_count) == 0);
 	if (refcount_dec_and_test(&transaction->use_count)) {
 		BUG_ON(!list_empty(&transaction->list));
-		WARN_ON(!RB_EMPTY_ROOT(
-				&transaction->delayed_refs.href_root.rb_root));
+		WARN_ON(!xa_empty(&transaction->delayed_refs.head_refs));
 		WARN_ON(!xa_empty(&transaction->delayed_refs.dirty_extents));
 		if (transaction->delayed_refs.pending_csums)
 			btrfs_err(transaction->fs_info,
@@ -161,7 +160,13 @@ void btrfs_put_transaction(struct btrfs_transaction *transaction)
 			cache = list_first_entry(&transaction->deleted_bgs,
 						 struct btrfs_block_group,
 						 bg_list);
+			/*
+			 * Not strictly necessary to lock, as no other task will be using a
+			 * block_group on the deleted_bgs list during a transaction abort.
+			 */
+			spin_lock(&transaction->fs_info->unused_bgs_lock);
 			list_del_init(&cache->bg_list);
+			spin_unlock(&transaction->fs_info->unused_bgs_lock);
 			btrfs_unfreeze_block_group(cache);
 			btrfs_put_block_group(cache);
 		}
@@ -275,8 +280,10 @@ loop:
 	cur_trans = fs_info->running_transaction;
 	if (cur_trans) {
 		if (TRANS_ABORTED(cur_trans)) {
+			const int abort_error = cur_trans->aborted;
+
 			spin_unlock(&fs_info->trans_lock);
-			return cur_trans->aborted;
+			return abort_error;
 		}
 		if (btrfs_blocked_trans_types[cur_trans->state] & type) {
 			spin_unlock(&fs_info->trans_lock);
@@ -349,9 +356,8 @@ loop:
 
 	memset(&cur_trans->delayed_refs, 0, sizeof(cur_trans->delayed_refs));
 
-	cur_trans->delayed_refs.href_root = RB_ROOT_CACHED;
+	xa_init(&cur_trans->delayed_refs.head_refs);
 	xa_init(&cur_trans->delayed_refs.dirty_extents);
-	atomic_set(&cur_trans->delayed_refs.num_entries, 0);
 
 	/*
 	 * although the tree mod log is per file system and not per transaction,
@@ -512,13 +518,14 @@ static inline int is_transaction_blocked(struct btrfs_transaction *trans)
  * when this is done, it is safe to start a new transaction, but the current
  * transaction might not be fully on disk.
  */
-static void wait_current_trans(struct btrfs_fs_info *fs_info)
+static void wait_current_trans(struct btrfs_fs_info *fs_info, unsigned int type)
 {
 	struct btrfs_transaction *cur_trans;
 
 	spin_lock(&fs_info->trans_lock);
 	cur_trans = fs_info->running_transaction;
-	if (cur_trans && is_transaction_blocked(cur_trans)) {
+	if (cur_trans && is_transaction_blocked(cur_trans) &&
+	    (btrfs_blocked_trans_types[cur_trans->state] & type)) {
 		refcount_inc(&cur_trans->use_count);
 		spin_unlock(&fs_info->trans_lock);
 
@@ -693,12 +700,12 @@ again:
 		sb_start_intwrite(fs_info->sb);
 
 	if (may_wait_transaction(fs_info, type))
-		wait_current_trans(fs_info);
+		wait_current_trans(fs_info, type);
 
 	do {
 		ret = join_transaction(fs_info, type);
 		if (ret == -EBUSY) {
-			wait_current_trans(fs_info);
+			wait_current_trans(fs_info, type);
 			if (unlikely(type == TRANS_ATTACH ||
 				     type == TRANS_JOIN_NOSTART))
 				ret = -ENOENT;
@@ -995,7 +1002,7 @@ out:
 
 void btrfs_throttle(struct btrfs_fs_info *fs_info)
 {
-	wait_current_trans(fs_info);
+	wait_current_trans(fs_info, TRANS_START);
 }
 
 bool btrfs_should_end_transaction(struct btrfs_trans_handle *trans)
@@ -1636,7 +1643,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	struct btrfs_root *root = pending->root;
 	struct btrfs_root *parent_root;
 	struct btrfs_block_rsv *rsv;
-	struct inode *parent_inode = &pending->dir->vfs_inode;
+	struct btrfs_inode *parent_inode = pending->dir;
 	struct btrfs_path *path;
 	struct btrfs_dir_item *dir_item;
 	struct extent_buffer *tmp;
@@ -1662,7 +1669,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	 * filesystem.
 	 */
 	nofs_flags = memalloc_nofs_save();
-	pending->error = fscrypt_setup_filename(parent_inode,
+	pending->error = fscrypt_setup_filename(&parent_inode->vfs_inode,
 						&pending->dentry->d_name, 0,
 						&fname);
 	memalloc_nofs_restore(nofs_flags);
@@ -1691,8 +1698,8 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	}
 
 	key.objectid = objectid;
-	key.offset = (u64)-1;
 	key.type = BTRFS_ROOT_ITEM_KEY;
+	key.offset = (u64)-1;
 
 	rsv = trans->block_rsv;
 	trans->block_rsv = &pending->block_rsv;
@@ -1700,16 +1707,16 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	trace_btrfs_space_reservation(fs_info, "transaction",
 				      trans->transid,
 				      trans->bytes_reserved, 1);
-	parent_root = BTRFS_I(parent_inode)->root;
+	parent_root = parent_inode->root;
 	ret = record_root_in_trans(trans, parent_root, 0);
 	if (ret)
 		goto fail;
-	cur_time = current_time(parent_inode);
+	cur_time = current_time(&parent_inode->vfs_inode);
 
 	/*
 	 * insert the directory item
 	 */
-	ret = btrfs_set_inode_index(BTRFS_I(parent_inode), &index);
+	ret = btrfs_set_inode_index(parent_inode, &index);
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
 		goto fail;
@@ -1717,7 +1724,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 
 	/* check if there is a file/dir which has the same name. */
 	dir_item = btrfs_lookup_dir_item(NULL, parent_root, path,
-					 btrfs_ino(BTRFS_I(parent_inode)),
+					 btrfs_ino(parent_inode),
 					 &fname.disk_name, 0);
 	if (dir_item != NULL && !IS_ERR(dir_item)) {
 		pending->error = -EEXIST;
@@ -1731,8 +1738,10 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 
 	ret = btrfs_create_qgroup(trans, objectid);
 	if (ret && ret != -EEXIST) {
-		btrfs_abort_transaction(trans, ret);
-		goto fail;
+		if (ret != -ENOTCONN || btrfs_qgroup_enabled(fs_info)) {
+			btrfs_abort_transaction(trans, ret);
+			goto fail;
+		}
 	}
 
 	/*
@@ -1800,7 +1809,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	}
 	/* see comments in should_cow_block() */
 	set_bit(BTRFS_ROOT_FORCE_COW, &root->state);
-	smp_wmb();
+	smp_mb__after_atomic();
 
 	btrfs_set_root_node(new_root_item, tmp);
 	/* record when the snapshot was created in key.offset */
@@ -1818,7 +1827,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	 */
 	ret = btrfs_add_root_ref(trans, objectid,
 				 btrfs_root_id(parent_root),
-				 btrfs_ino(BTRFS_I(parent_inode)), index,
+				 btrfs_ino(parent_inode), index,
 				 &fname.disk_name);
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
@@ -1856,18 +1865,18 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 		goto fail;
 
 	ret = btrfs_insert_dir_item(trans, &fname.disk_name,
-				    BTRFS_I(parent_inode), &key, BTRFS_FT_DIR,
+				    parent_inode, &key, BTRFS_FT_DIR,
 				    index);
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
 		goto fail;
 	}
 
-	btrfs_i_size_write(BTRFS_I(parent_inode), parent_inode->i_size +
+	btrfs_i_size_write(parent_inode, parent_inode->vfs_inode.i_size +
 						  fname.disk_name.len * 2);
-	inode_set_mtime_to_ts(parent_inode,
-			      inode_set_ctime_current(parent_inode));
-	ret = btrfs_update_inode_fallback(trans, BTRFS_I(parent_inode));
+	inode_set_mtime_to_ts(&parent_inode->vfs_inode,
+			      inode_set_ctime_current(&parent_inode->vfs_inode));
+	ret = btrfs_update_inode_fallback(trans, parent_inode);
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
 		goto fail;
@@ -1883,6 +1892,22 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 		ret = btrfs_uuid_tree_add(trans, new_root_item->received_uuid,
 					  BTRFS_UUID_KEY_RECEIVED_SUBVOL,
 					  objectid);
+		/*
+		 * We are creating of lot of snapshots of the same root that was
+		 * received (has a received UUID) and reached a leaf's limit for
+		 * an item. We can safely ignore this and avoid a transaction
+		 * abort. A deletion of this snapshot will still work since we
+		 * ignore if an item with a BTRFS_UUID_KEY_RECEIVED_SUBVOL key
+		 * is missing (see btrfs_delete_subvolume()). Send/receive will
+		 * work too since it peeks the first root id from the existing
+		 * item (it could peek any), and in case it's missing it
+		 * falls back to search by BTRFS_UUID_KEY_SUBVOL keys.
+		 * Creation of a snapshot does not require CAP_SYS_ADMIN, so
+		 * we don't want users triggering transaction aborts, either
+		 * intentionally or not.
+		 */
+		if (ret == -EOVERFLOW)
+			ret = 0;
 		if (ret && ret != -EEXIST) {
 			btrfs_abort_transaction(trans, ret);
 			goto fail;
@@ -2052,7 +2077,7 @@ static void cleanup_transaction(struct btrfs_trans_handle *trans, int err)
 
 	spin_unlock(&fs_info->trans_lock);
 
-	btrfs_cleanup_one_transaction(trans->transaction, fs_info);
+	btrfs_cleanup_one_transaction(trans->transaction);
 
 	spin_lock(&fs_info->trans_lock);
 	if (cur_trans == fs_info->running_transaction)
@@ -2097,7 +2122,14 @@ static void btrfs_cleanup_pending_block_groups(struct btrfs_trans_handle *trans)
 
        list_for_each_entry_safe(block_group, tmp, &trans->new_bgs, bg_list) {
                btrfs_dec_delayed_refs_rsv_bg_inserts(fs_info);
+		/*
+		* Not strictly necessary to lock, as no other task will be using a
+		* block_group on the new_bgs list during a transaction abort.
+		*/
+	       spin_lock(&fs_info->unused_bgs_lock);
                list_del_init(&block_group->bg_list);
+	       btrfs_put_block_group(block_group);
+	       spin_unlock(&fs_info->unused_bgs_lock);
        }
 }
 

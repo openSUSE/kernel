@@ -72,6 +72,8 @@ struct usb_otg;
 struct usb_phy_io_ops {
 	int (*read)(struct usb_phy *x, u32 reg);
 	int (*write)(struct usb_phy *x, u32 val, u32 reg);
+
+	void *suse_kabi_padding;
 };
 
 struct usb_charger_current {
@@ -155,6 +157,8 @@ struct usb_phy {
 	 * manually detect the charger type.
 	 */
 	enum usb_charger_type (*charger_detect)(struct usb_phy *x);
+
+	void *suse_kabi_padding;
 };
 
 /* for board-specific init logic */
@@ -223,7 +227,6 @@ extern struct usb_phy *devm_usb_get_phy_by_phandle(struct device *dev,
 extern struct usb_phy *devm_usb_get_phy_by_node(struct device *dev,
 	struct device_node *node, struct notifier_block *nb);
 extern void usb_put_phy(struct usb_phy *);
-extern void devm_usb_put_phy(struct device *dev, struct usb_phy *x);
 extern void usb_phy_set_event(struct usb_phy *x, unsigned long event);
 extern void usb_phy_set_charger_current(struct usb_phy *usb_phy,
 					unsigned int mA);
@@ -256,10 +259,6 @@ static inline struct usb_phy *devm_usb_get_phy_by_node(struct device *dev,
 }
 
 static inline void usb_put_phy(struct usb_phy *x)
-{
-}
-
-static inline void devm_usb_put_phy(struct device *dev, struct usb_phy *x)
 {
 }
 

@@ -354,7 +354,7 @@ static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
 	 * to cleanup the orphan list in ext4_handle_inode_extension(). Do it
 	 * now.
 	 */
-	if (!list_empty(&EXT4_I(inode)->i_orphan) && inode->i_nlink) {
+	if (ext4_inode_orphan_tracked(inode) && inode->i_nlink) {
 		handle_t *handle = ext4_journal_start(inode, EXT4_HT_INODE, 2);
 
 		if (IS_ERR(handle)) {
@@ -683,10 +683,12 @@ out:
 static ssize_t
 ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
+	int ret;
 	struct inode *inode = file_inode(iocb->ki_filp);
 
-	if (unlikely(ext4_forced_shutdown(inode->i_sb)))
-		return -EIO;
+	ret = ext4_emergency_state(inode->i_sb);
+	if (unlikely(ret))
+		return ret;
 
 #ifdef CONFIG_FS_DAX
 	if (IS_DAX(inode))
@@ -781,11 +783,16 @@ static const struct vm_operations_struct ext4_file_vm_ops = {
 
 static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
+	int ret;
 	struct inode *inode = file->f_mapping->host;
 	struct dax_device *dax_dev = EXT4_SB(inode->i_sb)->s_daxdev;
 
-	if (unlikely(ext4_forced_shutdown(inode->i_sb)))
-		return -EIO;
+	if (file->f_mode & FMODE_WRITE)
+		ret = ext4_emergency_state(inode->i_sb);
+	else
+		ret = ext4_forced_shutdown(inode->i_sb) ? -EIO : 0;
+	if (unlikely(ret))
+		return ret;
 
 	/*
 	 * We don't support synchronous mappings for non-DAX files and
@@ -816,7 +823,8 @@ static int ext4_sample_last_mounted(struct super_block *sb,
 	if (likely(ext4_test_mount_flag(sb, EXT4_MF_MNTDIR_SAMPLED)))
 		return 0;
 
-	if (sb_rdonly(sb) || !sb_start_intwrite_trylock(sb))
+	if (ext4_emergency_state(sb) || sb_rdonly(sb) ||
+	    !sb_start_intwrite_trylock(sb))
 		return 0;
 
 	ext4_set_mount_flag(sb, EXT4_MF_MNTDIR_SAMPLED);
@@ -859,8 +867,12 @@ static int ext4_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
 
-	if (unlikely(ext4_forced_shutdown(inode->i_sb)))
-		return -EIO;
+	if (filp->f_mode & FMODE_WRITE)
+		ret = ext4_emergency_state(inode->i_sb);
+	else
+		ret = ext4_forced_shutdown(inode->i_sb) ? -EIO : 0;
+	if (unlikely(ret))
+		return ret;
 
 	ret = ext4_sample_last_mounted(inode->i_sb, filp->f_path.mnt);
 	if (ret)
@@ -896,12 +908,7 @@ static int ext4_file_open(struct inode *inode, struct file *filp)
 loff_t ext4_llseek(struct file *file, loff_t offset, int whence)
 {
 	struct inode *inode = file->f_mapping->host;
-	loff_t maxbytes;
-
-	if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)))
-		maxbytes = EXT4_SB(inode->i_sb)->s_bitmap_maxbytes;
-	else
-		maxbytes = inode->i_sb->s_maxbytes;
+	loff_t maxbytes = ext4_get_maxbytes(inode);
 
 	switch (whence) {
 	default:

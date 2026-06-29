@@ -21,6 +21,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/completion.h>
+#include <linux/fips.h>
 #include "internal.h"
 
 LIST_HEAD(crypto_alg_list);
@@ -36,7 +37,8 @@ EXPORT_SYMBOL_GPL(crypto_chain);
 DEFINE_STATIC_KEY_FALSE(__crypto_boot_test_finished);
 #endif
 
-static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg);
+static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg,
+					     u32 type, u32 mask);
 static struct crypto_alg *crypto_alg_lookup(const char *name, u32 type,
 					    u32 mask);
 
@@ -128,6 +130,15 @@ static struct crypto_alg *crypto_larval_add(const char *name, u32 type,
 	struct crypto_alg *alg;
 	struct crypto_larval *larval;
 
+	if (fips_enabled && !((type | mask) & CRYPTO_ALG_TESTED)) {
+		/*
+		 * Make sure the __crypto_alg_lookup() below won't return
+		 * any untested algorithm.
+		 */
+		mask |= CRYPTO_ALG_TESTED;
+		type |= CRYPTO_ALG_TESTED;
+	}
+
 	larval = crypto_larval_alloc(name, type, mask);
 	if (IS_ERR(larval))
 		return ERR_CAST(larval);
@@ -145,7 +156,7 @@ static struct crypto_alg *crypto_larval_add(const char *name, u32 type,
 	if (alg != &larval->alg) {
 		kfree(larval);
 		if (crypto_is_larval(alg))
-			alg = crypto_larval_wait(alg);
+			alg = crypto_larval_wait(alg, type, mask);
 	}
 
 	return alg;
@@ -197,7 +208,8 @@ static void crypto_start_test(struct crypto_larval *larval)
 	crypto_schedule_test(larval);
 }
 
-static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg)
+static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg,
+					     u32 type, u32 mask)
 {
 	struct crypto_larval *larval;
 	long time_left;
@@ -218,15 +230,19 @@ again:
 		if (crypto_is_test_larval(larval))
 			crypto_larval_kill(larval);
 		alg = ERR_PTR(-ETIMEDOUT);
-	} else if (!alg) {
-		u32 type;
-		u32 mask;
+	} else if (!alg || PTR_ERR(alg) == -EEXIST) {
+		int err = alg ? -EEXIST : -EAGAIN;
 
+		/*
+		 * EEXIST is expected because two probes can be scheduled
+		 * at the same time with one using alg_name and the other
+		 * using driver_name.  Do a re-lookup but do not retry in
+		 * case we hit a quirk like gcm_base(ctr(aes),...) which
+		 * will never match.
+		 */
 		alg = &larval->alg;
-		type = alg->cra_flags & ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
-		mask = larval->mask;
 		alg = crypto_alg_lookup(alg->cra_name, type, mask) ?:
-		      ERR_PTR(-EAGAIN);
+		      ERR_PTR(err);
 	} else if (IS_ERR(alg))
 		;
 	else if (crypto_is_test_larval(larval) &&
@@ -292,6 +308,7 @@ static struct crypto_alg *crypto_larval_lookup(const char *name, u32 type,
 	type &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
 	mask &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
 
+again:
 	alg = crypto_alg_lookup(name, type, mask);
 	if (!alg && !(mask & CRYPTO_NOLOAD)) {
 		request_module("crypto-%s", name);
@@ -303,14 +320,49 @@ static struct crypto_alg *crypto_larval_lookup(const char *name, u32 type,
 		alg = crypto_alg_lookup(name, type, mask);
 	}
 
+	/*
+	 * As a downstream solution, unapproved crypto driver
+	 * instances' tests are forced to fail in FIPS mode from
+	 * testmgr. A lot of those register "fused" implementations of
+	 * certain algorithm constructions, which would otherwise get
+	 * served by some generic templates. However, those driver
+	 * instances are kept on the global algorithms list in failed
+	 * state and crypto_alg_lookup() would return -ELIBBAD upon
+	 * encountering a matching such one. In order to still allow
+	 * the generic template implementations to serve the request,
+	 * check if the the ELIBBAD had been coming from a matching
+	 * template instantiation in failed state and ignore it if
+	 * not.
+	 */
+	if (fips_enabled && IS_ERR(alg) && PTR_ERR(alg) == -ELIBBAD &&
+	    strchr(name, '(')) {
+		alg = crypto_alg_lookup(name,
+					type | CRYPTO_ALG_INSTANCE,
+					mask | CRYPTO_ALG_INSTANCE);
+	}
+
 	if (!IS_ERR_OR_NULL(alg) && crypto_is_larval(alg))
-		alg = crypto_larval_wait(alg);
+		alg = crypto_larval_wait(alg, type, mask);
 	else if (alg)
 		;
 	else if (!(mask & CRYPTO_ALG_TESTED))
 		alg = crypto_larval_add(name, type, mask);
 	else
 		alg = ERR_PTR(-ENOENT);
+
+	/*
+	 * As outlined above, unapproved crypto driver instances'
+	 * tests are forced to fail in FIPS mode from testmgr. If
+	 * crypto_larval_wait() returned -EAGAIN, chances are the wait
+	 * had been on such a driver instance's failed test larval.
+	 * Retry the search in this case.
+	 */
+	if (fips_enabled && IS_ERR(alg) && PTR_ERR(alg) == -EAGAIN) {
+		if (fatal_signal_pending(current))
+			return ERR_PTR(-EINTR);
+		cond_resched();
+		goto again;
+	}
 
 	return alg;
 }
@@ -352,7 +404,7 @@ struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask)
 	ok = crypto_probing_notify(CRYPTO_MSG_ALG_REQUEST, larval);
 
 	if (ok == NOTIFY_STOP)
-		alg = crypto_larval_wait(larval);
+		alg = crypto_larval_wait(larval, type, mask);
 	else {
 		crypto_mod_put(larval);
 		alg = ERR_PTR(-ENOENT);

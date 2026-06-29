@@ -78,7 +78,7 @@ static const struct bulk_reg_val tas2781_cali_start_reg[] = {
 	X2781_CL_STT_VAL(TAS2781_PRM_INT_MASK_REG, 0xfe, false),
 	X2781_CL_STT_VAL(TAS2781_PRM_CLK_CFG_REG, 0xdd, false),
 	X2781_CL_STT_VAL(TAS2781_PRM_RSVD_REG, 0x20, false),
-	X2781_CL_STT_VAL(TAS2781_PRM_TEST_57_REG, 0x14, false),
+	X2781_CL_STT_VAL(TAS2781_PRM_TEST_57_REG, 0x14, true),
 	X2781_CL_STT_VAL(TAS2781_PRM_TEST_62_REG, 0x45, true),
 	X2781_CL_STT_VAL(TAS2781_PRM_PVDD_UVLO_REG, 0x03, false),
 	X2781_CL_STT_VAL(TAS2781_PRM_CHNL_0_REG, 0xa8, false),
@@ -370,7 +370,7 @@ static void sngl_calib_start(struct tasdevice_priv *tas_priv, int i,
 			tasdevice_dev_read(tas_priv, i, p[j].reg,
 				(int *)&p[j].val[0]);
 		} else {
-			switch (p[j].reg) {
+			switch (tas2781_cali_start_reg[j].reg) {
 			case 0: {
 				if (!reg[0])
 					continue;
@@ -1258,7 +1258,7 @@ static int tasdevice_create_cali_ctrls(struct tasdevice_priv *priv)
 
 	/*
 	 * Alloc kcontrol via devm_kzalloc(), which don't manually
-	 * free the kcontrol。
+	 * free the kcontrol.
 	 */
 	cali_ctrls = devm_kcalloc(priv->dev, nctrls,
 		sizeof(cali_ctrls[0]), GFP_KERNEL);
@@ -1635,7 +1635,8 @@ static void tasdevice_parse_dt(struct tasdevice_priv *tas_priv)
 {
 	struct i2c_client *client = (struct i2c_client *)tas_priv->client;
 	unsigned int dev_addrs[TASDEVICE_MAX_CHANNELS];
-	int i, ndev = 0;
+	int ndev = 0;
+	int i, rc;
 
 	if (tas_priv->isacpi) {
 		ndev = device_property_read_u32_array(&client->dev,
@@ -1646,8 +1647,12 @@ static void tasdevice_parse_dt(struct tasdevice_priv *tas_priv)
 		} else {
 			ndev = (ndev < ARRAY_SIZE(dev_addrs))
 				? ndev : ARRAY_SIZE(dev_addrs);
-			ndev = device_property_read_u32_array(&client->dev,
+			rc = device_property_read_u32_array(&client->dev,
 				"ti,audio-slots", dev_addrs, ndev);
+			if (rc != 0) {
+				ndev = 1;
+				dev_addrs[0] = client->addr;
+			}
 		}
 
 		tas_priv->irq =

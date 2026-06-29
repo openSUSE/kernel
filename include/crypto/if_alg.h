@@ -32,12 +32,16 @@ struct alg_sock {
 
 	const struct af_alg_type *type;
 	void *private;
+
+	void *suse_kabi_padding;
 };
 
 struct af_alg_control {
 	struct af_alg_iv *iv;
 	int op;
 	unsigned int aead_assoclen;
+
+	void *suse_kabi_padding;
 };
 
 struct af_alg_type {
@@ -53,6 +57,8 @@ struct af_alg_type {
 	struct proto_ops *ops_nokey;
 	struct module *owner;
 	char name[14];
+
+	 void *suse_kabi_padding;
 };
 
 struct af_alg_sgl {
@@ -135,6 +141,7 @@ struct af_alg_async_req {
  *			SG?
  * @enc:		Cryptographic operation to be performed when
  *			recvmsg is invoked.
+ * @write:		True if we are in the middle of a write.
  * @init:		True if metadata has been sent.
  * @len:		Length of memory allocated for this data structure.
  * @inflight:		Non-zero when AIO requests are in flight.
@@ -151,14 +158,17 @@ struct af_alg_ctx {
 	size_t used;
 	atomic_t rcvused;
 
-	bool more;
-	bool merge;
-	bool enc;
-	bool init;
+	bool		more:1,
+			merge:1,
+			enc:1,
+			write:1,
+			init:1;
 
 	unsigned int len;
 
 	unsigned int inflight;
+
+	void *suse_kabi_padding;
 };
 
 int af_alg_register_type(const struct af_alg_type *type);

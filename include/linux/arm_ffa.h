@@ -137,6 +137,7 @@ struct ffa_device {
 	uuid_t uuid;
 	struct device dev;
 	const struct ffa_ops *ops;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define to_ffa_dev(d) container_of(d, struct ffa_device, dev)
@@ -166,9 +167,12 @@ static inline void *ffa_dev_get_drvdata(struct ffa_device *fdev)
 	return dev_get_drvdata(&fdev->dev);
 }
 
+struct ffa_partition_info;
+
 #if IS_REACHABLE(CONFIG_ARM_FFA_TRANSPORT)
-struct ffa_device *ffa_device_register(const uuid_t *uuid, int vm_id,
-				       const struct ffa_ops *ops);
+struct ffa_device *
+ffa_device_register(const struct ffa_partition_info *part_info,
+		    const struct ffa_ops *ops);
 void ffa_device_unregister(struct ffa_device *ffa_dev);
 int ffa_driver_register(struct ffa_driver *driver, struct module *owner,
 			const char *mod_name);
@@ -176,9 +180,9 @@ void ffa_driver_unregister(struct ffa_driver *driver);
 bool ffa_device_is_valid(struct ffa_device *ffa_dev);
 
 #else
-static inline
-struct ffa_device *ffa_device_register(const uuid_t *uuid, int vm_id,
-				       const struct ffa_ops *ops)
+static inline struct ffa_device *
+ffa_device_register(const struct ffa_partition_info *part_info,
+		    const struct ffa_ops *ops)
 {
 	return NULL;
 }

@@ -599,14 +599,23 @@ static inline void throtl_trim_slice(struct throtl_grp *tg, bool rw)
 	 * sooner, then we need to reduce slice_end. A high bogus slice_end
 	 * is bad because it does not allow new slice to start.
 	 */
-
 	throtl_set_slice_end(tg, rw, jiffies + tg->td->throtl_slice);
 
 	time_elapsed = rounddown(jiffies - tg->slice_start[rw],
 				 tg->td->throtl_slice);
-	if (!time_elapsed)
+	/* Don't trim slice until at least 2 slices are used */
+	if (time_elapsed < tg->td->throtl_slice * 2)
 		return;
 
+	/*
+	 * The bio submission time may be a few jiffies more than the expected
+	 * waiting time, due to 'extra_bytes' can't be divided in
+	 * tg_within_bps_limit(), and also due to timer wakeup delay. In this
+	 * case, adjust slice_start will discard the extra wait time, causing
+	 * lower rate than expected. Therefore, other than the above rounddown,
+	 * one extra slice is preserved for deviation.
+	 */
+	time_elapsed -= tg->td->throtl_slice;
 	bytes_trim = calculate_bytes_allowed(tg_bps_limit(tg, rw),
 					     time_elapsed) +
 		     tg->carryover_bytes[rw];
@@ -1202,6 +1211,7 @@ static int blk_throtl_init(struct gendisk *disk)
 {
 	struct request_queue *q = disk->queue;
 	struct throtl_data *td;
+	unsigned int memflags;
 	int ret;
 
 	td = kzalloc_node(sizeof(*td), GFP_KERNEL, q->node);
@@ -1211,17 +1221,13 @@ static int blk_throtl_init(struct gendisk *disk)
 	INIT_WORK(&td->dispatch_work, blk_throtl_dispatch_work_fn);
 	throtl_service_queue_init(&td->service_queue);
 
-	/*
-	 * Freeze queue before activating policy, to synchronize with IO path,
-	 * which is protected by 'q_usage_counter'.
-	 */
-	blk_mq_freeze_queue(disk->queue);
+	memflags = blk_mq_freeze_queue(disk->queue);
 	blk_mq_quiesce_queue(disk->queue);
 
 	q->td = td;
 	td->queue = q;
 
-	/* activate policy */
+	/* activate policy, blk_throtl_activated() will return true */
 	ret = blkcg_activate_policy(disk, &blkcg_policy_throtl);
 	if (ret) {
 		q->td = NULL;
@@ -1239,7 +1245,7 @@ static int blk_throtl_init(struct gendisk *disk)
 
 out:
 	blk_mq_unquiesce_queue(disk->queue);
-	blk_mq_unfreeze_queue(disk->queue);
+	blk_mq_unfreeze_queue(disk->queue, memflags);
 
 	return ret;
 }
@@ -1485,13 +1491,13 @@ static ssize_t tg_set_limit(struct kernfs_open_file *of,
 			goto out_finish;
 
 		ret = -EINVAL;
-		if (!strcmp(tok, "rbps") && val > 1)
+		if (!strcmp(tok, "rbps"))
 			v[0] = val;
-		else if (!strcmp(tok, "wbps") && val > 1)
+		else if (!strcmp(tok, "wbps"))
 			v[1] = val;
-		else if (!strcmp(tok, "riops") && val > 1)
+		else if (!strcmp(tok, "riops"))
 			v[2] = min_t(u64, val, UINT_MAX);
-		else if (!strcmp(tok, "wiops") && val > 1)
+		else if (!strcmp(tok, "wiops"))
 			v[3] = min_t(u64, val, UINT_MAX);
 		else
 			goto out_finish;
@@ -1526,6 +1532,42 @@ static void throtl_shutdown_wq(struct request_queue *q)
 	cancel_work_sync(&td->dispatch_work);
 }
 
+static void tg_flush_bios(struct throtl_grp *tg)
+{
+	struct throtl_service_queue *sq = &tg->service_queue;
+
+	if (tg->flags & THROTL_TG_CANCELING)
+		return;
+	/*
+	 * Set the flag to make sure throtl_pending_timer_fn() won't
+	 * stop until all throttled bios are dispatched.
+	 */
+	tg->flags |= THROTL_TG_CANCELING;
+
+	/*
+	 * Do not dispatch cgroup without THROTL_TG_PENDING or cgroup
+	 * will be inserted to service queue without THROTL_TG_PENDING
+	 * set in tg_update_disptime below. Then IO dispatched from
+	 * child in tg_dispatch_one_bio will trigger double insertion
+	 * and corrupt the tree.
+	 */
+	if (!(tg->flags & THROTL_TG_PENDING))
+		return;
+
+	/*
+	 * Update disptime after setting the above flag to make sure
+	 * throtl_select_dispatch() won't exit without dispatching.
+	 */
+	tg_update_disptime(tg);
+
+	throtl_schedule_pending_timer(sq, jiffies + 1);
+}
+
+static void throtl_pd_offline(struct blkg_policy_data *pd)
+{
+	tg_flush_bios(pd_to_tg(pd));
+}
+
 struct blkcg_policy blkcg_policy_throtl = {
 	.dfl_cftypes		= throtl_files,
 	.legacy_cftypes		= throtl_legacy_files,
@@ -1533,6 +1575,7 @@ struct blkcg_policy blkcg_policy_throtl = {
 	.pd_alloc_fn		= throtl_pd_alloc,
 	.pd_init_fn		= throtl_pd_init,
 	.pd_online_fn		= throtl_pd_online,
+	.pd_offline_fn		= throtl_pd_offline,
 	.pd_free_fn		= throtl_pd_free,
 };
 
@@ -1553,32 +1596,15 @@ void blk_throtl_cancel_bios(struct gendisk *disk)
 	 */
 	rcu_read_lock();
 	blkg_for_each_descendant_post(blkg, pos_css, q->root_blkg) {
-		struct throtl_grp *tg = blkg_to_tg(blkg);
-		struct throtl_service_queue *sq = &tg->service_queue;
-
 		/*
-		 * Set the flag to make sure throtl_pending_timer_fn() won't
-		 * stop until all throttled bios are dispatched.
+		 * disk_release will call pd_offline_fn to cancel bios.
+		 * However, disk_release can't be called if someone get
+		 * the refcount of device and issued bios which are
+		 * inflight after del_gendisk.
+		 * Cancel bios here to ensure no bios are inflight after
+		 * del_gendisk.
 		 */
-		tg->flags |= THROTL_TG_CANCELING;
-
-		/*
-		 * Do not dispatch cgroup without THROTL_TG_PENDING or cgroup
-		 * will be inserted to service queue without THROTL_TG_PENDING
-		 * set in tg_update_disptime below. Then IO dispatched from
-		 * child in tg_dispatch_one_bio will trigger double insertion
-		 * and corrupt the tree.
-		 */
-		if (!(tg->flags & THROTL_TG_PENDING))
-			continue;
-
-		/*
-		 * Update disptime after setting the above flag to make sure
-		 * throtl_select_dispatch() won't exit without dispatching.
-		 */
-		tg_update_disptime(tg);
-
-		throtl_schedule_pending_timer(sq, jiffies + 1);
+		tg_flush_bios(blkg_to_tg(blkg));
 	}
 	rcu_read_unlock();
 	spin_unlock_irq(&q->queue_lock);
@@ -1591,13 +1617,6 @@ static bool tg_within_limit(struct throtl_grp *tg, struct bio *bio, bool rw)
 		return false;
 
 	return tg_may_dispatch(tg, bio, NULL);
-}
-
-static void tg_dispatch_in_debt(struct throtl_grp *tg, struct bio *bio, bool rw)
-{
-	if (!bio_flagged(bio, BIO_BPS_THROTTLED))
-		tg->carryover_bytes[rw] -= throtl_bio_data_size(bio);
-	tg->carryover_ios[rw]--;
 }
 
 bool __blk_throtl_bio(struct bio *bio)
@@ -1636,10 +1655,12 @@ bool __blk_throtl_bio(struct bio *bio)
 			/*
 			 * IOs which may cause priority inversions are
 			 * dispatched directly, even if they're over limit.
-			 * Debts are handled by carryover_bytes/ios while
-			 * calculating wait time.
+			 *
+			 * Charge and dispatch directly, and our throttle
+			 * control algorithm is adaptive, and extra IO bytes
+			 * will be throttled for paying the debt
 			 */
-			tg_dispatch_in_debt(tg, bio, rw);
+			throtl_charge_bio(tg, bio);
 		} else {
 			/* if above limits, break to queue */
 			break;
@@ -1693,12 +1714,15 @@ void blk_throtl_exit(struct gendisk *disk)
 {
 	struct request_queue *q = disk->queue;
 
-	if (!blk_throtl_activated(q))
+	/*
+	 * blkg_destroy_all() already deactivate throtl policy, just check and
+	 * free throtl data.
+	 */
+	if (!q->td)
 		return;
 
 	del_timer_sync(&q->td->service_queue.pending_timer);
 	throtl_shutdown_wq(q);
-	blkcg_deactivate_policy(disk, &blkcg_policy_throtl);
 	kfree(q->td);
 }
 

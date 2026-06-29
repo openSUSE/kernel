@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0
 CFLAGS_REMOVE_empty.o += $(CC_FLAGS_LTO)
 
-hostprogs-always-y	+= modpost mk_elfconfig
+hostprogs-always-y	+= modpost mk_elfconfig ksym-provides
 always-y		+= empty.o
 
 modpost-objs	:= modpost.o file2alias.o sumversion.o symsearch.o
+
+ksym-provides-objs := ksym-provides.o
+
+HOSTLDLIBS_ksym-provides := -lelf
 
 devicetable-offsets-file := devicetable-offsets.h
 

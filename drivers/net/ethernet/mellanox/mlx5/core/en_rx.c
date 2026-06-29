@@ -643,83 +643,82 @@ static void build_ksm_umr(struct mlx5e_icosq *sq, struct mlx5e_umr_wqe *umr_wqe,
 	umr_wqe->uctrl.mkey_mask     = cpu_to_be64(MLX5_MKEY_MASK_FREE);
 }
 
+static struct mlx5e_frag_page *mlx5e_shampo_hd_to_frag_page(struct mlx5e_rq *rq, int header_index)
+{
+	BUILD_BUG_ON(MLX5E_SHAMPO_LOG_MAX_HEADER_ENTRY_SIZE > PAGE_SHIFT);
+
+	return &rq->mpwqe.shampo->pages[header_index >> MLX5E_SHAMPO_LOG_WQ_HEADER_PER_PAGE];
+}
+
+static u64 mlx5e_shampo_hd_offset(int header_index)
+{
+	return (header_index & (MLX5E_SHAMPO_WQ_HEADER_PER_PAGE - 1)) <<
+		MLX5E_SHAMPO_LOG_MAX_HEADER_ENTRY_SIZE;
+}
+
+static void mlx5e_free_rx_shampo_hd_entry(struct mlx5e_rq *rq, u16 header_index);
+
 static int mlx5e_build_shampo_hd_umr(struct mlx5e_rq *rq,
 				     struct mlx5e_icosq *sq,
 				     u16 ksm_entries, u16 index)
 {
 	struct mlx5e_shampo_hd *shampo = rq->mpwqe.shampo;
-	u16 entries, pi, header_offset, err, wqe_bbs, new_entries;
+	u16 pi, header_offset, err, wqe_bbs;
 	u32 lkey = rq->mdev->mlx5e_res.hw_objs.mkey;
-	u16 page_index = shampo->curr_page_index;
-	struct mlx5e_frag_page *frag_page;
-	u64 addr = shampo->last_addr;
-	struct mlx5e_dma_info *dma_info;
 	struct mlx5e_umr_wqe *umr_wqe;
-	int headroom, i;
+	int headroom, i = 0;
 
 	headroom = rq->buff.headroom;
-	new_entries = ksm_entries - (shampo->pi & (MLX5_UMR_KSM_NUM_ENTRIES_ALIGNMENT - 1));
-	entries = ALIGN(ksm_entries, MLX5_UMR_KSM_NUM_ENTRIES_ALIGNMENT);
-	wqe_bbs = MLX5E_KSM_UMR_WQEBBS(entries);
+	wqe_bbs = MLX5E_KSM_UMR_WQEBBS(ksm_entries);
 	pi = mlx5e_icosq_get_next_pi(sq, wqe_bbs);
 	umr_wqe = mlx5_wq_cyc_get_wqe(&sq->wq, pi);
-	build_ksm_umr(sq, umr_wqe, shampo->key, index, entries);
+	build_ksm_umr(sq, umr_wqe, shampo->key, index, ksm_entries);
 
-	frag_page = &shampo->pages[page_index];
+	WARN_ON_ONCE(ksm_entries & (MLX5E_SHAMPO_WQ_HEADER_PER_PAGE - 1));
+	while (i < ksm_entries) {
+		struct mlx5e_frag_page *frag_page = mlx5e_shampo_hd_to_frag_page(rq, index);
+		u64 addr;
 
-	for (i = 0; i < entries; i++, index++) {
-		dma_info = &shampo->info[index];
-		if (i >= ksm_entries || (index < shampo->pi && shampo->pi - index <
-					 MLX5_UMR_KSM_NUM_ENTRIES_ALIGNMENT))
-			goto update_ksm;
-		header_offset = (index & (MLX5E_SHAMPO_WQ_HEADER_PER_PAGE - 1)) <<
-			MLX5E_SHAMPO_LOG_MAX_HEADER_ENTRY_SIZE;
-		if (!(header_offset & (PAGE_SIZE - 1))) {
-			page_index = (page_index + 1) & (shampo->hd_per_wq - 1);
-			frag_page = &shampo->pages[page_index];
+		err = mlx5e_page_alloc_fragmented(rq, frag_page);
+		if (unlikely(err))
+			goto err_unmap;
 
-			err = mlx5e_page_alloc_fragmented(rq, frag_page);
-			if (unlikely(err))
-				goto err_unmap;
 
-			addr = page_pool_get_dma_addr(frag_page->page);
+		addr = page_pool_get_dma_addr(frag_page->page);
 
-			dma_info->addr = addr;
-			dma_info->frag_page = frag_page;
-		} else {
-			dma_info->addr = addr + header_offset;
-			dma_info->frag_page = frag_page;
+		for (int j = 0; j < MLX5E_SHAMPO_WQ_HEADER_PER_PAGE; j++) {
+			header_offset = mlx5e_shampo_hd_offset(index++);
+
+			umr_wqe->inline_ksms[i++] = (struct mlx5_ksm) {
+				.key = cpu_to_be32(lkey),
+				.va  = cpu_to_be64(addr + header_offset + headroom),
+			};
 		}
-
-update_ksm:
-		umr_wqe->inline_ksms[i] = (struct mlx5_ksm) {
-			.key = cpu_to_be32(lkey),
-			.va  = cpu_to_be64(dma_info->addr + headroom),
-		};
 	}
 
 	sq->db.wqe_info[pi] = (struct mlx5e_icosq_wqe_info) {
 		.wqe_type	= MLX5E_ICOSQ_WQE_SHAMPO_HD_UMR,
 		.num_wqebbs	= wqe_bbs,
-		.shampo.len	= new_entries,
+		.shampo.len	= ksm_entries,
 	};
 
-	shampo->pi = (shampo->pi + new_entries) & (shampo->hd_per_wq - 1);
-	shampo->curr_page_index = page_index;
-	shampo->last_addr = addr;
+	shampo->pi = (shampo->pi + ksm_entries) & (shampo->hd_per_wq - 1);
 	sq->pc += wqe_bbs;
 	sq->doorbell_cseg = &umr_wqe->ctrl;
 
 	return 0;
 
 err_unmap:
-	while (--i >= 0) {
-		dma_info = &shampo->info[--index];
-		if (!(i & (MLX5E_SHAMPO_WQ_HEADER_PER_PAGE - 1))) {
-			dma_info->addr = ALIGN_DOWN(dma_info->addr, PAGE_SIZE);
-			mlx5e_page_release_fragmented(rq, dma_info->frag_page);
+	while (--i) {
+		--index;
+		header_offset = mlx5e_shampo_hd_offset(index);
+		if (!header_offset) {
+			struct mlx5e_frag_page *frag_page = mlx5e_shampo_hd_to_frag_page(rq, index);
+
+			mlx5e_page_release_fragmented(rq, frag_page);
 		}
 	}
+
 	rq->stats->buff_alloc_err++;
 	return err;
 }
@@ -731,7 +730,8 @@ static int mlx5e_alloc_rx_hd_mpwqe(struct mlx5e_rq *rq)
 	struct mlx5e_icosq *sq = rq->icosq;
 	int i, err, max_ksm_entries, len;
 
-	max_ksm_entries = MLX5E_MAX_KSM_PER_WQE(rq->mdev);
+	max_ksm_entries = ALIGN_DOWN(MLX5E_MAX_KSM_PER_WQE(rq->mdev),
+				     MLX5E_SHAMPO_WQ_HEADER_PER_PAGE);
 	ksm_entries = bitmap_find_window(shampo->bitmap,
 					 shampo->hd_per_wqe,
 					 shampo->hd_per_wq, shampo->pi);
@@ -739,8 +739,8 @@ static int mlx5e_alloc_rx_hd_mpwqe(struct mlx5e_rq *rq)
 	if (!ksm_entries)
 		return 0;
 
-	ksm_entries += (shampo->pi & (MLX5_UMR_KSM_NUM_ENTRIES_ALIGNMENT - 1));
-	index = ALIGN_DOWN(shampo->pi, MLX5_UMR_KSM_NUM_ENTRIES_ALIGNMENT);
+	/* pi is aligned to MLX5E_SHAMPO_WQ_HEADER_PER_PAGE */
+	index = shampo->pi;
 	entries_before = shampo->hd_per_wq - index;
 
 	if (unlikely(entries_before < ksm_entries))
@@ -851,13 +851,11 @@ static void
 mlx5e_free_rx_shampo_hd_entry(struct mlx5e_rq *rq, u16 header_index)
 {
 	struct mlx5e_shampo_hd *shampo = rq->mpwqe.shampo;
-	u64 addr = shampo->info[header_index].addr;
 
 	if (((header_index + 1) & (MLX5E_SHAMPO_WQ_HEADER_PER_PAGE - 1)) == 0) {
-		struct mlx5e_dma_info *dma_info = &shampo->info[header_index];
+		struct mlx5e_frag_page *frag_page = mlx5e_shampo_hd_to_frag_page(rq, header_index);
 
-		dma_info->addr = ALIGN_DOWN(addr, PAGE_SIZE);
-		mlx5e_page_release_fragmented(rq, dma_info->frag_page);
+		mlx5e_page_release_fragmented(rq, frag_page);
 	}
 	clear_bit(header_index, shampo->bitmap);
 }
@@ -1156,8 +1154,9 @@ static void mlx5e_lro_update_tcp_hdr(struct mlx5_cqe64 *cqe, struct tcphdr *tcp)
 	}
 }
 
-static void mlx5e_lro_update_hdr(struct sk_buff *skb, struct mlx5_cqe64 *cqe,
-				 u32 cqe_bcnt)
+static unsigned int mlx5e_lro_update_hdr(struct sk_buff *skb,
+					 struct mlx5_cqe64 *cqe,
+					 u32 cqe_bcnt)
 {
 	struct ethhdr	*eth = (struct ethhdr *)(skb->data);
 	struct tcphdr	*tcp;
@@ -1207,14 +1206,16 @@ static void mlx5e_lro_update_hdr(struct sk_buff *skb, struct mlx5_cqe64 *cqe,
 		tcp->check = tcp_v6_check(payload_len, &ipv6->saddr,
 					  &ipv6->daddr, check);
 	}
+
+	return (unsigned int)((unsigned char *)tcp + tcp->doff * 4 - skb->data);
 }
 
 static void *mlx5e_shampo_get_packet_hd(struct mlx5e_rq *rq, u16 header_index)
 {
-	struct mlx5e_dma_info *last_head = &rq->mpwqe.shampo->info[header_index];
-	u16 head_offset = (last_head->addr & (PAGE_SIZE - 1)) + rq->buff.headroom;
+	struct mlx5e_frag_page *frag_page = mlx5e_shampo_hd_to_frag_page(rq, header_index);
+	u16 head_offset = mlx5e_shampo_hd_offset(header_index) + rq->buff.headroom;
 
-	return page_address(last_head->frag_page->page) + head_offset;
+	return page_address(frag_page->page) + head_offset;
 }
 
 static void mlx5e_shampo_update_ipv4_udp_hdr(struct mlx5e_rq *rq, struct iphdr *ipv4)
@@ -1563,8 +1564,10 @@ static inline void mlx5e_build_rx_skb(struct mlx5_cqe64 *cqe,
 		mlx5e_macsec_offload_handle_rx_skb(netdev, skb, cqe);
 
 	if (lro_num_seg > 1) {
-		mlx5e_lro_update_hdr(skb, cqe, cqe_bcnt);
-		skb_shinfo(skb)->gso_size = DIV_ROUND_UP(cqe_bcnt, lro_num_seg);
+		unsigned int hdrlen = mlx5e_lro_update_hdr(skb, cqe, cqe_bcnt);
+
+		skb_shinfo(skb)->gso_size = DIV_ROUND_UP(cqe_bcnt - hdrlen, lro_num_seg);
+		skb_shinfo(skb)->gso_segs = lro_num_seg;
 		/* Subtract one since we already counted this as one
 		 * "regular" packet in mlx5e_complete_rx_cqe()
 		 */
@@ -1991,6 +1994,7 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 	struct skb_shared_info *sinfo;
 	struct mlx5e_xdp_buff mxbuf;
 	unsigned int truesize = 0;
+	u32 pg_consumed_bytes;
 	struct bpf_prog *prog;
 	struct sk_buff *skb;
 	u32 linear_frame_sz;
@@ -2041,7 +2045,8 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 
 	while (byte_cnt) {
 		/* Non-linear mode, hence non-XSK, which always uses PAGE_SIZE. */
-		u32 pg_consumed_bytes = min_t(u32, PAGE_SIZE - frag_offset, byte_cnt);
+		pg_consumed_bytes =
+			min_t(u32, PAGE_SIZE - frag_offset, byte_cnt);
 
 		if (test_bit(MLX5E_RQ_STATE_SHAMPO, &rq->state))
 			truesize += pg_consumed_bytes;
@@ -2056,9 +2061,14 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 	}
 
 	if (prog) {
+		u8 nr_frags_free, old_nr_frags = sinfo->nr_frags;
+		u32 len;
+
 		if (mlx5e_xdp_handle(rq, prog, &mxbuf)) {
 			if (__test_and_clear_bit(MLX5E_RQ_FLAG_XDP_XMIT, rq->flags)) {
 				struct mlx5e_frag_page *pfp;
+
+				frag_page -= old_nr_frags - sinfo->nr_frags;
 
 				for (pfp = head_page; pfp < frag_page; pfp++)
 					pfp->frags++;
@@ -2069,9 +2079,19 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 			return NULL; /* page/packet was consumed by XDP */
 		}
 
+		nr_frags_free = old_nr_frags - sinfo->nr_frags;
+		if (unlikely(nr_frags_free)) {
+			frag_page -= nr_frags_free;
+			truesize -= (nr_frags_free - 1) * PAGE_SIZE +
+				ALIGN(pg_consumed_bytes,
+				      BIT(rq->mpwqe.log_stride_sz));
+		}
+
+		len = mxbuf.xdp.data_end - mxbuf.xdp.data;
+
 		skb = mlx5e_build_linear_skb(rq, mxbuf.xdp.data_hard_start,
 					     linear_frame_sz,
-					     mxbuf.xdp.data - mxbuf.xdp.data_hard_start, 0,
+					     mxbuf.xdp.data - mxbuf.xdp.data_hard_start, len,
 					     mxbuf.xdp.data - mxbuf.xdp.data_meta);
 		if (unlikely(!skb)) {
 			mlx5e_page_release_fragmented(rq, &wi->linear_page);
@@ -2094,8 +2114,11 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 			do
 				pagep->frags++;
 			while (++pagep < frag_page);
+
+			headlen = min_t(u16, MLX5E_RX_MAX_HEAD - len,
+					skb->data_len);
+			__pskb_pull_tail(skb, headlen);
 		}
-		__pskb_pull_tail(skb, headlen);
 	} else {
 		dma_addr_t addr;
 
@@ -2185,29 +2208,30 @@ static struct sk_buff *
 mlx5e_skb_from_cqe_shampo(struct mlx5e_rq *rq, struct mlx5e_mpw_info *wi,
 			  struct mlx5_cqe64 *cqe, u16 header_index)
 {
-	struct mlx5e_dma_info *head = &rq->mpwqe.shampo->info[header_index];
-	u16 head_offset = head->addr & (PAGE_SIZE - 1);
+	struct mlx5e_frag_page *frag_page = mlx5e_shampo_hd_to_frag_page(rq, header_index);
+	dma_addr_t page_dma_addr = page_pool_get_dma_addr(frag_page->page);
+	u16 head_offset = mlx5e_shampo_hd_offset(header_index);
+	dma_addr_t dma_addr = page_dma_addr + head_offset;
 	u16 head_size = cqe->shampo.header_size;
 	u16 rx_headroom = rq->buff.headroom;
 	struct sk_buff *skb = NULL;
 	void *hdr, *data;
 	u32 frag_size;
 
-	hdr		= page_address(head->frag_page->page) + head_offset;
+	hdr		= page_address(frag_page->page) + head_offset;
 	data		= hdr + rx_headroom;
 	frag_size	= MLX5_SKB_FRAG_SZ(rx_headroom + head_size);
 
 	if (likely(frag_size <= BIT(MLX5E_SHAMPO_LOG_MAX_HEADER_ENTRY_SIZE))) {
 		/* build SKB around header */
-		dma_sync_single_range_for_cpu(rq->pdev, head->addr, 0, frag_size, rq->buff.map_dir);
+		dma_sync_single_range_for_cpu(rq->pdev, dma_addr, 0, frag_size, rq->buff.map_dir);
 		net_prefetchw(hdr);
 		net_prefetch(data);
 		skb = mlx5e_build_linear_skb(rq, hdr, frag_size, rx_headroom, head_size, 0);
-
 		if (unlikely(!skb))
 			return NULL;
 
-		head->frag_page->frags++;
+		frag_page->frags++;
 	} else {
 		/* allocate SKB and copy header for large header */
 		rq->stats->gro_large_hds++;
@@ -2219,7 +2243,7 @@ mlx5e_skb_from_cqe_shampo(struct mlx5e_rq *rq, struct mlx5e_mpw_info *wi,
 		}
 
 		net_prefetchw(skb->data);
-		mlx5e_copy_skb_header(rq, skb, head->frag_page->page, head->addr,
+		mlx5e_copy_skb_header(rq, skb, frag_page->page, dma_addr,
 				      head_offset + rx_headroom,
 				      rx_headroom, head_size);
 		/* skb linear part was allocated with headlen and aligned to long */
@@ -2436,7 +2460,7 @@ static int mlx5e_rx_cq_process_enhanced_cqe_comp(struct mlx5e_rq *rq,
 	struct mlx5e_cq_decomp *cqd = &rq->cqd;
 	int work_done = 0;
 
-	cqe = mlx5_cqwq_get_cqe_enahnced_comp(cqwq);
+	cqe = mlx5_cqwq_get_cqe_enhanced_comp(cqwq);
 	if (!cqe)
 		return work_done;
 
@@ -2466,7 +2490,7 @@ static int mlx5e_rx_cq_process_enhanced_cqe_comp(struct mlx5e_rq *rq,
 				rq, cqe);
 		work_done++;
 	} while (work_done < budget_rem &&
-		 (cqe = mlx5_cqwq_get_cqe_enahnced_comp(cqwq)));
+		 (cqe = mlx5_cqwq_get_cqe_enhanced_comp(cqwq)));
 
 	/* last cqe might be title on next poll bulk */
 	if (title_cqe) {

@@ -5,6 +5,10 @@
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
+/* Expand a macro and then stringize the expansion */
+#define QUOTE(str) #str
+#define EXPAND_QUOTE(str) QUOTE(str)
+
 /* This set of attributes controls behavior of the
  * test_loader.c:test_loader__run_subtests().
  *
@@ -29,7 +33,14 @@
  *                   e.g. "foo{{[0-9]+}}"  matches strings like "foo007".
  *                   Extended POSIX regular expression syntax is allowed
  *                   inside the brackets.
+ * __not_msg         Message not expected to be found in verifier log.
+ *                   If __msg_not is situated between __msg tags
+ *                   framework matches __msg tags first, and then
+ *                   checks that __msg_not is not present in a portion of
+ *                   a log between bracketing __msg tags.
+ *                   Same regex syntax as for __msg is supported.
  * __msg_unpriv      Same as __msg but for unprivileged mode.
+ * __not_msg_unpriv  Same as __not_msg but for unprivileged mode.
  *
  * __xlated          Expect a line in a disassembly log after verifier applies rewrites.
  *                   Multiple __xlated attributes could be specified.
@@ -106,14 +117,17 @@
  * __arch_*          Specify on which architecture the test case should be tested.
  *                   Several __arch_* annotations could be specified at once.
  *                   When test case is not run on current arch it is marked as skipped.
+ * __caps_unpriv     Specify the capabilities that should be set when running the test.
  */
 #define __msg(msg)		__attribute__((btf_decl_tag("comment:test_expect_msg=" XSTR(__COUNTER__) "=" msg)))
+#define __not_msg(msg)		__attribute__((btf_decl_tag("comment:test_expect_not_msg=" XSTR(__COUNTER__) "=" msg)))
 #define __xlated(msg)		__attribute__((btf_decl_tag("comment:test_expect_xlated=" XSTR(__COUNTER__) "=" msg)))
 #define __jited(msg)		__attribute__((btf_decl_tag("comment:test_jited=" XSTR(__COUNTER__) "=" msg)))
 #define __failure		__attribute__((btf_decl_tag("comment:test_expect_failure")))
 #define __success		__attribute__((btf_decl_tag("comment:test_expect_success")))
 #define __description(desc)	__attribute__((btf_decl_tag("comment:test_description=" desc)))
 #define __msg_unpriv(msg)	__attribute__((btf_decl_tag("comment:test_expect_msg_unpriv=" XSTR(__COUNTER__) "=" msg)))
+#define __not_msg_unpriv(msg)	__attribute__((btf_decl_tag("comment:test_expect_not_msg_unpriv=" XSTR(__COUNTER__) "=" msg)))
 #define __xlated_unpriv(msg)	__attribute__((btf_decl_tag("comment:test_expect_xlated_unpriv=" XSTR(__COUNTER__) "=" msg)))
 #define __jited_unpriv(msg)	__attribute__((btf_decl_tag("comment:test_jited=" XSTR(__COUNTER__) "=" msg)))
 #define __failure_unpriv	__attribute__((btf_decl_tag("comment:test_expect_failure_unpriv")))
@@ -129,6 +143,15 @@
 #define __arch_x86_64		__arch("X86_64")
 #define __arch_arm64		__arch("ARM64")
 #define __arch_riscv64		__arch("RISCV64")
+#define __caps_unpriv(caps)	__attribute__((btf_decl_tag("comment:test_caps_unpriv=" EXPAND_QUOTE(caps))))
+#define __load_if_JITed()	__attribute__((btf_decl_tag("comment:load_mode=jited")))
+#define __load_if_no_JITed()	__attribute__((btf_decl_tag("comment:load_mode=no_jited")))
+
+/* Define common capabilities tested using __caps_unpriv */
+#define CAP_NET_ADMIN		12
+#define CAP_SYS_ADMIN		21
+#define CAP_PERFMON		38
+#define CAP_BPF			39
 
 /* Convenience macro for use with 'asm volatile' blocks */
 #define __naked __attribute__((naked))
@@ -160,6 +183,9 @@
 #elif defined(__TARGET_ARCH_riscv)
 #define SYSCALL_WRAPPER 1
 #define SYS_PREFIX "__riscv_"
+#elif defined(__TARGET_ARCH_powerpc)
+#define SYSCALL_WRAPPER 1
+#define SYS_PREFIX ""
 #else
 #define SYSCALL_WRAPPER 0
 #define SYS_PREFIX "__se_"

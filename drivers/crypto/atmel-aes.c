@@ -2130,7 +2130,7 @@ static int atmel_aes_buff_init(struct atmel_aes_dev *dd)
 
 static void atmel_aes_buff_cleanup(struct atmel_aes_dev *dd)
 {
-	free_page((unsigned long)dd->buf);
+	free_pages((unsigned long)dd->buf, ATMEL_AES_BUFFER_ORDER);
 }
 
 static int atmel_aes_dma_init(struct atmel_aes_dev *dd)
@@ -2453,7 +2453,7 @@ static void atmel_aes_remove(struct platform_device *pdev)
 
 static struct platform_driver atmel_aes_driver = {
 	.probe		= atmel_aes_probe,
-	.remove_new	= atmel_aes_remove,
+	.remove		= atmel_aes_remove,
 	.driver		= {
 		.name	= "atmel_aes",
 		.of_match_table = atmel_aes_dt_ids,

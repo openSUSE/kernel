@@ -707,11 +707,14 @@ int btrfs_check_zoned_mode(struct btrfs_fs_info *fs_info)
 		 * zoned mode. In this case, we don't have a valid max zone
 		 * append size.
 		 */
-		if (bdev_is_zoned(device->bdev)) {
-			blk_stack_limits(lim,
-					 &bdev_get_queue(device->bdev)->limits,
-					 0);
-		}
+		if (bdev_is_zoned(device->bdev))
+			blk_stack_limits(lim, bdev_limits(device->bdev), 0);
+	}
+
+	ret = blk_validate_limits(lim);
+	if (ret) {
+		btrfs_err(fs_info, "zoned: failed to validate queue limits");
+		return ret;
 	}
 
 	/*
@@ -745,8 +748,9 @@ int btrfs_check_zoned_mode(struct btrfs_fs_info *fs_info)
 		     (u64)lim->max_segments << PAGE_SHIFT),
 		fs_info->sectorsize);
 	fs_info->fs_devices->chunk_alloc_policy = BTRFS_CHUNK_ALLOC_ZONED;
-	if (fs_info->max_zone_append_size < fs_info->max_extent_size)
-		fs_info->max_extent_size = fs_info->max_zone_append_size;
+
+	fs_info->max_extent_size = min_not_zero(fs_info->max_extent_size,
+						fs_info->max_zone_append_size);
 
 	/*
 	 * Check mount options here, because we might change fs_info->zoned
@@ -985,7 +989,7 @@ int btrfs_advance_sb_log(struct btrfs_device *device, int mirror)
 	}
 
 	/* All the zones are FULL. Should not reach here. */
-	ASSERT(0);
+	DEBUG_WARN("unexpected state, all zones full");
 	return -EIO;
 }
 
@@ -1655,7 +1659,6 @@ int btrfs_load_block_group_zone_info(struct btrfs_block_group *cache, bool new)
 		 * stripe.
 		 */
 		cache->alloc_offset = cache->zone_capacity;
-		ret = 0;
 	}
 
 out:
@@ -1665,7 +1668,7 @@ out:
 	    !fs_info->stripe_root) {
 		btrfs_err(fs_info, "zoned: data %s needs raid-stripe-tree",
 			  btrfs_bg_type_to_raid_name(map->type));
-		return -EINVAL;
+		ret = -EINVAL;
 	}
 
 	if (cache->alloc_offset > cache->zone_capacity) {

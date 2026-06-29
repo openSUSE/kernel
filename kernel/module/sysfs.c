@@ -196,7 +196,7 @@ static int add_notes_attrs(struct module *mod, const struct load_info *info)
 			nattr->attr.mode = 0444;
 			nattr->size = info->sechdrs[i].sh_size;
 			nattr->private = (void *)info->sechdrs[i].sh_addr;
-			nattr->read = sysfs_bin_attr_simple_read;
+			nattr->read_new = sysfs_bin_attr_simple_read;
 			++nattr;
 		}
 		++loaded;
@@ -405,8 +405,33 @@ int mod_sysfs_setup(struct module *mod,
 	if (err)
 		goto out_unreg_sect_attrs;
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	if (mod->taints & (1 << TAINT_EXTERNAL_SUPPORT)) {
+		add_support_taint(TAINT_EXTERNAL_SUPPORT);
+	} else if (mod->taints & (1 << TAINT_NO_SUPPORT)) {
+		if (suse_unsupported == 0) {
+			printk(KERN_WARNING "%s: module not supported by "
+			       "SUSE, refusing to load. To override, echo "
+			       "1 > /proc/sys/kernel/unsupported\n", mod->name);
+			err = -ENOEXEC;
+			goto out_unreg_notes_attrs;
+		}
+		add_taint(TAINT_NO_SUPPORT, LOCKDEP_STILL_OK);
+		if (suse_unsupported == 1) {
+			printk(KERN_WARNING "%s: module is not supported by "
+			       "SUSE. Our support organization may not be "
+			       "able to address your support request if it "
+			       "involves a kernel fault.\n", mod->name);
+		}
+	}
+#endif
+
 	return 0;
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+out_unreg_notes_attrs:
+	remove_notes_attrs(mod);
+#endif
 out_unreg_sect_attrs:
 	remove_sect_attrs(mod);
 out_del_usage_links:

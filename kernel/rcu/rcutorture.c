@@ -833,7 +833,7 @@ static void synchronize_rcu_trivial(void)
 	int cpu;
 
 	for_each_online_cpu(cpu) {
-		torture_sched_setaffinity(current->pid, cpumask_of(cpu));
+		torture_sched_setaffinity(current->pid, cpumask_of(cpu), true);
 		WARN_ON_ONCE(raw_smp_processor_id() != cpu);
 	}
 }
@@ -2440,6 +2440,14 @@ static int rcutorture_booster_init(unsigned int cpu)
 		WARN_ON_ONCE(!t);
 		sp.sched_priority = 2;
 		sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+#ifdef CONFIG_IRQ_FORCED_THREADING
+		if (force_irqthreads()) {
+			t = per_cpu(ktimerd, cpu);
+			WARN_ON_ONCE(!t);
+			sp.sched_priority = 2;
+			sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+		}
+#endif
 	}
 
 	/* Don't allow time recalculation while creating a new task. */

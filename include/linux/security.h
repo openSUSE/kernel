@@ -522,6 +522,7 @@ int security_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen);
 int security_inode_setsecctx(struct dentry *dentry, void *ctx, u32 ctxlen);
 int security_inode_getsecctx(struct inode *inode, void **ctx, u32 *ctxlen);
 int security_locked_down(enum lockdown_reason what);
+int security_lock_kernel_down(const char *where, enum lockdown_reason level);
 int lsm_fill_user_ctx(struct lsm_ctx __user *uctx, u32 *uctx_len,
 		      void *val, size_t val_len, u64 id, u64 flags);
 int security_bdev_alloc(struct block_device *bdev);
@@ -1504,6 +1505,10 @@ static inline int security_locked_down(enum lockdown_reason what)
 {
 	return 0;
 }
+static inline int security_lock_kernel_down(const char *where, enum lockdown_reason level)
+{
+	return 0;
+}
 static inline int lsm_fill_user_ctx(struct lsm_ctx __user *uctx,
 				    u32 *uctx_len, void *val, size_t val_len,
 				    u64 id, u64 flags)
@@ -2308,5 +2313,33 @@ static inline void security_initramfs_populated(void)
 {
 }
 #endif /* CONFIG_SECURITY */
+
+#ifdef CONFIG_HIDDEN_AREA
+extern void __init hidden_area_init(void);
+extern void * memcpy_to_hidden_area(const void *source, unsigned long size);
+extern bool page_is_hidden(struct page *page);
+extern void clean_hidden_area(void);
+extern int encrypt_backup_hidden_area(void *key, unsigned long key_len);
+extern int decrypt_restore_hidden_area(void *key, unsigned long key_len);
+#else
+static inline void __init hidden_area_init(void) {}
+static inline void * memcpy_to_hidden_area(const void *source, unsigned long size)
+{
+	return NULL;
+}
+static inline bool page_is_hidden(struct page *page)
+{
+	return false;
+}
+static inline void clean_hidden_area(void) {}
+static inline int encrypt_backup_hidden_area(void *key, unsigned long key_len)
+{
+	return 0;
+}
+static inline int decrypt_restore_hidden_area(void *key, unsigned long key_len)
+{
+	return 0;
+}
+#endif
 
 #endif /* ! __LINUX_SECURITY_H */

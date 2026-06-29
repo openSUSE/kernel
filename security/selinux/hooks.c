@@ -2916,7 +2916,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 {
 	const struct task_security_struct *tsec = selinux_cred(current_cred());
 	struct superblock_security_struct *sbsec;
-	struct xattr *xattr = lsm_get_xattr_slot(xattrs, xattr_count);
+	struct xattr *xattr;
 	u32 newsid, clen;
 	u16 newsclass;
 	int rc;
@@ -2942,6 +2942,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	    !(sbsec->flags & SBLABEL_MNT))
 		return -EOPNOTSUPP;
 
+	xattr = lsm_get_xattr_slot(xattrs, xattr_count);
 	if (xattr) {
 		rc = security_sid_to_context_force(newsid,
 						   &context, &clen);
@@ -4127,7 +4128,7 @@ static int selinux_kernel_read_file(struct file *file,
 
 	switch (id) {
 	case READING_MODULE:
-		rc = selinux_kernel_module_from_file(contents ? file : NULL);
+		rc = selinux_kernel_module_from_file(file);
 		break;
 	default:
 		break;
@@ -4820,7 +4821,7 @@ out:
 	return err;
 err_af:
 	/* Note that SCTP services expect -EINVAL, others -EAFNOSUPPORT. */
-	if (sksec->sclass == SECCLASS_SCTP_SOCKET)
+	if (sk->sk_protocol == IPPROTO_SCTP)
 		return -EINVAL;
 	return -EAFNOSUPPORT;
 }

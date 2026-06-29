@@ -37,6 +37,7 @@ obj-y				+= agp/
 
 obj-$(CONFIG_HANGCHECK_TIMER)	+= hangcheck-timer.o
 obj-$(CONFIG_TCG_TPM)		+= tpm/
+obj-$(CONFIG_CRASHER)		+= crasher.o
 
 obj-$(CONFIG_PS3_FLASH)		+= ps3flash.o
 

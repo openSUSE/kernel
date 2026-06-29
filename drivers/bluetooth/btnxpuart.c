@@ -16,6 +16,7 @@
 #include <linux/crc8.h>
 #include <linux/crc32.h>
 #include <linux/string_helpers.h>
+#include <linux/gpio/consumer.h>
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
@@ -34,16 +35,17 @@
 /* NXP HW err codes */
 #define BTNXPUART_IR_HW_ERR		0xb0
 
-#define FIRMWARE_W8987		"uart8987_bt_v0.bin"
+#define FIRMWARE_W8987		"uart8987_bt.bin"
 #define FIRMWARE_W8987_OLD	"uartuart8987_bt.bin"
 #define FIRMWARE_W8997		"uart8997_bt_v4.bin"
 #define FIRMWARE_W8997_OLD	"uartuart8997_bt_v4.bin"
 #define FIRMWARE_W9098		"uart9098_bt_v1.bin"
 #define FIRMWARE_W9098_OLD	"uartuart9098_bt_v1.bin"
-#define FIRMWARE_IW416		"uartiw416_bt_v0.bin"
+#define FIRMWARE_IW416		"uartiw416_bt.bin"
+#define FIRMWARE_IW416_OLD	"uartiw416_bt_v0.bin"
 #define FIRMWARE_IW612		"uartspi_n61x_v1.bin.se"
-#define FIRMWARE_IW615		"uartspi_iw610_v0.bin"
-#define FIRMWARE_SECURE_IW615	"uartspi_iw610_v0.bin.se"
+#define FIRMWARE_IW610		"uartspi_iw610.bin"
+#define FIRMWARE_SECURE_IW610	"uartspi_iw610.bin.se"
 #define FIRMWARE_IW624		"uartiw624_bt.bin"
 #define FIRMWARE_SECURE_IW624	"uartiw624_bt.bin.se"
 #define FIRMWARE_AW693		"uartaw693_bt.bin"
@@ -59,8 +61,8 @@
 #define CHIP_ID_IW624c		0x8001
 #define CHIP_ID_AW693a0		0x8200
 #define CHIP_ID_AW693a1		0x8201
-#define CHIP_ID_IW615a0		0x8800
-#define CHIP_ID_IW615a1		0x8801
+#define CHIP_ID_IW610a0		0x8800
+#define CHIP_ID_IW610a1		0x8801
 
 #define FW_SECURE_MASK		0xc0
 #define FW_OPEN			0x00
@@ -81,6 +83,7 @@
 #define WAKEUP_METHOD_BREAK     1
 #define WAKEUP_METHOD_EXT_BREAK 2
 #define WAKEUP_METHOD_RTS       3
+#define WAKEUP_METHOD_GPIO      4
 #define WAKEUP_METHOD_INVALID   0xff
 
 /* power save mode status */
@@ -134,6 +137,7 @@ struct ps_data {
 	bool  driver_sent_cmd;
 	u16   h2c_ps_interval;
 	u16   c2h_ps_interval;
+	struct gpio_desc *h2c_ps_gpio;
 	struct hci_dev *hdev;
 	struct work_struct work;
 	struct timer_list ps_timer;
@@ -158,6 +162,12 @@ struct btnxpuart_data {
 	const char *fw_name_old;
 };
 
+enum bootloader_param_change {
+	not_changed,
+	cmd_sent,
+	changed
+};
+
 struct btnxpuart_dev {
 	struct hci_dev *hdev;
 	struct serdev_device *serdev;
@@ -173,6 +183,7 @@ struct btnxpuart_dev {
 	u32 fw_v1_sent_bytes;
 	u32 fw_dnld_v3_offset;
 	u32 fw_v3_offset_correction;
+	u32 fw_v3_prev_sent;
 	u32 fw_v1_expected_len;
 	u32 boot_reg_offset;
 	wait_queue_head_t fw_dnld_done_wait_q;
@@ -181,8 +192,8 @@ struct btnxpuart_dev {
 	u32 new_baudrate;
 	u32 current_baudrate;
 	u32 fw_init_baudrate;
-	bool timeout_changed;
-	bool baudrate_changed;
+	enum bootloader_param_change timeout_changed;
+	enum bootloader_param_change baudrate_changed;
 	bool helper_downloaded;
 
 	struct ps_data psdata;
@@ -200,10 +211,11 @@ struct btnxpuart_dev {
 #define NXP_NAK_V3		0x7b
 #define NXP_CRC_ERROR_V3	0x7c
 
-/* Bootloader signature error codes */
-#define NXP_ACK_RX_TIMEOUT	0x0002	/* ACK not received from host */
-#define NXP_HDR_RX_TIMEOUT	0x0003	/* FW Header chunk not received */
-#define NXP_DATA_RX_TIMEOUT	0x0004	/* FW Data chunk not received */
+/* Bootloader signature error codes: Refer AN12820 from nxp.com */
+#define NXP_CRC_RX_ERROR	BIT(0)	/* CRC error in previous packet */
+#define NXP_ACK_RX_TIMEOUT	BIT(2)	/* ACK not received from host */
+#define NXP_HDR_RX_TIMEOUT	BIT(3)	/* FW Header chunk not received */
+#define NXP_DATA_RX_TIMEOUT	BIT(4)	/* FW Data chunk not received */
 
 #define HDR_LEN			16
 
@@ -306,6 +318,16 @@ union nxp_v3_rx_timeout_nak_u {
 	u8 buf[6];
 };
 
+struct nxp_v3_crc_nak {
+	u8 nak;
+	u8 crc;
+} __packed;
+
+union nxp_v3_crc_nak_u {
+	struct nxp_v3_crc_nak pkt;
+	u8 buf[2];
+};
+
 static u8 crc8_table[CRC8_TABLE_SIZE];
 
 /* Default configurations */
@@ -364,7 +386,7 @@ static void ps_control(struct hci_dev *hdev, u8 ps_state)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
 	struct ps_data *psdata = &nxpdev->psdata;
-	int status;
+	int status = 0;
 
 	if (psdata->ps_state == ps_state ||
 	    !test_bit(BTNXPUART_SERDEV_OPEN, &nxpdev->tx_state))
@@ -372,6 +394,14 @@ static void ps_control(struct hci_dev *hdev, u8 ps_state)
 
 	mutex_lock(&psdata->ps_lock);
 	switch (psdata->cur_h2c_wakeupmode) {
+	case WAKEUP_METHOD_GPIO:
+		if (ps_state == PS_STATE_AWAKE)
+			gpiod_set_value_cansleep(psdata->h2c_ps_gpio, 0);
+		else
+			gpiod_set_value_cansleep(psdata->h2c_ps_gpio, 1);
+		bt_dev_dbg(hdev, "Set h2c_ps_gpio: %s",
+			   str_high_low(ps_state == PS_STATE_SLEEP));
+		break;
 	case WAKEUP_METHOD_DTR:
 		if (ps_state == PS_STATE_AWAKE)
 			status = serdev_device_set_tiocm(nxpdev->serdev, TIOCM_DTR, 0);
@@ -421,15 +451,29 @@ static void ps_timeout_func(struct timer_list *t)
 	}
 }
 
-static void ps_setup(struct hci_dev *hdev)
+static int ps_setup(struct hci_dev *hdev)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct serdev_device *serdev = nxpdev->serdev;
 	struct ps_data *psdata = &nxpdev->psdata;
+
+	psdata->h2c_ps_gpio = devm_gpiod_get_optional(&serdev->dev, "device-wakeup",
+						      GPIOD_OUT_LOW);
+	if (IS_ERR(psdata->h2c_ps_gpio)) {
+		bt_dev_err(hdev, "Error fetching device-wakeup-gpios: %ld",
+			   PTR_ERR(psdata->h2c_ps_gpio));
+		return PTR_ERR(psdata->h2c_ps_gpio);
+	}
+
+	if (!psdata->h2c_ps_gpio)
+		psdata->h2c_wakeup_gpio = 0xff;
 
 	psdata->hdev = hdev;
 	INIT_WORK(&psdata->work, ps_work_func);
 	mutex_init(&psdata->ps_lock);
 	timer_setup(&psdata->ps_timer, ps_timeout_func, 0);
+
+	return 0;
 }
 
 static bool ps_wakeup(struct btnxpuart_dev *nxpdev)
@@ -515,6 +559,9 @@ static int send_wakeup_method_cmd(struct hci_dev *hdev, void *data)
 	pcmd.c2h_wakeupmode = psdata->c2h_wakeupmode;
 	pcmd.c2h_wakeup_gpio = psdata->c2h_wakeup_gpio;
 	switch (psdata->h2c_wakeupmode) {
+	case WAKEUP_METHOD_GPIO:
+		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_GPIO;
+		break;
 	case WAKEUP_METHOD_DTR:
 		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_DSR;
 		break;
@@ -549,6 +596,7 @@ static void ps_init(struct hci_dev *hdev)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
 	struct ps_data *psdata = &nxpdev->psdata;
+	u8 default_h2c_wakeup_mode = DEFAULT_H2C_WAKEUP_MODE;
 
 	serdev_device_set_tiocm(nxpdev->serdev, 0, TIOCM_RTS);
 	usleep_range(5000, 10000);
@@ -560,8 +608,17 @@ static void ps_init(struct hci_dev *hdev)
 	psdata->c2h_wakeup_gpio = 0xff;
 
 	psdata->cur_h2c_wakeupmode = WAKEUP_METHOD_INVALID;
+	if (psdata->h2c_ps_gpio)
+		default_h2c_wakeup_mode = WAKEUP_METHOD_GPIO;
+
 	psdata->h2c_ps_interval = PS_DEFAULT_TIMEOUT_PERIOD_MS;
-	switch (DEFAULT_H2C_WAKEUP_MODE) {
+
+	switch (default_h2c_wakeup_mode) {
+	case WAKEUP_METHOD_GPIO:
+		psdata->h2c_wakeupmode = WAKEUP_METHOD_GPIO;
+		gpiod_set_value_cansleep(psdata->h2c_ps_gpio, 0);
+		usleep_range(5000, 10000);
+		break;
 	case WAKEUP_METHOD_DTR:
 		psdata->h2c_wakeupmode = WAKEUP_METHOD_DTR;
 		serdev_device_set_tiocm(nxpdev->serdev, 0, TIOCM_DTR);
@@ -598,8 +655,8 @@ static int nxp_download_firmware(struct hci_dev *hdev)
 	nxpdev->boot_reg_offset = 0;
 	nxpdev->fw_dnld_v3_offset = 0;
 	nxpdev->fw_v3_offset_correction = 0;
-	nxpdev->baudrate_changed = false;
-	nxpdev->timeout_changed = false;
+	nxpdev->baudrate_changed = not_changed;
+	nxpdev->timeout_changed = not_changed;
 	nxpdev->helper_downloaded = false;
 
 	serdev_device_set_baudrate(nxpdev->serdev, HCI_NXP_PRI_BAUDRATE);
@@ -612,8 +669,10 @@ static int nxp_download_firmware(struct hci_dev *hdev)
 							 &nxpdev->tx_state),
 					       msecs_to_jiffies(60000));
 
-	release_firmware(nxpdev->fw);
-	memset(nxpdev->fw_name, 0, sizeof(nxpdev->fw_name));
+	if (nxpdev->fw && strlen(nxpdev->fw_name)) {
+		release_firmware(nxpdev->fw);
+		memset(nxpdev->fw_name, 0, sizeof(nxpdev->fw_name));
+	}
 
 	if (err == 0) {
 		bt_dev_err(hdev, "FW Download Timeout. offset: %d",
@@ -821,15 +880,14 @@ static int nxp_recv_fw_req_v1(struct hci_dev *hdev, struct sk_buff *skb)
 	len = __le16_to_cpu(req->len);
 
 	if (!nxp_data->helper_fw_name) {
-		if (!nxpdev->timeout_changed) {
-			nxpdev->timeout_changed = nxp_fw_change_timeout(hdev,
-									len);
+		if (nxpdev->timeout_changed != changed) {
+			nxp_fw_change_timeout(hdev, len);
+			nxpdev->timeout_changed = changed;
 			goto free_skb;
 		}
-		if (!nxpdev->baudrate_changed) {
-			nxpdev->baudrate_changed = nxp_fw_change_baudrate(hdev,
-									  len);
-			if (nxpdev->baudrate_changed) {
+		if (nxpdev->baudrate_changed != changed) {
+			if (nxp_fw_change_baudrate(hdev, len)) {
+				nxpdev->baudrate_changed = changed;
 				serdev_device_set_baudrate(nxpdev->serdev,
 							   HCI_NXP_SEC_BAUDRATE);
 				serdev_device_set_flow_control(nxpdev->serdev, true);
@@ -946,12 +1004,12 @@ static char *nxp_get_fw_name_from_chipid(struct hci_dev *hdev, u16 chipid,
 		else
 			bt_dev_err(hdev, "Illegal loader version %02x", loader_ver);
 		break;
-	case CHIP_ID_IW615a0:
-	case CHIP_ID_IW615a1:
+	case CHIP_ID_IW610a0:
+	case CHIP_ID_IW610a1:
 		if ((loader_ver & FW_SECURE_MASK) == FW_OPEN)
-			fw_name = FIRMWARE_IW615;
+			fw_name = FIRMWARE_IW610;
 		else if ((loader_ver & FW_SECURE_MASK) != FW_AUTH_ILLEGAL)
-			fw_name = FIRMWARE_SECURE_IW615;
+			fw_name = FIRMWARE_SECURE_IW610;
 		else
 			bt_dev_err(hdev, "Illegal loader version %02x", loader_ver);
 		break;
@@ -970,6 +1028,9 @@ static char *nxp_get_old_fw_name_from_chipid(struct hci_dev *hdev, u16 chipid,
 	switch (chipid) {
 	case CHIP_ID_W9098:
 		fw_name_old = FIRMWARE_W9098_OLD;
+		break;
+	case CHIP_ID_IW416:
+		fw_name_old = FIRMWARE_IW416_OLD;
 		break;
 	}
 	return fw_name_old;
@@ -1005,32 +1066,35 @@ static void nxp_handle_fw_download_error(struct hci_dev *hdev, struct v3_data_re
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
 	__u32 offset = __le32_to_cpu(req->offset);
 	__u16 err = __le16_to_cpu(req->error);
-	union nxp_v3_rx_timeout_nak_u nak_tx_buf;
+	union nxp_v3_rx_timeout_nak_u timeout_nak_buf;
+	union nxp_v3_crc_nak_u crc_nak_buf;
 
-	switch (err) {
-	case NXP_ACK_RX_TIMEOUT:
-	case NXP_HDR_RX_TIMEOUT:
-	case NXP_DATA_RX_TIMEOUT:
-		nak_tx_buf.pkt.nak = NXP_NAK_V3;
-		nak_tx_buf.pkt.offset = __cpu_to_le32(offset);
-		nak_tx_buf.pkt.crc = crc8(crc8_table, nak_tx_buf.buf,
-				      sizeof(nak_tx_buf) - 1, 0xff);
-		serdev_device_write_buf(nxpdev->serdev, nak_tx_buf.buf,
-					sizeof(nak_tx_buf));
-		break;
-	default:
-		bt_dev_dbg(hdev, "Unknown bootloader error code: %d", err);
-		break;
-
+	if (err & NXP_CRC_RX_ERROR) {
+		crc_nak_buf.pkt.nak = NXP_CRC_ERROR_V3;
+		crc_nak_buf.pkt.crc = crc8(crc8_table, crc_nak_buf.buf,
+					   sizeof(crc_nak_buf) - 1, 0xff);
+		serdev_device_write_buf(nxpdev->serdev, crc_nak_buf.buf,
+					sizeof(crc_nak_buf));
+	} else if (err & NXP_ACK_RX_TIMEOUT ||
+		   err & NXP_HDR_RX_TIMEOUT ||
+		   err & NXP_DATA_RX_TIMEOUT) {
+		timeout_nak_buf.pkt.nak = NXP_NAK_V3;
+		timeout_nak_buf.pkt.offset = __cpu_to_le32(offset);
+		timeout_nak_buf.pkt.crc = crc8(crc8_table, timeout_nak_buf.buf,
+					       sizeof(timeout_nak_buf) - 1, 0xff);
+		serdev_device_write_buf(nxpdev->serdev, timeout_nak_buf.buf,
+					sizeof(timeout_nak_buf));
+	} else {
+		bt_dev_err(hdev, "Unknown bootloader error code: %d", err);
 	}
-
 }
 
 static int nxp_recv_fw_req_v3(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
 	struct v3_data_req *req;
-	__u16 len;
+	__u16 len = 0;
+	__u16 err = 0;
 	__u32 offset;
 
 	if (!process_boot_signature(nxpdev))
@@ -1040,23 +1104,40 @@ static int nxp_recv_fw_req_v3(struct hci_dev *hdev, struct sk_buff *skb)
 	if (!req || !nxpdev->fw)
 		goto free_skb;
 
-	if (!req->error) {
+	err = __le16_to_cpu(req->error);
+
+	if (!err) {
 		nxp_send_ack(NXP_ACK_V3, hdev);
+		if (nxpdev->timeout_changed == cmd_sent)
+			nxpdev->timeout_changed = changed;
+		if (nxpdev->baudrate_changed == cmd_sent)
+			nxpdev->baudrate_changed = changed;
 	} else {
 		nxp_handle_fw_download_error(hdev, req);
+		if (nxpdev->timeout_changed == cmd_sent &&
+		    err == NXP_CRC_RX_ERROR) {
+			nxpdev->fw_v3_offset_correction -= nxpdev->fw_v3_prev_sent;
+			nxpdev->timeout_changed = not_changed;
+		}
+		if (nxpdev->baudrate_changed == cmd_sent &&
+		    err == NXP_CRC_RX_ERROR) {
+			nxpdev->fw_v3_offset_correction -= nxpdev->fw_v3_prev_sent;
+			nxpdev->baudrate_changed = not_changed;
+		}
 		goto free_skb;
 	}
 
 	len = __le16_to_cpu(req->len);
 
-	if (!nxpdev->timeout_changed) {
-		nxpdev->timeout_changed = nxp_fw_change_timeout(hdev, len);
+	if (nxpdev->timeout_changed != changed) {
+		nxp_fw_change_timeout(hdev, len);
+		nxpdev->timeout_changed = cmd_sent;
 		goto free_skb;
 	}
 
-	if (!nxpdev->baudrate_changed) {
-		nxpdev->baudrate_changed = nxp_fw_change_baudrate(hdev, len);
-		if (nxpdev->baudrate_changed) {
+	if (nxpdev->baudrate_changed != changed) {
+		if (nxp_fw_change_baudrate(hdev, len)) {
+			nxpdev->baudrate_changed = cmd_sent;
 			serdev_device_set_baudrate(nxpdev->serdev,
 						   HCI_NXP_SEC_BAUDRATE);
 			serdev_device_set_flow_control(nxpdev->serdev, true);
@@ -1088,6 +1169,7 @@ static int nxp_recv_fw_req_v3(struct hci_dev *hdev, struct sk_buff *skb)
 				nxpdev->fw_dnld_v3_offset, len);
 
 free_skb:
+	nxpdev->fw_v3_prev_sent = len;
 	kfree_skb(skb);
 	return 0;
 }
@@ -1275,6 +1357,9 @@ static int nxp_enqueue(struct hci_dev *hdev, struct sk_buff *skb)
 				psdata->c2h_wakeup_gpio = wakeup_parm.c2h_wakeup_gpio;
 				psdata->h2c_wakeup_gpio = wakeup_parm.h2c_wakeup_gpio;
 				switch (wakeup_parm.h2c_wakeupmode) {
+				case BT_CTRL_WAKEUP_METHOD_GPIO:
+					psdata->h2c_wakeupmode = WAKEUP_METHOD_GPIO;
+					break;
 				case BT_CTRL_WAKEUP_METHOD_DSR:
 					psdata->h2c_wakeupmode = WAKEUP_METHOD_DTR;
 					break;
@@ -1341,7 +1426,7 @@ static void btnxpuart_tx_work(struct work_struct *work)
 		skb_pull(skb, len);
 		if (skb->len > 0) {
 			skb_queue_head(&nxpdev->txq, skb);
-			break;
+			continue;
 		}
 
 		switch (hci_skb_pkt_type(skb)) {
@@ -1505,13 +1590,17 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 
 	if (hci_register_dev(hdev) < 0) {
 		dev_err(&serdev->dev, "Can't register HCI device\n");
-		hci_free_dev(hdev);
-		return -ENODEV;
+		goto probe_fail;
 	}
 
-	ps_setup(hdev);
+	if (ps_setup(hdev))
+		goto probe_fail;
 
 	return 0;
+
+probe_fail:
+	hci_free_dev(hdev);
+	return -ENODEV;
 }
 
 static void nxp_serdev_remove(struct serdev_device *serdev)

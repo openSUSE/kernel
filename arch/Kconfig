@@ -1024,6 +1024,14 @@ config ARCH_WANTS_EXECMEM_LATE
 	  enough entropy for module space randomization, for instance
 	  arm64.
 
+config ARCH_HAS_EXECMEM_ROX
+	bool
+	depends on MMU && !HIGHMEM
+	help
+	  For architectures that support allocations of executable memory
+	  with read-only execute permissions. Architecture must implement
+	  execmem_fill_trapping_insns() callback to enable this.
+
 config HAVE_IRQ_EXIT_ON_IRQ_STACK
 	bool
 	help
@@ -1680,6 +1688,15 @@ config CC_HAS_SANE_FUNCTION_ALIGNMENT
 	def_bool CC_HAS_MIN_FUNCTION_ALIGNMENT || CC_IS_CLANG
 
 config ARCH_NEED_CMPXCHG_1_EMU
+	bool
+
+config ARCH_WANTS_PRE_LINK_VMLINUX
+	bool
+	help
+	  An architecture can select this if it provides arch/<arch>/tools/Makefile
+	  with .arch.vmlinux.o target to be linked into vmlinux.
+
+config ARCH_HAS_CPU_ATTACK_VECTORS
 	bool
 
 endmenu

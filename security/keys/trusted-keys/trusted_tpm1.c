@@ -7,6 +7,7 @@
  */
 
 #include <crypto/hash_info.h>
+#include <crypto/utils.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/parser.h>
@@ -39,6 +40,9 @@ static struct sdesc *init_sdesc(struct crypto_shash *alg)
 {
 	struct sdesc *sdesc;
 	int size;
+
+	if (!alg)
+		return ERR_PTR(-ENOENT);
 
 	size = sizeof(struct shash_desc) + crypto_shash_descsize(alg);
 	sdesc = kmalloc(size, GFP_KERNEL);
@@ -241,7 +245,7 @@ int TSS_checkhmac1(unsigned char *buffer,
 	if (ret < 0)
 		goto out;
 
-	if (memcmp(testhmac, authdata, SHA1_DIGEST_SIZE))
+	if (crypto_memneq(testhmac, authdata, SHA1_DIGEST_SIZE))
 		ret = -EINVAL;
 out:
 	kfree_sensitive(sdesc);
@@ -334,7 +338,7 @@ static int TSS_checkhmac2(unsigned char *buffer,
 			  TPM_NONCE_SIZE, ononce, 1, continueflag1, 0, 0);
 	if (ret < 0)
 		goto out;
-	if (memcmp(testhmac1, authdata1, SHA1_DIGEST_SIZE)) {
+	if (crypto_memneq(testhmac1, authdata1, SHA1_DIGEST_SIZE)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -343,7 +347,7 @@ static int TSS_checkhmac2(unsigned char *buffer,
 			  TPM_NONCE_SIZE, ononce, 1, continueflag2, 0, 0);
 	if (ret < 0)
 		goto out;
-	if (memcmp(testhmac2, authdata2, SHA1_DIGEST_SIZE))
+	if (crypto_memneq(testhmac2, authdata2, SHA1_DIGEST_SIZE))
 		ret = -EINVAL;
 out:
 	kfree_sensitive(sdesc);
@@ -1005,7 +1009,30 @@ static int __init trusted_shash_alloc(void)
 	if (IS_ERR(hmacalg)) {
 		pr_info("could not allocate crypto %s\n",
 			hmac_alg);
-		return PTR_ERR(hmacalg);
+		ret = PTR_ERR(hmacalg);
+		/*
+		 * SHA1 instantiation fails with ENOENT in FIPS mode.
+		 * However, it's needed only for TPM1. Don't fail the
+		 * module initialization on TPM2 if SHA1 support is
+		 * missing.
+		 */
+		if (ret == -ENOENT) {
+			hmacalg = NULL;
+			/*
+			 * chip is always non-NULL here, but be extra-cautious.
+			 */
+			if (chip && tpm_is_tpm2(chip) == 0) {
+				/* TPM1 is unusable without SHA1. */
+				ret = -ENODEV;
+			} else {
+				/*
+				 * SHA1 is not needed for TPM2, ignore
+				 * the instantiation failure.
+				 */
+				ret = 0;
+			}
+		}
+		return ret;
 	}
 
 	hashalg = crypto_alloc_shash(hash_alg, 0, 0);
@@ -1013,6 +1040,16 @@ static int __init trusted_shash_alloc(void)
 		pr_info("could not allocate crypto %s\n",
 			hash_alg);
 		ret = PTR_ERR(hashalg);
+		/*
+		 * See above regarding SHA1 instantiation failures in FIPS mode.
+		 */
+		if (ret == -ENOENT) {
+			hashalg = NULL;
+			if (chip && tpm_is_tpm2(chip) == 0)
+				ret = -ENODEV;
+			else
+				ret = 0;
+		}
 		goto hashalg_fail;
 	}
 
@@ -1020,6 +1057,7 @@ static int __init trusted_shash_alloc(void)
 
 hashalg_fail:
 	crypto_free_shash(hmacalg);
+	hmacalg = NULL;
 	return ret;
 }
 

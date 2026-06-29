@@ -157,8 +157,8 @@ static void __end_buffer_read_notouch(struct buffer_head *bh, int uptodate)
  */
 void end_buffer_read_sync(struct buffer_head *bh, int uptodate)
 {
-	__end_buffer_read_notouch(bh, uptodate);
 	put_bh(bh);
+	__end_buffer_read_notouch(bh, uptodate);
 }
 EXPORT_SYMBOL(end_buffer_read_sync);
 
@@ -1213,10 +1213,8 @@ void mark_buffer_write_io_error(struct buffer_head *bh)
 	/* FIXME: do we need to set this in both places? */
 	if (bh->b_folio && bh->b_folio->mapping)
 		mapping_set_error(bh->b_folio->mapping, -EIO);
-	if (bh->b_assoc_map) {
+	if (bh->b_assoc_map)
 		mapping_set_error(bh->b_assoc_map, -EIO);
-		errseq_set(&bh->b_assoc_map->host->i_sb->s_wb_err, -EIO);
-	}
 }
 EXPORT_SYMBOL(mark_buffer_write_io_error);
 

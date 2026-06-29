@@ -151,10 +151,6 @@ static int cs35l56_hda_runtime_resume(struct device *dev)
 		}
 	}
 
-	ret = cs35l56_force_sync_asp1_registers_from_cache(&cs35l56->base);
-	if (ret)
-		goto err;
-
 	return 0;
 
 err:
@@ -186,11 +182,15 @@ static int cs35l56_hda_mixer_get(struct snd_kcontrol *kcontrol,
 {
 	struct cs35l56_hda *cs35l56 = (struct cs35l56_hda *)kcontrol->private_data;
 	unsigned int reg_val;
-	int i;
+	int i, ret;
 
 	cs35l56_hda_wait_dsp_ready(cs35l56);
 
-	regmap_read(cs35l56->base.regmap, kcontrol->private_value, &reg_val);
+	ret = regmap_read(cs35l56->base.regmap, kcontrol->private_value,
+			  &reg_val);
+	if (ret)
+		return ret;
+
 	reg_val &= CS35L56_ASP_TXn_SRC_MASK;
 
 	for (i = 0; i < CS35L56_NUM_INPUT_SRC; ++i) {
@@ -209,15 +209,20 @@ static int cs35l56_hda_mixer_put(struct snd_kcontrol *kcontrol,
 	struct cs35l56_hda *cs35l56 = (struct cs35l56_hda *)kcontrol->private_data;
 	unsigned int item = ucontrol->value.enumerated.item[0];
 	bool changed;
+	int ret;
 
 	if (item >= CS35L56_NUM_INPUT_SRC)
 		return -EINVAL;
 
 	cs35l56_hda_wait_dsp_ready(cs35l56);
 
-	regmap_update_bits_check(cs35l56->base.regmap, kcontrol->private_value,
-				 CS35L56_INPUT_MASK, cs35l56_tx_input_values[item],
-				 &changed);
+	ret = regmap_update_bits_check(cs35l56->base.regmap,
+				       kcontrol->private_value,
+				       CS35L56_INPUT_MASK,
+				       cs35l56_tx_input_values[item],
+				       &changed);
+	if (ret)
+		return ret;
 
 	return changed;
 }
@@ -254,7 +259,7 @@ static int cs35l56_hda_posture_put(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
 	struct cs35l56_hda *cs35l56 = (struct cs35l56_hda *)kcontrol->private_data;
-	unsigned long pos = ucontrol->value.integer.value[0];
+	long pos = ucontrol->value.integer.value[0];
 	bool changed;
 	int ret;
 
@@ -880,6 +885,52 @@ static int cs35l56_hda_system_resume(struct device *dev)
 	return 0;
 }
 
+static int cs35l56_hda_fixup_yoga9(struct cs35l56_hda *cs35l56, int *bus_addr)
+{
+	/* The cirrus,dev-index property has the wrong values */
+	switch (*bus_addr) {
+	case 0x30:
+		cs35l56->index = 1;
+		return 0;
+	case 0x31:
+		cs35l56->index = 0;
+		return 0;
+	default:
+		/* There is a pseudo-address for broadcast to both amps - ignore it */
+		dev_dbg(cs35l56->base.dev, "Ignoring I2C address %#x\n", *bus_addr);
+		return 0;
+	}
+}
+
+static const struct {
+	const char *sub;
+	int (*fixup_fn)(struct cs35l56_hda *cs35l56, int *bus_addr);
+} cs35l56_hda_fixups[] = {
+	{
+		.sub = "17AA390B", /* Lenovo Yoga Book 9i GenX */
+		.fixup_fn = cs35l56_hda_fixup_yoga9,
+	},
+};
+
+static int cs35l56_hda_apply_platform_fixups(struct cs35l56_hda *cs35l56, const char *sub,
+					     int *bus_addr)
+{
+	int i;
+
+	if (IS_ERR(sub))
+		return 0;
+
+	for (i = 0; i < ARRAY_SIZE(cs35l56_hda_fixups); i++) {
+		if (strcasecmp(cs35l56_hda_fixups[i].sub, sub) == 0) {
+			dev_dbg(cs35l56->base.dev, "Applying fixup for %s\n",
+				cs35l56_hda_fixups[i].sub);
+			return (cs35l56_hda_fixups[i].fixup_fn)(cs35l56, bus_addr);
+		}
+	}
+
+	return 0;
+}
+
 static int cs35l56_hda_read_acpi(struct cs35l56_hda *cs35l56, int hid, int id)
 {
 	u32 values[HDA_MAX_COMPONENTS];
@@ -902,41 +953,50 @@ static int cs35l56_hda_read_acpi(struct cs35l56_hda *cs35l56, int hid, int id)
 			return -ENODEV;
 		}
 		ACPI_COMPANION_SET(cs35l56->base.dev, adev);
+		acpi_dev_put(adev);
 	}
 
-	property = "cirrus,dev-index";
-	ret = device_property_count_u32(cs35l56->base.dev, property);
-	if (ret <= 0)
-		goto err;
-
-	if (ret > ARRAY_SIZE(values)) {
-		ret = -EINVAL;
-		goto err;
-	}
-	nval = ret;
-
-	ret = device_property_read_u32_array(cs35l56->base.dev, property, values, nval);
-	if (ret)
-		goto err;
-
+	/* Initialize things that could be overwritten by a fixup */
 	cs35l56->index = -1;
-	for (i = 0; i < nval; i++) {
-		if (values[i] == id) {
-			cs35l56->index = i;
-			break;
-		}
-	}
-	/*
-	 * It's not an error for the ID to be missing: for I2C there can be
-	 * an alias address that is not a real device. So reject silently.
-	 */
-	if (cs35l56->index == -1) {
-		dev_dbg(cs35l56->base.dev, "No index found in %s\n", property);
-		ret = -ENODEV;
-		goto err;
-	}
 
 	sub = acpi_get_subsystem_id(ACPI_HANDLE(cs35l56->base.dev));
+	ret = cs35l56_hda_apply_platform_fixups(cs35l56, sub, &id);
+	if (ret)
+		return ret;
+
+	if (cs35l56->index == -1) {
+		property = "cirrus,dev-index";
+		ret = device_property_count_u32(cs35l56->base.dev, property);
+		if (ret <= 0)
+			goto err;
+
+		if (ret > ARRAY_SIZE(values)) {
+			ret = -EINVAL;
+			goto err;
+		}
+		nval = ret;
+
+		ret = device_property_read_u32_array(cs35l56->base.dev, property, values, nval);
+		if (ret)
+			goto err;
+
+		for (i = 0; i < nval; i++) {
+			if (values[i] == id) {
+				cs35l56->index = i;
+				break;
+			}
+		}
+
+		/*
+		 * It's not an error for the ID to be missing: for I2C there can be
+		 * an alias address that is not a real device. So reject silently.
+		 */
+		if (cs35l56->index == -1) {
+			dev_dbg(cs35l56->base.dev, "No index found in %s\n", property);
+			ret = -ENODEV;
+			goto err;
+		}
+	}
 
 	if (IS_ERR(sub)) {
 		dev_info(cs35l56->base.dev,
@@ -1059,9 +1119,6 @@ int cs35l56_hda_common_probe(struct cs35l56_hda *cs35l56, int hid, int id)
 
 	regmap_multi_reg_write(cs35l56->base.regmap, cs35l56_hda_dai_config,
 			       ARRAY_SIZE(cs35l56_hda_dai_config));
-	ret = cs35l56_force_sync_asp1_registers_from_cache(&cs35l56->base);
-	if (ret)
-		goto dsp_err;
 
 	/*
 	 * By default only enable one ASP1TXn, where n=amplifier index,
@@ -1087,7 +1144,6 @@ int cs35l56_hda_common_probe(struct cs35l56_hda *cs35l56, int hid, int id)
 
 pm_err:
 	pm_runtime_disable(cs35l56->base.dev);
-dsp_err:
 	cs_dsp_remove(&cs35l56->cs_dsp);
 err:
 	gpiod_set_value_cansleep(cs35l56->base.reset_gpio, 0);

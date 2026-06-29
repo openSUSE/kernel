@@ -59,6 +59,7 @@ struct regmap {
 			unsigned long raw_spinlock_flags;
 		};
 	};
+	struct lock_class_key *lock_key;
 	regmap_lock lock;
 	regmap_unlock unlock;
 	void *lock_arg; /* This is passed to lock/unlock functions */
@@ -178,6 +179,8 @@ struct regmap {
 
 	/* if set, the regmap core can sleep */
 	bool can_sleep;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct regcache_ops {

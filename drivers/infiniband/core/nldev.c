@@ -254,7 +254,7 @@ EXPORT_SYMBOL(rdma_nl_put_driver_u64_hex);
 
 bool rdma_nl_get_privileged_qkey(void)
 {
-	return privileged_qkey || capable(CAP_NET_RAW);
+	return privileged_qkey;
 }
 EXPORT_SYMBOL(rdma_nl_get_privileged_qkey);
 
@@ -1468,10 +1468,11 @@ static const struct nldev_fill_res_entry fill_entries[RDMA_RESTRACK_MAX] = {
 
 };
 
-static int res_get_common_doit(struct sk_buff *skb, struct nlmsghdr *nlh,
-			       struct netlink_ext_ack *extack,
-			       enum rdma_restrack_type res_type,
-			       res_fill_func_t fill_func)
+static noinline_for_stack int
+res_get_common_doit(struct sk_buff *skb, struct nlmsghdr *nlh,
+		    struct netlink_ext_ack *extack,
+		    enum rdma_restrack_type res_type,
+		    res_fill_func_t fill_func)
 {
 	const struct nldev_fill_res_entry *fe = &fill_entries[res_type];
 	struct nlattr *tb[RDMA_NLDEV_ATTR_MAX];
@@ -2256,10 +2257,10 @@ err:
 	return ret;
 }
 
-static int stat_get_doit_default_counter(struct sk_buff *skb,
-					 struct nlmsghdr *nlh,
-					 struct netlink_ext_ack *extack,
-					 struct nlattr *tb[])
+static noinline_for_stack int
+stat_get_doit_default_counter(struct sk_buff *skb, struct nlmsghdr *nlh,
+			      struct netlink_ext_ack *extack,
+			      struct nlattr *tb[])
 {
 	struct rdma_hw_stats *stats;
 	struct nlattr *table_attr;
@@ -2349,8 +2350,9 @@ err:
 	return ret;
 }
 
-static int stat_get_doit_qp(struct sk_buff *skb, struct nlmsghdr *nlh,
-			    struct netlink_ext_ack *extack, struct nlattr *tb[])
+static noinline_for_stack int
+stat_get_doit_qp(struct sk_buff *skb, struct nlmsghdr *nlh,
+		 struct netlink_ext_ack *extack, struct nlattr *tb[])
 
 {
 	static enum rdma_nl_counter_mode mode;
@@ -2729,6 +2731,25 @@ static const struct rdma_nl_cbs nldev_cb_table[RDMA_NLDEV_NUM_OPS] = {
 	},
 };
 
+static int fill_mon_netdev_rename(struct sk_buff *msg,
+				  struct ib_device *device, u32 port,
+				  const struct net *net)
+{
+	struct net_device *netdev = ib_device_get_netdev(device, port);
+	int ret = 0;
+
+	if (!netdev || !net_eq(dev_net(netdev), net))
+		goto out;
+
+	ret = nla_put_u32(msg, RDMA_NLDEV_ATTR_NDEV_INDEX, netdev->ifindex);
+	if (ret)
+		goto out;
+	ret = nla_put_string(msg, RDMA_NLDEV_ATTR_NDEV_NAME, netdev->name);
+out:
+	dev_put(netdev);
+	return ret;
+}
+
 static int fill_mon_netdev_association(struct sk_buff *msg,
 				       struct ib_device *device, u32 port,
 				       const struct net *net)
@@ -2793,6 +2814,18 @@ static void rdma_nl_notify_err_msg(struct ib_device *device, u32 port_num,
 				     "Failed to send RDMA monitor netdev detach event: port %d\n",
 				     port_num);
 		break;
+	case RDMA_RENAME_EVENT:
+		dev_warn_ratelimited(&device->dev,
+				     "Failed to send RDMA monitor rename device event\n");
+		break;
+
+	case RDMA_NETDEV_RENAME_EVENT:
+		netdev = ib_device_get_netdev(device, port_num);
+		dev_warn_ratelimited(&device->dev,
+				     "Failed to send RDMA monitor netdev rename event: port %d netdev %d\n",
+				     port_num, netdev->ifindex);
+		dev_put(netdev);
+		break;
 	default:
 		break;
 	}
@@ -2802,8 +2835,8 @@ int rdma_nl_notify_event(struct ib_device *device, u32 port_num,
 			  enum rdma_nl_notify_event_type type)
 {
 	struct sk_buff *skb;
+	int ret = -EMSGSIZE;
 	struct net *net;
-	int ret = 0;
 	void *nlh;
 
 	net = read_pnet(&device->coredev.rdma_net);
@@ -2822,14 +2855,19 @@ int rdma_nl_notify_event(struct ib_device *device, u32 port_num,
 	switch (type) {
 	case RDMA_REGISTER_EVENT:
 	case RDMA_UNREGISTER_EVENT:
+	case RDMA_RENAME_EVENT:
 		ret = fill_nldev_handle(skb, device);
 		if (ret)
 			goto err_free;
 		break;
 	case RDMA_NETDEV_ATTACH_EVENT:
 	case RDMA_NETDEV_DETACH_EVENT:
-		ret = fill_mon_netdev_association(skb, device,
-						  port_num, net);
+		ret = fill_mon_netdev_association(skb, device, port_num, net);
+		if (ret)
+			goto err_free;
+		break;
+	case RDMA_NETDEV_RENAME_EVENT:
+		ret = fill_mon_netdev_rename(skb, device, port_num, net);
 		if (ret)
 			goto err_free;
 		break;

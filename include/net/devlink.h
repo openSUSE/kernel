@@ -35,7 +35,7 @@ struct devlink_port_phys_attrs {
 /**
  * struct devlink_port_pci_pf_attrs - devlink port's PCI PF attributes
  * @controller: Associated controller number
- * @pf: Associated PCI PF number for this port.
+ * @pf: associated PCI function number for the devlink port instance
  * @external: when set, indicates if a port is for an external controller
  */
 struct devlink_port_pci_pf_attrs {
@@ -47,8 +47,9 @@ struct devlink_port_pci_pf_attrs {
 /**
  * struct devlink_port_pci_vf_attrs - devlink port's PCI VF attributes
  * @controller: Associated controller number
- * @pf: Associated PCI PF number for this port.
- * @vf: Associated PCI VF for of the PCI PF for this port.
+ * @pf: associated PCI function number for the devlink port instance
+ * @vf: associated PCI VF number of a PF for the devlink port instance;
+ *	VF number starts from 0 for the first PCI virtual function
  * @external: when set, indicates if a port is for an external controller
  */
 struct devlink_port_pci_vf_attrs {
@@ -61,8 +62,8 @@ struct devlink_port_pci_vf_attrs {
 /**
  * struct devlink_port_pci_sf_attrs - devlink port's PCI SF attributes
  * @controller: Associated controller number
- * @sf: Associated PCI SF for of the PCI PF for this port.
- * @pf: Associated PCI PF number for this port.
+ * @sf: associated SF number of a PF for the devlink port instance
+ * @pf: associated PCI function number for the devlink port instance
  * @external: when set, indicates if a port is for an external controller
  */
 struct devlink_port_pci_sf_attrs {
@@ -77,16 +78,27 @@ struct devlink_port_pci_sf_attrs {
  * @flavour: flavour of the port
  * @split: indicates if this is split port
  * @splittable: indicates if the port can be split.
+ * @no_phys_port_name: skip automatic phys_port_name generation; for
+ *		       compatibility only, newly added driver/port instance
+ *		       should never set this.
  * @lanes: maximum number of lanes the port supports. 0 value is not passed to netlink.
  * @switch_id: if the port is part of switch, this is buffer with ID, otherwise this is NULL
  * @phys: physical port attributes
  * @pci_pf: PCI PF port attributes
  * @pci_vf: PCI VF port attributes
  * @pci_sf: PCI SF port attributes
+ * @no_phys_port_name: skip automatic phys_port_name generation; for
+ *                     compatibility only, newly added driver/port instance
+ *                     should never set this.
  */
 struct devlink_port_attrs {
 	u8 split:1,
+#ifdef __GENKSYMS__
 	   splittable:1;
+#else
+	   splittable:1,
+	   no_phys_port_name:1;
+#endif
 	u32 lanes;
 	enum devlink_port_flavour flavour;
 	struct netdev_phys_item_id switch_id;
@@ -424,12 +436,18 @@ enum devlink_param_type {
 	DEVLINK_PARAM_TYPE_U32,
 	DEVLINK_PARAM_TYPE_STRING,
 	DEVLINK_PARAM_TYPE_BOOL,
+#ifndef __GENKSYMS__
+	DEVLINK_PARAM_TYPE_U64
+#endif
 };
 
 union devlink_param_value {
 	u8 vu8;
 	u16 vu16;
 	u32 vu32;
+#ifndef __GENKSYMS__
+	u64 vu64;
+#endif
 	char vstr[__DEVLINK_PARAM_MAX_STRING_VALUE];
 	bool vbool;
 };
@@ -1261,6 +1279,18 @@ enum devlink_trap_group_generic_id {
 		.min_burst = _min_burst,				      \
 	}
 
+#define devlink_fmsg_put(fmsg, name, value) (			\
+	_Generic((value),					\
+		bool :		devlink_fmsg_bool_pair_put,	\
+		u8 :		devlink_fmsg_u8_pair_put,	\
+		u16 :		devlink_fmsg_u32_pair_put,	\
+		u32 :		devlink_fmsg_u32_pair_put,	\
+		u64 :		devlink_fmsg_u64_pair_put,	\
+		int :		devlink_fmsg_u32_pair_put,	\
+		char * :	devlink_fmsg_string_pair_put,	\
+		const char * :	devlink_fmsg_string_pair_put)	\
+	(fmsg, name, (value)))
+
 enum {
 	/* device supports reload operations */
 	DEVLINK_F_RELOAD = 1UL << 0,
@@ -1522,6 +1552,7 @@ int devl_trylock(struct devlink *devlink);
 void devl_unlock(struct devlink *devlink);
 void devl_assert_locked(struct devlink *devlink);
 bool devl_lock_is_held(struct devlink *devlink);
+DEFINE_GUARD(devl, struct devlink *, devl_lock(_T), devl_unlock(_T));
 
 struct ib_device;
 
@@ -2007,6 +2038,7 @@ int devlink_compat_switch_id_get(struct net_device *dev,
 
 int devlink_nl_port_handle_fill(struct sk_buff *msg, struct devlink_port *devlink_port);
 size_t devlink_nl_port_handle_size(struct devlink_port *devlink_port);
+void devlink_fmsg_dump_skb(struct devlink_fmsg *fmsg, const struct sk_buff *skb);
 
 #else
 

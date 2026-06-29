@@ -90,7 +90,7 @@ static ssize_t published_show(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR_RO(published);
 
 static int p2pmem_alloc_mmap(struct file *filp, struct kobject *kobj,
-		struct bin_attribute *attr, struct vm_area_struct *vma)
+		const struct bin_attribute *attr, struct vm_area_struct *vma)
 {
 	struct pci_dev *pdev = to_pci_dev(kobj_to_dev(kobj));
 	size_t len = vma->vm_end - vma->vm_start;
@@ -143,6 +143,7 @@ static int p2pmem_alloc_mmap(struct file *filp, struct kobject *kobj,
 		ret = vm_insert_page(vma, vaddr, virt_to_page(kaddr));
 		if (ret) {
 			gen_pool_free(p2pdma->pool, (uintptr_t)kaddr, len);
+			percpu_ref_put(ref);
 			return ret;
 		}
 		percpu_ref_get(ref);
@@ -351,7 +352,7 @@ int pci_p2pdma_add_resource(struct pci_dev *pdev, int bar, size_t size,
 pages_free:
 	devm_memunmap_pages(&pdev->dev, pgmap);
 pgmap_free:
-	devm_kfree(&pdev->dev, pgmap);
+	devm_kfree(&pdev->dev, p2p_pgmap);
 	return error;
 }
 EXPORT_SYMBOL_GPL(pci_p2pdma_add_resource);

@@ -191,3 +191,7 @@ void unxlate_dev_mem_ptr(phys_addr_t addr, void *ptr)
 	if (addr != virt_to_phys(ptr))
 		free_page((unsigned long)ptr);
 }
+
+/* crash-kmp uses these */
+EXPORT_SYMBOL_GPL(xlate_dev_mem_ptr);
+EXPORT_SYMBOL_GPL(unxlate_dev_mem_ptr);

@@ -182,6 +182,8 @@ struct sas_function_template {
 	int (*set_phy_speed)(struct sas_phy *, struct sas_phy_linkrates *);
 	void (*smp_handler)(struct bsg_job *, struct Scsi_Host *,
 			struct sas_rphy *);
+
+	void *suse_kabi_padding;
 };
 
 

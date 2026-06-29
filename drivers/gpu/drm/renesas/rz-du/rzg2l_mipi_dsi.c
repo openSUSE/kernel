@@ -238,7 +238,7 @@ static int rzg2l_mipi_dsi_dphy_init(struct rzg2l_mipi_dsi *dsi,
 	if (ret < 0)
 		return ret;
 
-	udelay(1);
+	fsleep(1000);
 
 	return 0;
 }
@@ -584,6 +584,9 @@ rzg2l_mipi_dsi_bridge_mode_valid(struct drm_bridge *bridge,
 {
 	if (mode->clock > 148500)
 		return MODE_CLOCK_HIGH;
+
+	if (mode->clock < 5803)
+		return MODE_CLOCK_LOW;
 
 	return MODE_OK;
 }

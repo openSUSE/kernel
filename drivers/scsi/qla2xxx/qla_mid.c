@@ -506,6 +506,7 @@ qla24xx_create_vhost(struct fc_vport *fc_vport)
 		return(NULL);
 	}
 
+	vha->irq_offset = QLA_BASE_VECTORS;
 	host = vha->host;
 	fc_vport->dd_data = vha;
 	/* New host info */
@@ -898,9 +899,7 @@ qla25xx_create_rsp_que(struct qla_hw_data *ha, uint16_t options,
 	    rsp->options, rsp->id, rsp->rsp_q_in,
 	    rsp->rsp_q_out);
 
-	ret = qla25xx_request_irq(ha, qpair, qpair->msix,
-		ha->flags.disable_msix_handshake ?
-		QLA_MSIX_QPAIR_MULTIQ_RSP_Q : QLA_MSIX_QPAIR_MULTIQ_RSP_Q_HS);
+	ret = qla25xx_request_irq(ha, qpair, qpair->msix);
 	if (ret)
 		goto que_failed;
 

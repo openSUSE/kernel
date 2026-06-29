@@ -93,6 +93,8 @@ static struct attribute *video_device_attrs[] = {
 };
 ATTRIBUTE_GROUPS(video_device);
 
+static struct dentry *v4l2_debugfs_root_dir;
+
 /*
  *	Active devices
  */
@@ -1052,24 +1054,24 @@ int __video_register_device(struct video_device *vdev,
 	vdev->dev.class = &video_class;
 	vdev->dev.devt = MKDEV(VIDEO_MAJOR, vdev->minor);
 	vdev->dev.parent = vdev->dev_parent;
+	vdev->dev.release = v4l2_device_release;
 	dev_set_name(&vdev->dev, "%s%d", name_base, vdev->num);
+
+	/* Increase v4l2_device refcount */
+	v4l2_device_get(vdev->v4l2_dev);
+
 	mutex_lock(&videodev_lock);
 	ret = device_register(&vdev->dev);
 	if (ret < 0) {
 		mutex_unlock(&videodev_lock);
 		pr_err("%s: device_register failed\n", __func__);
-		goto cleanup;
+		put_device(&vdev->dev);
+		return ret;
 	}
-	/* Register the release callback that will be called when the last
-	   reference to the device goes away. */
-	vdev->dev.release = v4l2_device_release;
 
 	if (nr != -1 && nr != vdev->num && warn_if_nr_in_use)
 		pr_warn("%s: requested %s%d, got %s\n", __func__,
 			name_base, nr, video_device_node_name(vdev));
-
-	/* Increase v4l2_device refcount */
-	v4l2_device_get(vdev->v4l2_dev);
 
 	/* Part 5: Register the entity. */
 	ret = video_register_media_controller(vdev);
@@ -1117,6 +1119,16 @@ void video_unregister_device(struct video_device *vdev)
 	device_unregister(&vdev->dev);
 }
 EXPORT_SYMBOL(video_unregister_device);
+
+#ifdef CONFIG_DEBUG_FS
+struct dentry *v4l2_debugfs_root(void)
+{
+	if (!v4l2_debugfs_root_dir)
+		v4l2_debugfs_root_dir = debugfs_create_dir("v4l2", NULL);
+	return v4l2_debugfs_root_dir;
+}
+EXPORT_SYMBOL_GPL(v4l2_debugfs_root);
+#endif
 
 #if defined(CONFIG_MEDIA_CONTROLLER)
 
@@ -1222,6 +1234,8 @@ static void __exit videodev_exit(void)
 
 	class_unregister(&video_class);
 	unregister_chrdev_region(dev, VIDEO_NUM_DEVICES);
+	debugfs_remove_recursive(v4l2_debugfs_root_dir);
+	v4l2_debugfs_root_dir = NULL;
 }
 
 subsys_initcall(videodev_init);

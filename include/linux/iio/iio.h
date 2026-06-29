@@ -625,6 +625,7 @@ struct iio_dev {
 	const struct iio_buffer_setup_ops	*setup_ops;
 
 	void				*priv;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 int iio_device_id(struct iio_dev *indio_dev);

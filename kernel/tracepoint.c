@@ -173,7 +173,7 @@ static void debug_print_probes(struct tracepoint_func *funcs)
 		return;
 
 	for (i = 0; funcs[i].func; i++)
-		printk(KERN_DEBUG "Probe %d : %p\n", i, funcs[i].func);
+		printk(KERN_DEBUG "Probe %d : %pSb\n", i, funcs[i].func);
 }
 
 static struct tracepoint_func *
@@ -572,6 +572,9 @@ bool trace_module_has_bad_taint(struct module *mod)
 {
 	return mod->taints & ~((1 << TAINT_OOT_MODULE) | (1 << TAINT_CRAP) |
 				(1 << TAINT_UNSIGNED_MODULE) | (1 << TAINT_TEST) |
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+			        (1 << TAINT_EXTERNAL_SUPPORT) | (1 << TAINT_NO_SUPPORT) |
+#endif
 				(1 << TAINT_LIVEPATCH));
 }
 

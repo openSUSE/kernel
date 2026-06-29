@@ -101,7 +101,7 @@ static void pm8001_map_queues(struct Scsi_Host *shost)
 	struct blk_mq_queue_map *qmap = &shost->tag_set.map[HCTX_TYPE_DEFAULT];
 
 	if (pm8001_ha->number_of_intr > 1) {
-		blk_mq_pci_map_queues(qmap, pm8001_ha->pdev, 1);
+		blk_mq_map_hw_queues(qmap, &pm8001_ha->pdev->dev, 1);
 		return;
 	}
 
@@ -1433,7 +1433,7 @@ err_out_disable:
 /* update of pci device, vendor id and driver data with
  * unique value for each of the controller
  */
-static struct pci_device_id pm8001_pci_table[] = {
+static const struct pci_device_id pm8001_pci_table[] = {
 	{ PCI_VDEVICE(PMC_Sierra, 0x8001), chip_8001 },
 	{ PCI_VDEVICE(PMC_Sierra, 0x8006), chip_8006 },
 	{ PCI_VDEVICE(ADAPTEC2, 0x8006), chip_8006 },

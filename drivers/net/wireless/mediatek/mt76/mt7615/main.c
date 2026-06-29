@@ -584,9 +584,6 @@ static void mt7615_bss_info_changed(struct ieee80211_hw *hw,
 		}
 	}
 
-	if (changed & BSS_CHANGED_ERP_CTS_PROT)
-		mt7615_mac_enable_rtscts(dev, vif, info->use_cts_prot);
-
 	if (changed & BSS_CHANGED_BEACON_ENABLED && info->enable_beacon) {
 		mt7615_mcu_add_bss_info(phy, vif, NULL, true);
 		mt7615_mcu_sta_add(phy, vif, NULL, true);
@@ -598,6 +595,10 @@ static void mt7615_bss_info_changed(struct ieee80211_hw *hw,
 	if (changed & (BSS_CHANGED_BEACON |
 		       BSS_CHANGED_BEACON_ENABLED))
 		mt7615_mcu_add_beacon(dev, hw, vif, info->enable_beacon);
+
+	if (changed & BSS_CHANGED_HT || changed & BSS_CHANGED_ERP_CTS_PROT)
+		mt7615_mcu_set_protection(phy, vif, info->ht_operation_mode,
+					  info->use_cts_prot);
 
 	if (changed & BSS_CHANGED_PS)
 		mt76_connac_mcu_set_vif_ps(&dev->mt76, vif);
@@ -1249,7 +1250,7 @@ static int mt7615_suspend(struct ieee80211_hw *hw,
 					    phy->mt76);
 
 	if (!mt7615_dev_running(dev))
-		err = mt76_connac_mcu_set_hif_suspend(&dev->mt76, true);
+		err = mt76_connac_mcu_set_hif_suspend(&dev->mt76, true, true);
 
 	mt7615_mutex_release(dev);
 
@@ -1271,7 +1272,7 @@ static int mt7615_resume(struct ieee80211_hw *hw)
 	if (!running) {
 		int err;
 
-		err = mt76_connac_mcu_set_hif_suspend(&dev->mt76, false);
+		err = mt76_connac_mcu_set_hif_suspend(&dev->mt76, false, true);
 		if (err < 0) {
 			mt7615_mutex_release(dev);
 			return err;

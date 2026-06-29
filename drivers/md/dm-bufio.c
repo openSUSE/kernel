@@ -68,6 +68,8 @@
 #define LIST_DIRTY	1
 #define LIST_SIZE	2
 
+#define SCAN_RESCHED_CYCLE	16
+
 /*--------------------------------------------------------------*/
 
 /*
@@ -318,9 +320,10 @@ static struct lru_entry *lru_evict(struct lru *lru, le_predicate pred, void *con
  */
 enum data_mode {
 	DATA_MODE_SLAB = 0,
-	DATA_MODE_GET_FREE_PAGES = 1,
-	DATA_MODE_VMALLOC = 2,
-	DATA_MODE_LIMIT = 3
+	DATA_MODE_KMALLOC = 1,
+	DATA_MODE_GET_FREE_PAGES = 2,
+	DATA_MODE_VMALLOC = 3,
+	DATA_MODE_LIMIT = 4
 };
 
 struct dm_buffer {
@@ -1062,6 +1065,7 @@ static unsigned long dm_bufio_retain_bytes = DM_BUFIO_DEFAULT_RETAIN_BYTES;
 
 static unsigned long dm_bufio_peak_allocated;
 static unsigned long dm_bufio_allocated_kmem_cache;
+static unsigned long dm_bufio_allocated_kmalloc;
 static unsigned long dm_bufio_allocated_get_free_pages;
 static unsigned long dm_bufio_allocated_vmalloc;
 static unsigned long dm_bufio_current_allocated;
@@ -1104,6 +1108,7 @@ static void adjust_total_allocated(struct dm_buffer *b, bool unlink)
 
 	static unsigned long * const class_ptr[DATA_MODE_LIMIT] = {
 		&dm_bufio_allocated_kmem_cache,
+		&dm_bufio_allocated_kmalloc,
 		&dm_bufio_allocated_get_free_pages,
 		&dm_bufio_allocated_vmalloc,
 	};
@@ -1181,6 +1186,11 @@ static void *alloc_buffer_data(struct dm_bufio_client *c, gfp_t gfp_mask,
 		return kmem_cache_alloc(c->slab_cache, gfp_mask);
 	}
 
+	if (unlikely(c->block_size < PAGE_SIZE)) {
+		*data_mode = DATA_MODE_KMALLOC;
+		return kmalloc(c->block_size, gfp_mask | __GFP_RECLAIMABLE);
+	}
+
 	if (c->block_size <= KMALLOC_MAX_SIZE &&
 	    gfp_mask & __GFP_NORETRY) {
 		*data_mode = DATA_MODE_GET_FREE_PAGES;
@@ -1202,6 +1212,10 @@ static void free_buffer_data(struct dm_bufio_client *c,
 	switch (data_mode) {
 	case DATA_MODE_SLAB:
 		kmem_cache_free(c->slab_cache, data);
+		break;
+
+	case DATA_MODE_KMALLOC:
+		kfree(data);
 		break;
 
 	case DATA_MODE_GET_FREE_PAGES:
@@ -1373,7 +1387,7 @@ static void submit_io(struct dm_buffer *b, enum req_op op, unsigned short ioprio
 {
 	unsigned int n_sectors;
 	sector_t sector;
-	unsigned int offset, end;
+	unsigned int offset, end, align;
 
 	b->end_io = end_io;
 
@@ -1387,9 +1401,11 @@ static void submit_io(struct dm_buffer *b, enum req_op op, unsigned short ioprio
 			b->c->write_callback(b);
 		offset = b->write_start;
 		end = b->write_end;
-		offset &= -DM_BUFIO_WRITE_ALIGN;
-		end += DM_BUFIO_WRITE_ALIGN - 1;
-		end &= -DM_BUFIO_WRITE_ALIGN;
+		align = max(DM_BUFIO_WRITE_ALIGN,
+			bdev_physical_block_size(b->c->bdev));
+		offset &= -align;
+		end += align - 1;
+		end &= -align;
 		if (unlikely(end > b->c->block_size))
 			end = b->c->block_size;
 
@@ -2414,7 +2430,12 @@ static void __scan(struct dm_bufio_client *c)
 
 			atomic_long_dec(&c->need_shrink);
 			freed++;
-			cond_resched();
+
+			if (unlikely(freed % SCAN_RESCHED_CYCLE == 0)) {
+				dm_bufio_unlock(c);
+				cond_resched();
+				dm_bufio_lock(c);
+			}
 		}
 	}
 }
@@ -2519,8 +2540,7 @@ struct dm_bufio_client *dm_bufio_client_create(struct block_device *bdev, unsign
 		goto bad_dm_io;
 	}
 
-	if (block_size <= KMALLOC_MAX_SIZE &&
-	    (block_size < PAGE_SIZE || !is_power_of_2(block_size))) {
+	if (block_size <= KMALLOC_MAX_SIZE && !is_power_of_2(block_size)) {
 		unsigned int align = min(1U << __ffs(block_size), (unsigned int)PAGE_SIZE);
 
 		snprintf(slab_name, sizeof(slab_name), "dm_bufio_cache-%u-%u",
@@ -2734,7 +2754,11 @@ static unsigned long __evict_many(struct dm_bufio_client *c,
 		__make_buffer_clean(b);
 		__free_buffer_wake(b);
 
-		cond_resched();
+		if (need_resched()) {
+			dm_bufio_unlock(c);
+			cond_resched();
+			dm_bufio_lock(c);
+		}
 	}
 
 	return count;
@@ -2902,6 +2926,7 @@ static int __init dm_bufio_init(void)
 	__u64 mem;
 
 	dm_bufio_allocated_kmem_cache = 0;
+	dm_bufio_allocated_kmalloc = 0;
 	dm_bufio_allocated_get_free_pages = 0;
 	dm_bufio_allocated_vmalloc = 0;
 	dm_bufio_current_allocated = 0;
@@ -2989,6 +3014,9 @@ MODULE_PARM_DESC(peak_allocated_bytes, "Tracks the maximum allocated memory");
 
 module_param_named(allocated_kmem_cache_bytes, dm_bufio_allocated_kmem_cache, ulong, 0444);
 MODULE_PARM_DESC(allocated_kmem_cache_bytes, "Memory allocated with kmem_cache_alloc");
+
+module_param_named(allocated_kmalloc_bytes, dm_bufio_allocated_kmalloc, ulong, 0444);
+MODULE_PARM_DESC(allocated_kmalloc_bytes, "Memory allocated with kmalloc_alloc");
 
 module_param_named(allocated_get_free_pages_bytes, dm_bufio_allocated_get_free_pages, ulong, 0444);
 MODULE_PARM_DESC(allocated_get_free_pages_bytes, "Memory allocated with get_free_pages");
