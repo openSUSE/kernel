@@ -1477,6 +1477,12 @@ int mana_query_link_cfg(struct mana_port_context *apc)
 	struct mana_query_link_config_req req = {};
 	int err;
 
+	netdev_assert_locked(ndev);
+
+	err = apc->link_cfg_error;
+	if (err <= 0)
+		return err;
+
 	mana_gd_init_req_hdr(&req.hdr, MANA_QUERY_LINK_CONFIG,
 			     sizeof(req), sizeof(resp));
 
@@ -1489,6 +1495,7 @@ int mana_query_link_cfg(struct mana_port_context *apc)
 	if (err) {
 		if (err == -EOPNOTSUPP) {
 			netdev_info_once(ndev, "MANA_QUERY_LINK_CONFIG not supported\n");
+			apc->link_cfg_error = err;
 			return err;
 		}
 		netdev_err(ndev, "Failed to query link config: %d\n", err);
@@ -1506,12 +1513,12 @@ int mana_query_link_cfg(struct mana_port_context *apc)
 		return err;
 	}
 
-	if (resp.qos_unconfigured) {
-		err = -EINVAL;
-		return err;
-	}
+	if (resp.qos_unconfigured)
+		return -EINVAL;
+
 	apc->speed = resp.link_speed_mbps;
 	apc->max_speed = resp.qos_speed_mbps;
+	apc->link_cfg_error = 0;
 	return 0;
 }
 
@@ -1522,6 +1529,8 @@ int mana_set_bw_clamp(struct mana_port_context *apc, u32 speed,
 	struct mana_set_bw_clamp_req req = {};
 	struct net_device *ndev = apc->ndev;
 	int err;
+
+	netdev_assert_locked(ndev);
 
 	mana_gd_init_req_hdr(&req.hdr, MANA_SET_BW_CLAMP,
 			     sizeof(req), sizeof(resp));
@@ -1556,6 +1565,8 @@ int mana_set_bw_clamp(struct mana_port_context *apc, u32 speed,
 	if (resp.qos_unconfigured)
 		netdev_info(ndev, "QoS is unconfigured\n");
 
+	/* Invalidate the cache; next query will re-fetch from firmware. */
+	apc->link_cfg_error = 1;
 	return 0;
 }
 
@@ -3535,6 +3546,7 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 	apc->port_handle = INVALID_MANA_HANDLE;
 	apc->pf_filter_handle = INVALID_MANA_HANDLE;
 	apc->port_idx = port_idx;
+	apc->link_cfg_error = 1;
 	apc->cqe_coalescing_enable = 0;
 
 	mutex_init(&apc->vport_mutex);
@@ -3851,6 +3863,9 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 			rtnl_lock();
 			apc = netdev_priv(ac->ports[i]);
 			enable_work(&apc->queue_reset_work);
+			netdev_lock(ac->ports[i]);
+			apc->link_cfg_error = 1;
+			netdev_unlock(ac->ports[i]);
 			err = mana_attach(ac->ports[i]);
 			rtnl_unlock();
 			/* Log the port for which the attach failed, stop
