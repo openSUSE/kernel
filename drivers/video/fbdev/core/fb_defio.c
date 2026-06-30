@@ -392,7 +392,7 @@ static void fb_deferred_io_work(struct work_struct *work)
 	struct fb_deferred_io *fbdefio = info->fbdefio;
 	struct fb_deferred_io_state *fbdefio_state = rd_fbdefio_state(fbdefio);
 
-	/* here we wrprotect the page's mappings, then do all deferred IO. */
+	/* here we mkclean the pages, then do all deferred IO */
 	mutex_lock(&fbdefio_state->lock);
 
 	list_for_each_entry(pageref, &fbdefio->pagereflist, list) {
