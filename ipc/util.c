@@ -243,7 +243,7 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int size)
 	new->gid = new->cgid = egid;
 
 	id = idr_alloc(&ids->ipcs_idr, new,
-		       (next_id < 0) ? 0 : ipcid_to_idx(next_id), 0,
+		       (next_id < 0) ? 0 : ipcid_to_idx(next_id), IPCMNI,
 		       GFP_NOWAIT);
 	idr_preload_end();
 	if (id < 0) {
