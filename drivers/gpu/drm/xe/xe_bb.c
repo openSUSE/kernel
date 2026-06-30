@@ -19,7 +19,7 @@ static int bb_prefetch(struct xe_gt *gt)
 {
 	struct xe_device *xe = gt_to_xe(gt);
 
-	if (GRAPHICS_VERx100(xe) >= 1250 && !xe_gt_is_media_type(gt))
+	if (GRAPHICS_VERx100(xe) >= 1250 && xe_gt_is_main_type(gt))
 		/*
 		 * RCS and CCS require 1K, although other engines would be
 		 * okay with 512.
@@ -41,7 +41,7 @@ struct xe_bb *xe_bb_new(struct xe_gt *gt, u32 dwords, bool usm)
 	/*
 	 * We need to allocate space for the requested number of dwords,
 	 * one additional MI_BATCH_BUFFER_END dword, and additional buffer
-	 * space to accomodate the platform-specific hardware prefetch
+	 * space to accommodate the platform-specific hardware prefetch
 	 * requirements.
 	 */
 	bb->bo = xe_sa_bo_new(!usm ? tile->mem.kernel_bb_pool : gt->usm.bb_pool,

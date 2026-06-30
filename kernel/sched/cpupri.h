@@ -1,4 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#include <linux/atomic.h>
+#include <linux/cpumask.h>
+#include <linux/sched/rt.h>
 
 #define CPUPRI_NR_PRIORITIES	(MAX_RT_PRIO+1)
 
@@ -26,4 +29,4 @@ int  cpupri_find_fitness(struct cpupri *cp, struct task_struct *p,
 void cpupri_set(struct cpupri *cp, int cpu, int pri);
 int  cpupri_init(struct cpupri *cp);
 void cpupri_cleanup(struct cpupri *cp);
-#endif
+#endif /* CONFIG_SMP */

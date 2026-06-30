@@ -50,11 +50,12 @@
 #include "link.h"
 
 #include "logger_types.h"
+
+
+#include "yellow_carp_offset.h"
 #undef DC_LOGGER
 #define DC_LOGGER \
 	clk_mgr->base.base.ctx->logger
-
-#include "yellow_carp_offset.h"
 
 #define regCLK1_CLK_PLL_REQ			0x0237
 #define regCLK1_CLK_PLL_REQ_BASE_IDX		0
@@ -724,11 +725,12 @@ void dcn31_clk_mgr_construct(
 	/* TODO: Check we get what we expect during bringup */
 	clk_mgr->base.base.dentist_vco_freq_khz = get_vco_frequency_from_reg(&clk_mgr->base);
 
-	if (ctx->dc_bios->integrated_info->memory_type == LpDdr5MemType) {
+	if (ctx->dc_bios->integrated_info &&
+	    ctx->dc_bios->integrated_info->memory_type == LpDdr5MemType)
 		dcn31_bw_params.wm_table = lpddr5_wm_table;
-	} else {
+	else
 		dcn31_bw_params.wm_table = ddr5_wm_table;
-	}
+
 	/* Saved clocks configured at boot for debug purposes */
 	dcn31_dump_clk_registers(&clk_mgr->base.base.boot_snapshot,
 				 &clk_mgr->base.base, &log_info);

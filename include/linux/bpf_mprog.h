@@ -148,6 +148,7 @@ struct bpf_mprog_bundle {
 	struct bpf_prog *ref;
 	atomic64_t revision;
 	u32 count;
+	void *suse_kabi_padding;
 };
 
 struct bpf_tuple {
@@ -336,6 +337,16 @@ static inline bool bpf_mprog_supported(enum bpf_prog_type type)
 	switch (type) {
 	case BPF_PROG_TYPE_SCHED_CLS:
 		return true;
+	default:
+		return false;
+	}
+}
+
+static inline bool bpf_mprog_detach_empty(enum bpf_prog_type type)
+{
+	switch (type) {
+	case BPF_PROG_TYPE_SCHED_CLS:
+		return bpf_net_capable();
 	default:
 		return false;
 	}

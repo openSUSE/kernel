@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/pm_runtime.h>
 #include <linux/reset.h>
 #include <sound/soc.h>
@@ -563,7 +564,7 @@ static struct snd_soc_dai_driver mt8186_memif_dai_driver[] = {
 static int mt8186_irq_cnt1_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
 	struct mt8186_afe_private *afe_priv = afe->platform_priv;
 
@@ -576,7 +577,7 @@ static int mt8186_irq_cnt1_get(struct snd_kcontrol *kcontrol,
 static int mt8186_irq_cnt1_set(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
 	struct mt8186_afe_private *afe_priv = afe->platform_priv;
 	int memif_num = MT8186_PRIMARY_MEMIF;
@@ -612,7 +613,7 @@ static int mt8186_irq_cnt1_set(struct snd_kcontrol *kcontrol,
 static int mt8186_irq_cnt2_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
 	struct mt8186_afe_private *afe_priv = afe->platform_priv;
 
@@ -625,7 +626,7 @@ static int mt8186_irq_cnt2_get(struct snd_kcontrol *kcontrol,
 static int mt8186_irq_cnt2_set(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
 	struct mt8186_afe_private *afe_priv = afe->platform_priv;
 	int memif_num = MT8186_RECORD_MEMIF;
@@ -661,7 +662,7 @@ static int mt8186_irq_cnt2_set(struct snd_kcontrol *kcontrol,
 static int mt8186_record_xrun_assert_get(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
 	struct mt8186_afe_private *afe_priv = afe->platform_priv;
 	int xrun_assert = afe_priv->xrun_assert[MT8186_RECORD_MEMIF];
@@ -674,7 +675,7 @@ static int mt8186_record_xrun_assert_get(struct snd_kcontrol *kcontrol,
 static int mt8186_record_xrun_assert_set(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
 	struct mt8186_afe_private *afe_priv = afe->platform_priv;
 	int xrun_assert = ucontrol->value.integer.value[0];
@@ -2835,6 +2836,12 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
 	afe_priv = afe->platform_priv;
 	afe->dev = &pdev->dev;
 
+	ret = of_reserved_mem_device_init(dev);
+	if (ret) {
+		dev_info(dev, "no reserved memory found, pre-allocating buffers instead\n");
+		afe->preallocate_buffers = true;
+	}
+
 	afe->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(afe->base_addr))
 		return PTR_ERR(afe->base_addr);
@@ -2978,15 +2985,15 @@ static const struct of_device_id mt8186_afe_pcm_dt_match[] = {
 MODULE_DEVICE_TABLE(of, mt8186_afe_pcm_dt_match);
 
 static const struct dev_pm_ops mt8186_afe_pm_ops = {
-	SET_RUNTIME_PM_OPS(mt8186_afe_runtime_suspend,
-			   mt8186_afe_runtime_resume, NULL)
+	RUNTIME_PM_OPS(mt8186_afe_runtime_suspend,
+		       mt8186_afe_runtime_resume, NULL)
 };
 
 static struct platform_driver mt8186_afe_pcm_driver = {
 	.driver = {
 		   .name = "mt8186-audio",
 		   .of_match_table = mt8186_afe_pcm_dt_match,
-		   .pm = &mt8186_afe_pm_ops,
+		   .pm = pm_ptr(&mt8186_afe_pm_ops),
 	},
 	.probe = mt8186_afe_pcm_dev_probe,
 };

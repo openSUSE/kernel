@@ -1361,16 +1361,6 @@ void sc_flush(struct send_context *sc)
 	sc_wait_for_packet_egress(sc, 1);
 }
 
-/* drop all packets on the context, no waiting until they are sent */
-void sc_drop(struct send_context *sc)
-{
-	if (!sc)
-		return;
-
-	dd_dev_info(sc->dd, "%s: context %u(%u) - not implemented\n",
-		    __func__, sc->sw_index, sc->hw_context);
-}
-
 /*
  * Start the software reaction to a context halt or SPC freeze:
  *	- mark the context as halted or frozen
@@ -1956,13 +1946,16 @@ bail:
 
 void free_pio_map(struct hfi1_devdata *dd)
 {
+	struct pio_vl_map *map;
+
 	/* Free PIO map if allocated */
 	if (rcu_access_pointer(dd->pio_map)) {
 		spin_lock_irq(&dd->pio_map_lock);
-		pio_map_free(rcu_access_pointer(dd->pio_map));
+		map = rcu_access_pointer(dd->pio_map);
 		RCU_INIT_POINTER(dd->pio_map, NULL);
 		spin_unlock_irq(&dd->pio_map_lock);
 		synchronize_rcu();
+		pio_map_free(map);
 	}
 	kfree(dd->kernel_send_context);
 	dd->kernel_send_context = NULL;

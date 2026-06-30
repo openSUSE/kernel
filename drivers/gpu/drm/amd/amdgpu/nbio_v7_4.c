@@ -21,7 +21,6 @@
  *
  */
 #include "amdgpu.h"
-#include "amdgpu_atombios.h"
 #include "nbio_v7_4.h"
 #include "amdgpu_ras.h"
 
@@ -414,8 +413,7 @@ static void nbio_v7_4_handle_ras_controller_intr_no_bifring(struct amdgpu_device
 		/* ras_controller_int is dedicated for nbif ras error,
 		 * not the global interrupt for sync flood
 		 */
-		amdgpu_ras_set_fed(adev, true);
-		amdgpu_ras_reset_gpu(adev);
+		amdgpu_ras_global_ras_isr(adev);
 	}
 
 	amdgpu_ras_error_data_fini(&err_data);

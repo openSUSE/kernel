@@ -12,6 +12,7 @@
 #include <linux/string.h>
 #include <linux/of.h>
 #include <asm/secvar.h>
+#include <asm/plpks.h>
 
 #define NAME_MAX_SIZE	   1024
 
@@ -130,7 +131,7 @@ static const struct kobj_type secvar_ktype = {
 	.default_groups = secvar_attr_groups,
 };
 
-static int update_kobj_size(void)
+static __init int update_kobj_size(void)
 {
 
 	u64 varsize;
@@ -145,20 +146,7 @@ static int update_kobj_size(void)
 	return 0;
 }
 
-static int secvar_sysfs_config(struct kobject *kobj)
-{
-	struct attribute_group config_group = {
-		.name = "config",
-		.attrs = (struct attribute **)secvar_ops->config_attrs,
-	};
-
-	if (secvar_ops->config_attrs)
-		return sysfs_create_group(kobj, &config_group);
-
-	return 0;
-}
-
-static int add_var(const char *name)
+static __init int add_var(const char *name)
 {
 	struct kobject *kobj;
 	int rc;
@@ -181,7 +169,7 @@ static int add_var(const char *name)
 	return 0;
 }
 
-static int secvar_sysfs_load(void)
+static __init int secvar_sysfs_load(void)
 {
 	u64 namesize = 0;
 	char *name;
@@ -209,7 +197,7 @@ static int secvar_sysfs_load(void)
 	return rc;
 }
 
-static int secvar_sysfs_load_static(void)
+static __init int secvar_sysfs_load_static(void)
 {
 	const char * const *name_ptr = secvar_ops->var_names;
 	int rc;
@@ -224,7 +212,7 @@ static int secvar_sysfs_load_static(void)
 	return 0;
 }
 
-static int secvar_sysfs_init(void)
+static __init int secvar_sysfs_init(void)
 {
 	u64 max_size;
 	int rc;
@@ -260,11 +248,14 @@ static int secvar_sysfs_init(void)
 		goto err;
 	}
 
-	rc = secvar_sysfs_config(secvar_kobj);
+	rc = plpks_config_create_softlink(secvar_kobj);
 	if (rc) {
-		pr_err("Failed to create config directory\n");
+		pr_err("Failed to create softlink to PLPKS config directory");
 		goto err;
 	}
+
+	pr_info("/sys/firmware/secvar/config is now deprecated.\n");
+	pr_info("Will be removed in future versions.\n");
 
 	if (secvar_ops->get_next)
 		rc = secvar_sysfs_load();

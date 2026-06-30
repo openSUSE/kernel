@@ -39,8 +39,10 @@ static int set_echo_event(struct seq_oss_devinfo *dp, union evrec *rec, struct s
  */
 
 int
-snd_seq_oss_process_event(struct seq_oss_devinfo *dp, union evrec *q, struct snd_seq_event *ev)
+snd_seq_oss_process_event(struct seq_oss_devinfo *dp, union evrec *q,
+			  struct snd_seq_event *ev, snd_use_lock_t **lockp)
 {
+	*lockp = NULL;
 	switch (q->s.code) {
 	case SEQ_EXTENDED:
 		return extended_event(dp, q, ev);
@@ -69,7 +71,7 @@ snd_seq_oss_process_event(struct seq_oss_devinfo *dp, union evrec *q, struct snd
 		if (snd_seq_oss_midi_open(dp, q->s.dev, SNDRV_SEQ_OSS_FILE_WRITE))
 			break;
 		if (snd_seq_oss_midi_filemode(dp, q->s.dev) & SNDRV_SEQ_OSS_FILE_WRITE)
-			return snd_seq_oss_midi_putc(dp, q->s.dev, q->s.parm1, ev);
+			return snd_seq_oss_midi_putc(dp, q->s.dev, q->s.parm1, ev, lockp);
 		break;
 
 	case SEQ_ECHO:
@@ -290,16 +292,14 @@ note_on_event(struct seq_oss_devinfo *dp, int dev, int ch, int note, int vel, st
 		if (note == 255 && info->ch[ch].note >= 0) {
 			/* volume control */
 			int type;
-			//if (! vel)
-				/* set volume to zero -- note off */
-			//	type = SNDRV_SEQ_EVENT_NOTEOFF;
-			//else
-				if (info->ch[ch].vel)
+
+			if (info->ch[ch].vel)
 				/* sample already started -- volume change */
 				type = SNDRV_SEQ_EVENT_KEYPRESS;
 			else
 				/* sample not started -- start now */
 				type = SNDRV_SEQ_EVENT_NOTEON;
+
 			info->ch[ch].vel = vel;
 			return set_note_event(dp, dev, type, ch, info->ch[ch].note, vel, ev);
 		} else if (note >= 128)

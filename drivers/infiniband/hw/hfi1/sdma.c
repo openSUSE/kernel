@@ -989,7 +989,7 @@ ssize_t sdma_set_cpu_to_sde_map(struct sdma_engine *sde, const char *buf,
 	}
 
 	/* Clean up old mappings */
-	for_each_cpu(cpu, cpu_online_mask) {
+	for_each_online_cpu(cpu) {
 		struct sdma_rht_node *rht_node;
 
 		/* Don't cleanup sdes that are set in the new mask */
@@ -1254,6 +1254,7 @@ void sdma_clean(struct hfi1_devdata *dd, size_t num_engines)
 {
 	size_t i;
 	struct sdma_engine *sde;
+	struct sdma_vl_map *map;
 
 	if (dd->sdma_pad_dma) {
 		dma_free_coherent(&dd->pcidev->dev, SDMA_PAD,
@@ -1290,10 +1291,11 @@ void sdma_clean(struct hfi1_devdata *dd, size_t num_engines)
 	}
 	if (rcu_access_pointer(dd->sdma_map)) {
 		spin_lock_irq(&dd->sde_map_lock);
-		sdma_map_free(rcu_access_pointer(dd->sdma_map));
+		map = rcu_access_pointer(dd->sdma_map);
 		RCU_INIT_POINTER(dd->sdma_map, NULL);
 		spin_unlock_irq(&dd->sde_map_lock);
 		synchronize_rcu();
+		sdma_map_free(map);
 	}
 	kfree(dd->per_sdma);
 	dd->per_sdma = NULL;
@@ -1517,24 +1519,6 @@ void sdma_all_running(struct hfi1_devdata *dd)
 	for (i = 0; i < dd->num_sdma; ++i) {
 		sde = &dd->per_sdma[i];
 		sdma_process_event(sde, sdma_event_e30_go_running);
-	}
-}
-
-/**
- * sdma_all_idle() - called when the link goes down
- * @dd: hfi1_devdata
- *
- * This routine moves all engines to the idle state.
- */
-void sdma_all_idle(struct hfi1_devdata *dd)
-{
-	struct sdma_engine *sde;
-	unsigned int i;
-
-	/* idle all engines */
-	for (i = 0; i < dd->num_sdma; ++i) {
-		sde = &dd->per_sdma[i];
-		sdma_process_event(sde, sdma_event_e70_go_idle);
 	}
 }
 

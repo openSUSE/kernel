@@ -633,11 +633,10 @@ static int si1145_read_raw(struct iio_dev *indio_dev,
 		case IIO_VOLTAGE:
 		case IIO_TEMP:
 		case IIO_UVINDEX:
-			ret = iio_device_claim_direct_mode(indio_dev);
-			if (ret)
-				return ret;
+			if (!iio_device_claim_direct(indio_dev))
+				return -EBUSY;
 			ret = si1145_measure(indio_dev, chan);
-			iio_device_release_direct_mode(indio_dev);
+			iio_device_release_direct(indio_dev);
 
 			if (ret < 0)
 				return ret;
@@ -750,18 +749,17 @@ static int si1145_write_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 
-		ret = iio_device_claim_direct_mode(indio_dev);
-		if (ret)
-			return ret;
+		if (!iio_device_claim_direct(indio_dev))
+			return -EBUSY;
 
 		ret = si1145_param_set(data, reg1, val);
 		if (ret < 0) {
-			iio_device_release_direct_mode(indio_dev);
+			iio_device_release_direct(indio_dev);
 			return ret;
 		}
 		/* Set recovery period to one's complement of gain */
 		ret = si1145_param_set(data, reg2, (~val & 0x07) << 4);
-		iio_device_release_direct_mode(indio_dev);
+		iio_device_release_direct(indio_dev);
 		return ret;
 	case IIO_CHAN_INFO_RAW:
 		if (chan->type != IIO_CURRENT)
@@ -773,19 +771,18 @@ static int si1145_write_raw(struct iio_dev *indio_dev,
 		reg1 = SI1145_PS_LED_REG(chan->channel);
 		shift = SI1145_PS_LED_SHIFT(chan->channel);
 
-		ret = iio_device_claim_direct_mode(indio_dev);
-		if (ret)
-			return ret;
+		if (!iio_device_claim_direct(indio_dev))
+			return -EBUSY;
 
 		ret = i2c_smbus_read_byte_data(data->client, reg1);
 		if (ret < 0) {
-			iio_device_release_direct_mode(indio_dev);
+			iio_device_release_direct(indio_dev);
 			return ret;
 		}
 		ret = i2c_smbus_write_byte_data(data->client, reg1,
 			(ret & ~(0x0f << shift)) |
 			((val & 0x0f) << shift));
-		iio_device_release_direct_mode(indio_dev);
+		iio_device_release_direct(indio_dev);
 		return ret;
 	case IIO_CHAN_INFO_SAMP_FREQ:
 		return si1145_store_samp_freq(data, val);
@@ -1250,7 +1247,7 @@ static int si1145_probe_trigger(struct iio_dev *indio_dev)
 
 	ret = devm_request_irq(&client->dev, client->irq,
 			  iio_trigger_generic_data_rdy_poll,
-			  IRQF_TRIGGER_FALLING,
+			  IRQF_TRIGGER_FALLING | IRQF_NO_THREAD,
 			  "si1145_irq",
 			  trig);
 	if (ret < 0) {

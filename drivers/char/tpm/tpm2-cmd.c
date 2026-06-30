@@ -11,8 +11,11 @@
  * used by the kernel internally.
  */
 
+#include "linux/dev_printk.h"
+#include "linux/tpm.h"
 #include "tpm.h"
 #include <crypto/hash_info.h>
+#include <linux/unaligned.h>
 
 static bool disable_pcr_integrity;
 module_param(disable_pcr_integrity, bool, 0444);
@@ -226,15 +229,30 @@ out:
  * @chip:	TPM chip to use.
  * @pcr_idx:	index of the PCR.
  * @digests:	list of pcr banks and corresponding digest values to extend.
+ * @banks_skip_mask:	pcr banks to skip
  *
  * Return: Same as with tpm_transmit_cmd.
  */
 int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
-		    struct tpm_digest *digests)
+		    struct tpm_digest *digests,
+		    unsigned long banks_skip_mask)
 {
 	struct tpm_buf buf;
+	unsigned long skip_mask;
+	u32 skipped_banks_count, banks_count;
 	int rc;
 	int i;
+
+	skipped_banks_count = 0;
+	skip_mask = banks_skip_mask;
+	for (i = 0; skip_mask && i < chip->nr_allocated_banks; i++) {
+		skipped_banks_count += skip_mask & 1;
+		skip_mask >>= 1;
+	}
+	banks_count = chip->nr_allocated_banks - skipped_banks_count;
+
+	if (banks_count == 0)
+		return 0;
 
 	if (!disable_pcr_integrity) {
 		rc = tpm2_start_auth_session(chip);
@@ -250,23 +268,40 @@ int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 	}
 
 	if (!disable_pcr_integrity) {
-		tpm_buf_append_name(chip, &buf, pcr_idx, NULL);
+		rc = tpm_buf_append_name(chip, &buf, pcr_idx, NULL);
+		if (rc) {
+			tpm_buf_destroy(&buf);
+			return rc;
+		}
 		tpm_buf_append_hmac_session(chip, &buf, 0, NULL, 0);
 	} else {
 		tpm_buf_append_handle(chip, &buf, pcr_idx);
 		tpm_buf_append_auth(chip, &buf, 0, NULL, 0);
 	}
 
-	tpm_buf_append_u32(&buf, chip->nr_allocated_banks);
+	tpm_buf_append_u32(&buf, banks_count);
 
+	skip_mask = banks_skip_mask;
 	for (i = 0; i < chip->nr_allocated_banks; i++) {
+		const bool skip_bank = skip_mask & 1;
+
+		skip_mask >>= 1;
+		if (skip_bank)
+			continue;
+
 		tpm_buf_append_u16(&buf, digests[i].alg_id);
 		tpm_buf_append(&buf, (const unsigned char *)&digests[i].digest,
 			       chip->allocated_banks[i].digest_size);
 	}
 
-	if (!disable_pcr_integrity)
-		tpm_buf_fill_hmac_session(chip, &buf);
+	if (!disable_pcr_integrity) {
+		rc = tpm_buf_fill_hmac_session(chip, &buf);
+		if (rc) {
+			tpm_buf_destroy(&buf);
+			return rc;
+		}
+	}
+
 	rc = tpm_transmit_cmd(chip, &buf, 0, "attempting extend a PCR value");
 	if (!disable_pcr_integrity)
 		rc = tpm_buf_check_hmac_response(chip, &buf, rc);
@@ -324,7 +359,10 @@ int tpm2_get_random(struct tpm_chip *chip, u8 *dest, size_t max)
 						| TPM2_SA_CONTINUE_SESSION,
 						NULL, 0);
 		tpm_buf_append_u16(&buf, num_bytes);
-		tpm_buf_fill_hmac_session(chip, &buf);
+		err = tpm_buf_fill_hmac_session(chip, &buf);
+		if (err)
+			goto out;
+
 		err = tpm_transmit_cmd(chip, &buf,
 				       offsetof(struct tpm2_get_random_out,
 						buffer),
@@ -602,11 +640,9 @@ ssize_t tpm2_get_pcr_allocation(struct tpm_chip *chip)
 
 	nr_possible_banks = be32_to_cpup(
 		(__be32 *)&buf.data[TPM_HEADER_SIZE + 5]);
-
-	chip->allocated_banks = kcalloc(nr_possible_banks,
-					sizeof(*chip->allocated_banks),
-					GFP_KERNEL);
-	if (!chip->allocated_banks) {
+	if (nr_possible_banks > TPM2_MAX_PCR_BANKS) {
+		pr_err("tpm: out of bank capacity: %u > %u\n",
+		       nr_possible_banks, TPM2_MAX_PCR_BANKS);
 		rc = -ENOMEM;
 		goto out;
 	}

@@ -33,7 +33,7 @@ DECLARE_EVENT_CLASS(iomap_readpage_class,
 		__field(int, nr_pages)
 	),
 	TP_fast_assign(
-		__entry->dev = inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(inode);
 		__entry->ino = inode->i_ino;
 		__entry->nr_pages = nr_pages;
 	),
@@ -61,7 +61,7 @@ DECLARE_EVENT_CLASS(iomap_range_class,
 		__field(u64, length)
 	),
 	TP_fast_assign(
-		__entry->dev = inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(inode);
 		__entry->ino = inode->i_ino;
 		__entry->size = i_size_read(inode);
 		__entry->offset = off;
@@ -98,7 +98,8 @@ DEFINE_RANGE_EVENT(iomap_dio_rw_queued);
 	{ IOMAP_REPORT,		"REPORT" }, \
 	{ IOMAP_FAULT,		"FAULT" }, \
 	{ IOMAP_DIRECT,		"DIRECT" }, \
-	{ IOMAP_NOWAIT,		"NOWAIT" }
+	{ IOMAP_NOWAIT,		"NOWAIT" }, \
+	{ IOMAP_ATOMIC,		"ATOMIC" }
 
 #define IOMAP_F_FLAGS_STRINGS \
 	{ IOMAP_F_NEW,		"NEW" }, \
@@ -127,7 +128,7 @@ DECLARE_EVENT_CLASS(iomap_class,
 		__field(dev_t, bdev)
 	),
 	TP_fast_assign(
-		__entry->dev = inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(inode);
 		__entry->ino = inode->i_ino;
 		__entry->addr = iomap->addr;
 		__entry->offset = iomap->offset;
@@ -206,27 +207,27 @@ TRACE_EVENT(iomap_iter,
 		__field(u64, ino)
 		__field(loff_t, pos)
 		__field(u64, length)
-		__field(s64, processed)
+		__field(int, status)
 		__field(unsigned int, flags)
 		__field(const void *, ops)
 		__field(unsigned long, caller)
 	),
 	TP_fast_assign(
-		__entry->dev = iter->inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(iter->inode);
 		__entry->ino = iter->inode->i_ino;
 		__entry->pos = iter->pos;
 		__entry->length = iomap_length(iter);
-		__entry->processed = iter->processed;
+		__entry->status = iter->status;
 		__entry->flags = iter->flags;
 		__entry->ops = ops;
 		__entry->caller = caller;
 	),
-	TP_printk("dev %d:%d ino 0x%llx pos 0x%llx length 0x%llx processed %lld flags %s (0x%x) ops %ps caller %pS",
+	TP_printk("dev %d:%d ino 0x%llx pos 0x%llx length 0x%llx status %d flags %s (0x%x) ops %ps caller %pS",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		   __entry->ino,
 		   __entry->pos,
 		   __entry->length,
-		   __entry->processed,
+		   __entry->status,
 		   __print_flags(__entry->flags, "|", IOMAP_FLAGS_STRINGS),
 		   __entry->flags,
 		   __entry->ops,

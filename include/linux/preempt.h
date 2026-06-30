@@ -425,8 +425,6 @@ static inline void preempt_notifier_init(struct preempt_notifier *notifier,
  *       work-conserving schedulers.
  *
  */
-extern void migrate_disable(void);
-extern void migrate_enable(void);
 
 #else
 
@@ -479,13 +477,13 @@ static __always_inline void preempt_enable_nested(void)
 
 DEFINE_LOCK_GUARD_0(preempt, preempt_disable(), preempt_enable())
 DEFINE_LOCK_GUARD_0(preempt_notrace, preempt_disable_notrace(), preempt_enable_notrace())
-DEFINE_LOCK_GUARD_0(migrate, migrate_disable(), migrate_enable())
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
 extern bool preempt_model_none(void);
 extern bool preempt_model_voluntary(void);
 extern bool preempt_model_full(void);
+extern bool preempt_model_lazy(void);
 
 #else
 
@@ -502,12 +500,19 @@ static inline bool preempt_model_full(void)
 	return IS_ENABLED(CONFIG_PREEMPT);
 }
 
+static inline bool preempt_model_lazy(void)
+{
+	return IS_ENABLED(CONFIG_PREEMPT_LAZY);
+}
+
 #endif
 
 static inline bool preempt_model_rt(void)
 {
 	return IS_ENABLED(CONFIG_PREEMPT_RT);
 }
+
+extern const char *preempt_model_str(void);
 
 /*
  * Does the preemption model allow non-cooperative preemption?
@@ -519,7 +524,7 @@ static inline bool preempt_model_rt(void)
  */
 static inline bool preempt_model_preemptible(void)
 {
-	return preempt_model_full() || preempt_model_rt();
+	return preempt_model_full() || preempt_model_lazy() || preempt_model_rt();
 }
 
 #endif /* __LINUX_PREEMPT_H */

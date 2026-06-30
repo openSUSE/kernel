@@ -125,9 +125,6 @@ int catpt_dmac_probe(struct catpt_dev *cdev)
 	dmac->dev = cdev->dev;
 	dmac->irq = cdev->irq;
 
-	ret = dma_coerce_mask_and_coherent(cdev->dev, DMA_BIT_MASK(31));
-	if (ret)
-		return ret;
 	/*
 	 * Caller is responsible for putting device in D0 to allow
 	 * for I/O and memory access before probing DW.
@@ -156,7 +153,7 @@ static void catpt_dsp_set_srampge(struct catpt_dev *cdev, struct resource *sram,
 {
 	unsigned long old;
 	u32 off = sram->start;
-	u32 b = __ffs(mask);
+	unsigned long b = __ffs(mask);
 
 	old = catpt_readl_pci(cdev, VDRTCTL0) & mask;
 	dev_dbg(cdev->dev, "SRAMPGE [0x%08lx] 0x%08lx -> 0x%08lx",

@@ -58,8 +58,8 @@ void uverbs_uobject_put(struct ib_uobject *uobject)
 }
 EXPORT_SYMBOL(uverbs_uobject_put);
 
-static int uverbs_try_lock_object(struct ib_uobject *uobj,
-				  enum rdma_lookup_mode mode)
+int uverbs_try_lock_object(struct ib_uobject *uobj,
+			   enum rdma_lookup_mode mode)
 {
 	/*
 	 * When a shared access is required, we use a positive counter. Each
@@ -84,6 +84,7 @@ static int uverbs_try_lock_object(struct ib_uobject *uobj,
 	}
 	return 0;
 }
+EXPORT_SYMBOL(uverbs_try_lock_object);
 
 static void assert_uverbs_usecnt(struct ib_uobject *uobj,
 				 enum rdma_lookup_mode mode)
@@ -464,7 +465,7 @@ alloc_begin_fd_uobject(const struct uverbs_api_object *obj,
 
 	fd_type =
 		container_of(obj->type_attrs, struct uverbs_obj_fd_type, type);
-	if (WARN_ON(fd_type->fops->release != &uverbs_uobject_fd_release &&
+	if (WARN_ON(fd_type->fops && fd_type->fops->release != &uverbs_uobject_fd_release &&
 		    fd_type->fops->release != &uverbs_async_event_release)) {
 		ret = ERR_PTR(-EINVAL);
 		goto err_fd;
@@ -476,14 +477,16 @@ alloc_begin_fd_uobject(const struct uverbs_api_object *obj,
 		goto err_fd;
 	}
 
-	/* Note that uverbs_uobject_fd_release() is called during abort */
-	filp = anon_inode_getfile(fd_type->name, fd_type->fops, NULL,
-				  fd_type->flags);
-	if (IS_ERR(filp)) {
-		ret = ERR_CAST(filp);
-		goto err_getfile;
+	if (fd_type->fops) {
+		/* Note that uverbs_uobject_fd_release() is called during abort */
+		filp = anon_inode_getfile(fd_type->name, fd_type->fops, NULL,
+					  fd_type->flags);
+		if (IS_ERR(filp)) {
+			ret = ERR_CAST(filp);
+			goto err_getfile;
+		}
+		uobj->object = filp;
 	}
-	uobj->object = filp;
 
 	uobj->id = new_fd;
 	return uobj;
@@ -560,7 +563,9 @@ static void alloc_abort_fd_uobject(struct ib_uobject *uobj)
 {
 	struct file *filp = uobj->object;
 
-	fput(filp);
+	if (filp)
+		fput(filp);
+
 	put_unused_fd(uobj->id);
 }
 
@@ -627,11 +632,14 @@ static void alloc_commit_fd_uobject(struct ib_uobject *uobj)
 	/* This shouldn't be used anymore. Use the file object instead */
 	uobj->id = 0;
 
-	/*
-	 * NOTE: Once we install the file we loose ownership of our kref on
-	 * uobj. It will be put by uverbs_uobject_fd_release()
-	 */
-	filp->private_data = uobj;
+	if (!filp->private_data) {
+		/*
+		 * NOTE: Once we install the file we loose ownership of our kref on
+		 * uobj. It will be put by uverbs_uobject_fd_release()
+		 */
+		filp->private_data = uobj;
+	}
+
 	fd_install(fd, filp);
 }
 
@@ -880,9 +888,14 @@ static void ufile_destroy_ucontext(struct ib_uverbs_file *ufile,
 static int __uverbs_cleanup_ufile(struct ib_uverbs_file *ufile,
 				  enum rdma_remove_reason reason)
 {
+	struct uverbs_attr_bundle attrs = { .ufile = ufile };
+	struct ib_ucontext *ucontext = ufile->ucontext;
+	struct ib_device *ib_dev = ucontext->device;
 	struct ib_uobject *obj, *next_obj;
 	int ret = -EINVAL;
-	struct uverbs_attr_bundle attrs = { .ufile = ufile };
+
+	if (ib_dev->ops.ufile_hw_cleanup)
+		ib_dev->ops.ufile_hw_cleanup(ufile);
 
 	/*
 	 * This shouldn't run while executing other commands on this
@@ -1013,3 +1026,32 @@ void uverbs_finalize_object(struct ib_uobject *uobj,
 		WARN_ON(true);
 	}
 }
+
+/**
+ * rdma_uattrs_has_raw_cap() - Returns whether a rdma device linked to the
+ *			       uverbs attributes file has CAP_NET_RAW
+ *			       capability or not.
+ *
+ * @attrs:       Pointer to uverbs attributes
+ *
+ * Returns true if a rdma device's owning user namespace has CAP_NET_RAW
+ * capability, otherwise false.
+ */
+bool rdma_uattrs_has_raw_cap(const struct uverbs_attr_bundle *attrs)
+{
+	struct ib_uverbs_file *ufile = attrs->ufile;
+	struct ib_ucontext *ucontext;
+	bool has_cap = false;
+	int srcu_key;
+
+	srcu_key = srcu_read_lock(&ufile->device->disassociate_srcu);
+	ucontext = ib_uverbs_get_ucontext_file(ufile);
+	if (IS_ERR(ucontext))
+		goto out;
+	has_cap = rdma_dev_has_raw_cap(ucontext->device);
+
+out:
+	srcu_read_unlock(&ufile->device->disassociate_srcu, srcu_key);
+	return has_cap;
+}
+EXPORT_SYMBOL(rdma_uattrs_has_raw_cap);

@@ -62,6 +62,7 @@ struct tb_nvm {
 	bool authenticating;
 	bool flushed;
 	const struct tb_nvm_vendor_ops *vops;
+	void *suse_kabi_padding;
 };
 
 enum tb_nvm_write_ops {
@@ -212,6 +213,7 @@ struct tb_switch {
 	unsigned int max_pcie_credits;
 	unsigned int max_dma_credits;
 	unsigned int clx;
+	void *suse_kabi_padding;
 };
 
 /**
@@ -297,6 +299,8 @@ struct tb_port {
 	struct list_head group_list;
 	unsigned int max_bw;
 	bool redrive;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -313,6 +317,7 @@ struct usb4_port {
 	struct tb_port *port;
 	bool can_offline;
 	bool offline;
+	void *suse_kabi_padding;
 #ifdef CONFIG_USB4_DEBUGFS_MARGINING
 	struct tb_margining *margining;
 #endif
@@ -344,6 +349,7 @@ struct tb_retimer {
 #ifdef CONFIG_USB4_DEBUGFS_MARGINING
 	struct tb_margining *margining;
 #endif
+	void *suse_kabi_padding;
 };
 
 /**
@@ -381,6 +387,7 @@ struct tb_path_hop {
 	int next_hop_index;
 	unsigned int initial_credits;
 	unsigned int nfc_credits;
+	void *suse_kabi_padding;
 	bool pm_support;
 };
 
@@ -438,6 +445,7 @@ struct tb_path {
 	struct tb_path_hop *hops;
 	int path_length;
 	bool alloc_hopid;
+	void *suse_kabi_padding;
 };
 
 /* HopIDs 0-7 are reserved by the Thunderbolt protocol */
@@ -534,6 +542,7 @@ struct tb_cm_ops {
 			      void *rx_data, size_t rx_data_len);
 	int (*usb4_switch_nvm_authenticate_status)(struct tb_switch *sw,
 						   u32 *status);
+	void *suse_kabi_padding;
 };
 
 static inline void *tb_priv(struct tb *tb)
@@ -797,6 +806,19 @@ static inline struct tb *tb_domain_get(struct tb *tb)
 static inline void tb_domain_put(struct tb *tb)
 {
 	put_device(&tb->dev);
+}
+
+/**
+ * tb_domain_event() - Notify userspace about an event in domain
+ * @tb: Domain where event occurred
+ * @envp: Array of uevent environment strings (can be %NULL)
+ *
+ * This function provides a way to notify userspace about any events
+ * that take place in the domain.
+ */
+static inline void tb_domain_event(struct tb *tb, char *envp[])
+{
+	kobject_uevent_env(&tb->dev.kobj, KOBJ_CHANGE, envp);
 }
 
 struct tb_nvm *tb_nvm_alloc(struct device *dev);
@@ -1299,7 +1321,7 @@ int usb4_switch_read_uid(struct tb_switch *sw, u64 *uid);
 int usb4_switch_drom_read(struct tb_switch *sw, unsigned int address, void *buf,
 			  size_t size);
 bool usb4_switch_lane_bonding_possible(struct tb_switch *sw);
-int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags);
+int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags, bool runtime);
 int usb4_switch_set_sleep(struct tb_switch *sw);
 int usb4_switch_nvm_sector_size(struct tb_switch *sw);
 int usb4_switch_nvm_read(struct tb_switch *sw, unsigned int address, void *buf,
@@ -1367,11 +1389,17 @@ enum usb4_margin_sw_error_counter {
 	USB4_MARGIN_SW_ERROR_COUNTER_STOP,
 };
 
+enum usb4_margining_lane {
+	USB4_MARGINING_LANE_RX0 = 0,
+	USB4_MARGINING_LANE_RX1 = 1,
+	USB4_MARGINING_LANE_ALL = 7,
+};
+
 /**
  * struct usb4_port_margining_params - USB4 margining parameters
  * @error_counter: Error counter operation for software margining
  * @ber_level: Current BER level contour value
- * @lanes: %0, %1 or %7 (all)
+ * @lanes: Lanes to enable for the margining operation
  * @voltage_time_offset: Offset for voltage / time for software margining
  * @optional_voltage_offset_range: Enable optional extended voltage range
  * @right_high: %false if left/low margin test is performed, %true if right/high
@@ -1380,18 +1408,19 @@ enum usb4_margin_sw_error_counter {
 struct usb4_port_margining_params {
 	enum usb4_margin_sw_error_counter error_counter;
 	u32 ber_level;
-	u32 lanes;
+	enum usb4_margining_lane lanes;
 	u32 voltage_time_offset;
 	bool optional_voltage_offset_range;
 	bool right_high;
+	bool upper_eye;
 	bool time;
 };
 
 int usb4_port_margining_caps(struct tb_port *port, enum usb4_sb_target target,
-			     u8 index, u32 *caps);
+			     u8 index, u32 *caps, size_t ncaps);
 int usb4_port_hw_margin(struct tb_port *port, enum usb4_sb_target target,
 			u8 index, const struct usb4_port_margining_params *params,
-			u32 *results);
+			u32 *results, size_t nresults);
 int usb4_port_sw_margin(struct tb_port *port, enum usb4_sb_target target,
 			u8 index, const struct usb4_port_margining_params *params,
 			u32 *results);
@@ -1455,6 +1484,7 @@ static inline struct usb4_port *tb_to_usb4_port_device(struct device *dev)
 struct usb4_port *usb4_port_device_add(struct tb_port *port);
 void usb4_port_device_remove(struct usb4_port *usb4);
 int usb4_port_device_resume(struct usb4_port *usb4);
+int usb4_port_index(const struct tb_switch *sw, const struct tb_port *port);
 
 static inline bool usb4_port_device_is_offline(const struct usb4_port *usb4)
 {

@@ -48,6 +48,7 @@ EXPORT_SYMBOL_GPL(mtk_afe_combine_sub_dai);
 
 int mtk_afe_add_sub_dai_control(struct snd_soc_component *component)
 {
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
 	struct mtk_base_afe_dai *dai;
 
@@ -58,19 +59,19 @@ int mtk_afe_add_sub_dai_control(struct snd_soc_component *component)
 						       dai->num_controls);
 
 		if (dai->dapm_widgets)
-			snd_soc_dapm_new_controls(&component->dapm,
+			snd_soc_dapm_new_controls(dapm,
 						  dai->dapm_widgets,
 						  dai->num_dapm_widgets);
 	}
 	/* add routes after all widgets are added */
 	list_for_each_entry(dai, &afe->sub_dais, list) {
 		if (dai->dapm_routes)
-			snd_soc_dapm_add_routes(&component->dapm,
+			snd_soc_dapm_add_routes(dapm,
 						dai->dapm_routes,
 						dai->num_dapm_routes);
 	}
 
-	snd_soc_dapm_new_widgets(component->dapm.card);
+	snd_soc_dapm_new_widgets(component->card);
 
 	return 0;
 
@@ -120,8 +121,10 @@ int mtk_afe_pcm_new(struct snd_soc_component *component,
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
 
 	size = afe->mtk_afe_hardware->buffer_bytes_max;
-	snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
-				       afe->dev, size, size);
+	snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV, afe->dev,
+				       afe->preallocate_buffers ? size : 0,
+				       size);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(mtk_afe_pcm_new);

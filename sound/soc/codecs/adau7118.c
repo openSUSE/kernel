@@ -169,6 +169,12 @@ static int adau7118_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	case SND_SOC_DAIFMT_RIGHT_J:
 		st->right_j = true;
 		break;
+	case SND_SOC_DAIFMT_DSP_A:
+		ret = snd_soc_component_update_bits(dai->component,
+						    ADAU7118_REG_SPT_CTRL1,
+						    ADAU7118_DATA_FMT_MASK,
+						    ADAU7118_DATA_FMT(1));
+		break;
 	default:
 		dev_err(st->dev, "Invalid format %d",
 			fmt & SND_SOC_DAIFMT_FORMAT_MASK);
@@ -329,6 +335,7 @@ static int adau7118_set_bias_level(struct snd_soc_component *component,
 				   enum snd_soc_bias_level level)
 {
 	struct adau7118_data *st = snd_soc_component_get_drvdata(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret = 0;
 
 	dev_dbg(st->dev, "Set bias level %d\n", level);
@@ -339,8 +346,7 @@ static int adau7118_set_bias_level(struct snd_soc_component *component,
 		break;
 
 	case SND_SOC_BIAS_STANDBY:
-		if (snd_soc_component_get_bias_level(component) ==
-							SND_SOC_BIAS_OFF) {
+		if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_OFF) {
 			/* power on */
 			ret = regulator_enable(st->iovdd);
 			if (ret)
@@ -387,8 +393,7 @@ static int adau7118_set_bias_level(struct snd_soc_component *component,
 static int adau7118_component_probe(struct snd_soc_component *component)
 {
 	struct adau7118_data *st = snd_soc_component_get_drvdata(component);
-	struct snd_soc_dapm_context *dapm =
-					snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret = 0;
 
 	if (st->hw_mode) {

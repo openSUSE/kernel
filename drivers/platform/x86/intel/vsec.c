@@ -15,13 +15,18 @@
 
 #include <linux/auxiliary_bus.h>
 #include <linux/bits.h>
+#include <linux/bitops.h>
+#include <linux/bug.h>
 #include <linux/cleanup.h>
 #include <linux/delay.h>
 #include <linux/idr.h>
+#include <linux/log2.h>
 #include <linux/intel_vsec.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/overflow.h>
 #include <linux/pci.h>
+#include <linux/string.h>
 #include <linux/types.h>
 
 #define PMT_XA_START			0
@@ -31,6 +36,20 @@
 static DEFINE_IDA(intel_vsec_ida);
 static DEFINE_IDA(intel_vsec_sdsi_ida);
 static DEFINE_XARRAY_ALLOC(auxdev_array);
+
+enum vsec_device_state {
+	STATE_NOT_FOUND,
+	STATE_REGISTERED,
+	STATE_SKIP,
+};
+
+struct vsec_priv {
+	const struct intel_vsec_platform_info *info;
+	struct device *suppliers[VSEC_FEATURE_COUNT];
+	struct oobmsm_plat_info plat_info;
+	enum vsec_device_state state[VSEC_FEATURE_COUNT];
+	unsigned long found_caps;
+};
 
 static const char *intel_vsec_name(enum intel_vsec_id id)
 {
@@ -50,6 +69,9 @@ static const char *intel_vsec_name(enum intel_vsec_id id)
 	case VSEC_ID_TPMI:
 		return "tpmi";
 
+	case VSEC_ID_DISCOVERY:
+		return "discovery";
+
 	default:
 		return NULL;
 	}
@@ -68,6 +90,8 @@ static bool intel_vsec_supported(u16 id, unsigned long caps)
 		return !!(caps & VSEC_CAP_SDSI);
 	case VSEC_ID_TPMI:
 		return !!(caps & VSEC_CAP_TPMI);
+	case VSEC_ID_DISCOVERY:
+		return !!(caps & VSEC_CAP_DISCOVERY);
 	default:
 		return false;
 	}
@@ -79,23 +103,116 @@ static void intel_vsec_remove_aux(void *data)
 	auxiliary_device_uninit(data);
 }
 
-static DEFINE_MUTEX(vsec_ida_lock);
-
 static void intel_vsec_dev_release(struct device *dev)
 {
 	struct intel_vsec_device *intel_vsec_dev = dev_to_ivdev(dev);
 
 	xa_erase(&auxdev_array, intel_vsec_dev->id);
 
-	mutex_lock(&vsec_ida_lock);
 	ida_free(intel_vsec_dev->ida, intel_vsec_dev->auxdev.id);
-	mutex_unlock(&vsec_ida_lock);
 
+	kfree(intel_vsec_dev->acpi_disc);
 	kfree(intel_vsec_dev->resource);
 	kfree(intel_vsec_dev);
 }
 
-int intel_vsec_add_aux(struct pci_dev *pdev, struct device *parent,
+static const struct vsec_feature_dependency *
+get_consumer_dependencies(struct vsec_priv *priv, int cap_id)
+{
+	const struct vsec_feature_dependency *deps = priv->info->deps;
+	int consumer_id = priv->info->num_deps;
+
+	if (!deps)
+		return NULL;
+
+	while (consumer_id--)
+		if (deps[consumer_id].feature == BIT(cap_id))
+			return &deps[consumer_id];
+
+	return NULL;
+}
+
+static bool vsec_driver_present(int cap_id)
+{
+	unsigned long bit = BIT(cap_id);
+
+	switch (bit) {
+	case VSEC_CAP_TELEMETRY:
+		return IS_ENABLED(CONFIG_INTEL_PMT_TELEMETRY);
+	case VSEC_CAP_WATCHER:
+		return IS_ENABLED(CONFIG_INTEL_PMT_WATCHER);
+	case VSEC_CAP_CRASHLOG:
+		return IS_ENABLED(CONFIG_INTEL_PMT_CRASHLOG);
+	case VSEC_CAP_SDSI:
+		return IS_ENABLED(CONFIG_INTEL_SDSI);
+	case VSEC_CAP_TPMI:
+		return IS_ENABLED(CONFIG_INTEL_TPMI);
+	case VSEC_CAP_DISCOVERY:
+		return IS_ENABLED(CONFIG_INTEL_PMT_DISCOVERY);
+	default:
+		return false;
+	}
+}
+
+/*
+ * Although pci_device_id table is available in the pdev, this prototype is
+ * necessary because the code using it can be called by an exported API that
+ * might pass a different pdev.
+ */
+static const struct pci_device_id intel_vsec_pci_ids[];
+
+static int intel_vsec_link_devices(struct device *parent, struct device *dev,
+				   int consumer_id)
+{
+	const struct vsec_feature_dependency *deps;
+	enum vsec_device_state *state;
+	struct device **suppliers;
+	struct vsec_priv *priv;
+	struct pci_dev *pdev;
+	int supplier_id;
+
+	if (!consumer_id)
+		return 0;
+
+	if (!dev_is_pci(parent))
+		return 0;
+
+	pdev = to_pci_dev(parent);
+	if (!pci_match_id(intel_vsec_pci_ids, pdev))
+		return 0;
+
+	priv = pci_get_drvdata(pdev);
+	state = priv->state;
+	suppliers = priv->suppliers;
+
+	priv->suppliers[consumer_id] = dev;
+
+	deps = get_consumer_dependencies(priv, consumer_id);
+	if (!deps)
+		return 0;
+
+	for_each_set_bit(supplier_id, &deps->supplier_bitmap, VSEC_FEATURE_COUNT) {
+		struct device_link *link;
+
+		if (state[supplier_id] != STATE_REGISTERED ||
+		    !vsec_driver_present(supplier_id))
+			continue;
+
+		if (!suppliers[supplier_id]) {
+			dev_err(dev, "Bad supplier list\n");
+			return -EINVAL;
+		}
+
+		link = device_link_add(dev, suppliers[supplier_id],
+				       DL_FLAG_AUTOPROBE_CONSUMER);
+		if (!link)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
+int intel_vsec_add_aux(struct device *parent,
 		       struct intel_vsec_device *intel_vsec_dev,
 		       const char *name)
 {
@@ -113,9 +230,7 @@ int intel_vsec_add_aux(struct pci_dev *pdev, struct device *parent,
 		return ret;
 	}
 
-	mutex_lock(&vsec_ida_lock);
 	id = ida_alloc(intel_vsec_dev->ida, GFP_KERNEL);
-	mutex_unlock(&vsec_ida_lock);
 	if (id < 0) {
 		xa_erase(&auxdev_array, intel_vsec_dev->id);
 		kfree(intel_vsec_dev->resource);
@@ -134,43 +249,60 @@ int intel_vsec_add_aux(struct pci_dev *pdev, struct device *parent,
 		return ret;
 	}
 
+	/*
+	 * Assign a name now to ensure that the device link doesn't contain
+	 * a null string for the consumer name. This is a problem when a supplier
+	 * supplies more than one consumer and can lead to a duplicate name error
+	 * when the link is created in sysfs.
+	 */
+	ret = dev_set_name(&auxdev->dev, "%s.%s.%d", KBUILD_MODNAME, auxdev->name,
+			   auxdev->id);
+	if (ret)
+		goto cleanup_aux;
+
+	ret = intel_vsec_link_devices(parent, &auxdev->dev, intel_vsec_dev->cap_id);
+	if (ret)
+		goto cleanup_aux;
+
 	ret = auxiliary_device_add(auxdev);
-	if (ret < 0) {
-		auxiliary_device_uninit(auxdev);
-		return ret;
-	}
+	if (ret)
+		goto cleanup_aux;
 
 	return devm_add_action_or_reset(parent, intel_vsec_remove_aux,
 				       auxdev);
+
+cleanup_aux:
+	auxiliary_device_uninit(auxdev);
+	return ret;
 }
 EXPORT_SYMBOL_NS_GPL(intel_vsec_add_aux, INTEL_VSEC);
 
-static int intel_vsec_add_dev(struct pci_dev *pdev, struct intel_vsec_header *header,
-			      struct intel_vsec_platform_info *info)
+static int intel_vsec_add_dev(struct device *dev, struct intel_vsec_header *header,
+			      const struct intel_vsec_platform_info *info,
+			      unsigned long cap_id, u64 base_addr)
 {
 	struct intel_vsec_device __free(kfree) *intel_vsec_dev = NULL;
 	struct resource __free(kfree) *res = NULL;
 	struct resource *tmp;
 	struct device *parent;
 	unsigned long quirks = info->quirks;
-	u64 base_addr;
 	int i;
 
 	if (info->parent)
 		parent = info->parent;
 	else
-		parent = &pdev->dev;
+		parent = dev;
 
 	if (!intel_vsec_supported(header->id, info->caps))
 		return -EINVAL;
 
 	if (!header->num_entries) {
-		dev_dbg(&pdev->dev, "Invalid 0 entry count for header id %d\n", header->id);
+		dev_dbg(dev, "Invalid 0 entry count for header id %d\n", header->id);
 		return -EINVAL;
 	}
 
 	if (!header->entry_size) {
-		dev_dbg(&pdev->dev, "Invalid 0 entry size for header id %d\n", header->id);
+		dev_dbg(dev, "Invalid 0 entry size for header id %d\n", header->id);
 		return -EINVAL;
 	}
 
@@ -185,17 +317,19 @@ static int intel_vsec_add_dev(struct pci_dev *pdev, struct intel_vsec_header *he
 	if (quirks & VSEC_QUIRK_TABLE_SHIFT)
 		header->offset >>= TABLE_OFFSET_SHIFT;
 
-	if (info->base_addr)
-		base_addr = info->base_addr;
-	else
-		base_addr = pdev->resource[header->tbir].start;
-
 	/*
 	 * The DVSEC/VSEC contains the starting offset and count for a block of
 	 * discovery tables. Create a resource array of these tables to the
 	 * auxiliary device driver.
 	 */
 	for (i = 0, tmp = res; i < header->num_entries; i++, tmp++) {
+		/*
+		 * Skip resource mapping check for ACPI-based discovery
+		 * since those tables are read from _DSD, not MMIO.
+		 */
+		if (info->src == INTEL_VSEC_DISC_ACPI)
+			break;
+
 		tmp->start = base_addr + header->offset + i * (header->entry_size * sizeof(u32));
 		tmp->end = tmp->start + (header->entry_size * sizeof(u32)) - 1;
 		tmp->flags = IORESOURCE_MEM;
@@ -207,12 +341,26 @@ static int intel_vsec_add_dev(struct pci_dev *pdev, struct intel_vsec_header *he
 		release_mem_region(tmp->start, resource_size(tmp));
 	}
 
-	intel_vsec_dev->pcidev = pdev;
+	intel_vsec_dev->dev = dev;
 	intel_vsec_dev->resource = no_free_ptr(res);
 	intel_vsec_dev->num_resources = header->num_entries;
 	intel_vsec_dev->quirks = info->quirks;
 	intel_vsec_dev->base_addr = info->base_addr;
 	intel_vsec_dev->priv_data = info->priv_data;
+	intel_vsec_dev->cap_id = cap_id;
+	intel_vsec_dev->src = info->src;
+
+	if (info->src == INTEL_VSEC_DISC_ACPI) {
+		size_t bytes;
+
+		if (check_mul_overflow(intel_vsec_dev->num_resources,
+				       sizeof(*info->acpi_disc), &bytes))
+			return -EOVERFLOW;
+
+		intel_vsec_dev->acpi_disc = kmemdup(info->acpi_disc, bytes, GFP_KERNEL);
+		if (!intel_vsec_dev->acpi_disc)
+			return -ENOMEM;
+	}
 
 	if (header->id == VSEC_ID_SDSI)
 		intel_vsec_dev->ida = &intel_vsec_sdsi_ida;
@@ -223,19 +371,128 @@ static int intel_vsec_add_dev(struct pci_dev *pdev, struct intel_vsec_header *he
 	 * Pass the ownership of intel_vsec_dev and resource within it to
 	 * intel_vsec_add_aux()
 	 */
-	return intel_vsec_add_aux(pdev, parent, no_free_ptr(intel_vsec_dev),
+	return intel_vsec_add_aux(parent, no_free_ptr(intel_vsec_dev),
 				  intel_vsec_name(header->id));
 }
 
-static bool intel_vsec_walk_header(struct pci_dev *pdev,
-				   struct intel_vsec_platform_info *info)
+static bool suppliers_ready(struct vsec_priv *priv,
+			    const struct vsec_feature_dependency *consumer_deps,
+			    int cap_id)
+{
+	enum vsec_device_state *state = priv->state;
+	int supplier_id;
+
+	if (WARN_ON_ONCE(consumer_deps->feature != BIT(cap_id)))
+		return false;
+
+	/*
+	 * Verify that all required suppliers have been found. Return false
+	 * immediately if any are still missing.
+	 */
+	for_each_set_bit(supplier_id, &consumer_deps->supplier_bitmap, VSEC_FEATURE_COUNT) {
+		if (state[supplier_id] == STATE_SKIP)
+			continue;
+
+		if (state[supplier_id] == STATE_NOT_FOUND)
+			return false;
+	}
+
+	/*
+	 * All suppliers have been found and the consumer is ready to be
+	 * registered.
+	 */
+	return true;
+}
+
+static int get_cap_id(u32 header_id, unsigned long *cap_id)
+{
+	switch (header_id) {
+	case VSEC_ID_TELEMETRY:
+		*cap_id = ilog2(VSEC_CAP_TELEMETRY);
+		break;
+	case VSEC_ID_WATCHER:
+		*cap_id = ilog2(VSEC_CAP_WATCHER);
+		break;
+	case VSEC_ID_CRASHLOG:
+		*cap_id = ilog2(VSEC_CAP_CRASHLOG);
+		break;
+	case VSEC_ID_SDSI:
+		*cap_id = ilog2(VSEC_CAP_SDSI);
+		break;
+	case VSEC_ID_TPMI:
+		*cap_id = ilog2(VSEC_CAP_TPMI);
+		break;
+	case VSEC_ID_DISCOVERY:
+		*cap_id = ilog2(VSEC_CAP_DISCOVERY);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int intel_vsec_register_device(struct device *dev,
+				      struct intel_vsec_header *header,
+				      const struct intel_vsec_platform_info *info,
+				      u64 base_addr)
+{
+	const struct vsec_feature_dependency *consumer_deps;
+	struct vsec_priv *priv;
+	struct pci_dev *pdev;
+	unsigned long cap_id;
+	int ret;
+
+	ret = get_cap_id(header->id, &cap_id);
+	if (ret)
+		return ret;
+
+	/*
+	 * Only track dependencies for devices probed by the VSEC driver.
+	 * For others using the exported APIs, add the device directly.
+	 */
+	if (!dev_is_pci(dev))
+		return intel_vsec_add_dev(dev, header, info, cap_id, base_addr);
+
+	pdev = to_pci_dev(dev);
+	if (!pci_match_id(intel_vsec_pci_ids, pdev))
+		return intel_vsec_add_dev(dev, header, info, cap_id, base_addr);
+
+	priv = pci_get_drvdata(pdev);
+	if (priv->state[cap_id] == STATE_REGISTERED ||
+	    priv->state[cap_id] == STATE_SKIP)
+		return -EEXIST;
+
+	priv->found_caps |= BIT(cap_id);
+
+	if (!vsec_driver_present(cap_id)) {
+		priv->state[cap_id] = STATE_SKIP;
+		return -ENODEV;
+	}
+
+	consumer_deps = get_consumer_dependencies(priv, cap_id);
+	if (!consumer_deps || suppliers_ready(priv, consumer_deps, cap_id)) {
+		ret = intel_vsec_add_dev(dev, header, info, cap_id, base_addr);
+		if (ret)
+			priv->state[cap_id] = STATE_SKIP;
+		else
+			priv->state[cap_id] = STATE_REGISTERED;
+
+		return ret;
+	}
+
+	return -EAGAIN;
+}
+
+static bool intel_vsec_walk_header(struct device *dev,
+				   const struct intel_vsec_platform_info *info)
 {
 	struct intel_vsec_header **header = info->headers;
 	bool have_devices = false;
 	int ret;
 
 	for ( ; *header; header++) {
-		ret = intel_vsec_add_dev(pdev, *header, info);
+		ret = intel_vsec_register_device(dev, *header, info, info->base_addr);
 		if (!ret)
 			have_devices = true;
 	}
@@ -244,7 +501,7 @@ static bool intel_vsec_walk_header(struct pci_dev *pdev,
 }
 
 static bool intel_vsec_walk_dvsec(struct pci_dev *pdev,
-				  struct intel_vsec_platform_info *info)
+				  const struct intel_vsec_platform_info *info)
 {
 	bool have_devices = false;
 	int pos = 0;
@@ -283,7 +540,8 @@ static bool intel_vsec_walk_dvsec(struct pci_dev *pdev,
 		pci_read_config_dword(pdev, pos + PCI_DVSEC_HEADER2, &hdr);
 		header.id = PCI_DVSEC_HEADER2_ID(hdr);
 
-		ret = intel_vsec_add_dev(pdev, &header, info);
+		ret = intel_vsec_register_device(&pdev->dev, &header, info,
+						 pci_resource_start(pdev, header.tbir));
 		if (ret)
 			continue;
 
@@ -294,7 +552,7 @@ static bool intel_vsec_walk_dvsec(struct pci_dev *pdev,
 }
 
 static bool intel_vsec_walk_vsec(struct pci_dev *pdev,
-				 struct intel_vsec_platform_info *info)
+				 const struct intel_vsec_platform_info *info)
 {
 	bool have_devices = false;
 	int pos = 0;
@@ -328,7 +586,8 @@ static bool intel_vsec_walk_vsec(struct pci_dev *pdev,
 		header.tbir = INTEL_DVSEC_TABLE_BAR(table);
 		header.offset = INTEL_DVSEC_TABLE_OFFSET(table);
 
-		ret = intel_vsec_add_dev(pdev, &header, info);
+		ret = intel_vsec_register_device(&pdev->dev, &header, info,
+						 pci_resource_start(pdev, header.tbir));
 		if (ret)
 			continue;
 
@@ -338,46 +597,137 @@ static bool intel_vsec_walk_vsec(struct pci_dev *pdev,
 	return have_devices;
 }
 
-void intel_vsec_register(struct pci_dev *pdev,
-			 struct intel_vsec_platform_info *info)
+int intel_vsec_register(struct device *dev,
+			const struct intel_vsec_platform_info *info)
 {
-	if (!pdev || !info || !info->headers)
-		return;
+	if (!dev || !info || !info->headers)
+		return -EINVAL;
 
-	intel_vsec_walk_header(pdev, info);
+	if (!intel_vsec_walk_header(dev, info))
+		return -ENODEV;
+	else
+		return 0;
 }
 EXPORT_SYMBOL_NS_GPL(intel_vsec_register, INTEL_VSEC);
 
+static bool intel_vsec_get_features(struct pci_dev *pdev,
+				    const struct intel_vsec_platform_info *info)
+{
+	bool found = false;
+
+	/*
+	 * Both DVSEC and VSEC capabilities can exist on the same device,
+	 * so both intel_vsec_walk_dvsec() and intel_vsec_walk_vsec() must be
+	 * called independently. Additionally, intel_vsec_walk_header() is
+	 * needed for devices that do not have VSEC/DVSEC but provide the
+	 * information via device_data.
+	 */
+	if (intel_vsec_walk_dvsec(pdev, info))
+		found = true;
+
+	if (intel_vsec_walk_vsec(pdev, info))
+		found = true;
+
+	if (info && (info->quirks & VSEC_QUIRK_NO_DVSEC) &&
+	    intel_vsec_walk_header(&pdev->dev, info))
+		found = true;
+
+	return found;
+}
+
+static void intel_vsec_skip_missing_dependencies(struct pci_dev *pdev)
+{
+	struct vsec_priv *priv = pci_get_drvdata(pdev);
+	const struct vsec_feature_dependency *deps = priv->info->deps;
+	int consumer_id = priv->info->num_deps;
+
+	while (consumer_id--) {
+		int supplier_id;
+
+		deps = &priv->info->deps[consumer_id];
+
+		for_each_set_bit(supplier_id, &deps->supplier_bitmap, VSEC_FEATURE_COUNT) {
+			if (!(BIT(supplier_id) & priv->found_caps))
+				priv->state[supplier_id] = STATE_SKIP;
+		}
+	}
+}
+
 static int intel_vsec_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
-	struct intel_vsec_platform_info *info;
-	bool have_devices = false;
-	int ret;
+	const struct intel_vsec_platform_info *info;
+	struct vsec_priv *priv;
+	int num_caps, ret;
+	int run_once = 0;
+	bool found_any = false;
 
 	ret = pcim_enable_device(pdev);
 	if (ret)
 		return ret;
 
 	pci_save_state(pdev);
-	info = (struct intel_vsec_platform_info *)id->driver_data;
+	info = (const struct intel_vsec_platform_info *)id->driver_data;
 	if (!info)
 		return -EINVAL;
 
-	if (intel_vsec_walk_dvsec(pdev, info))
-		have_devices = true;
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
 
-	if (intel_vsec_walk_vsec(pdev, info))
-		have_devices = true;
+	priv->info = info;
+	pci_set_drvdata(pdev, priv);
 
-	if (info && (info->quirks & VSEC_QUIRK_NO_DVSEC) &&
-	    intel_vsec_walk_header(pdev, info))
-		have_devices = true;
+	num_caps = hweight_long(info->caps);
+	while (num_caps--) {
+		found_any |= intel_vsec_get_features(pdev, info);
 
-	if (!have_devices)
+		if (priv->found_caps == info->caps)
+			break;
+
+		if (!run_once) {
+			intel_vsec_skip_missing_dependencies(pdev);
+			run_once = 1;
+		}
+	}
+
+	if (!found_any)
 		return -ENODEV;
 
 	return 0;
 }
+
+int intel_vsec_set_mapping(struct oobmsm_plat_info *plat_info,
+			   struct intel_vsec_device *vsec_dev)
+{
+	struct vsec_priv *priv;
+
+	if (!dev_is_pci(vsec_dev->dev))
+		return -ENODEV;
+
+	priv = pci_get_drvdata(to_pci_dev(vsec_dev->dev));
+	if (!priv)
+		return -EINVAL;
+
+	priv->plat_info = *plat_info;
+
+	return 0;
+}
+EXPORT_SYMBOL_NS_GPL(intel_vsec_set_mapping, INTEL_VSEC);
+
+struct oobmsm_plat_info *intel_vsec_get_mapping(struct pci_dev *pdev)
+{
+	struct vsec_priv *priv;
+
+	if (!pci_match_id(intel_vsec_pci_ids, pdev))
+		return ERR_PTR(-EINVAL);
+
+	priv = pci_get_drvdata(pdev);
+	if (!priv)
+		return ERR_PTR(-EINVAL);
+
+	return &priv->plat_info;
+}
+EXPORT_SYMBOL_NS_GPL(intel_vsec_get_mapping, INTEL_VSEC);
 
 /* DG1 info */
 static struct intel_vsec_header dg1_header = {
@@ -405,9 +755,26 @@ static const struct intel_vsec_platform_info mtl_info = {
 	.caps = VSEC_CAP_TELEMETRY,
 };
 
+static const struct vsec_feature_dependency oobmsm_deps[] = {
+	{
+		.feature = VSEC_CAP_TELEMETRY,
+		.supplier_bitmap = VSEC_CAP_DISCOVERY | VSEC_CAP_TPMI,
+	},
+};
+
 /* OOBMSM info */
 static const struct intel_vsec_platform_info oobmsm_info = {
-	.caps = VSEC_CAP_TELEMETRY | VSEC_CAP_SDSI | VSEC_CAP_TPMI,
+	.caps = VSEC_CAP_TELEMETRY | VSEC_CAP_SDSI | VSEC_CAP_TPMI |
+		VSEC_CAP_DISCOVERY,
+	.deps = oobmsm_deps,
+	.num_deps = ARRAY_SIZE(oobmsm_deps),
+};
+
+/* DMR OOBMSM info */
+static const struct intel_vsec_platform_info dmr_oobmsm_info = {
+	.caps = VSEC_CAP_TELEMETRY | VSEC_CAP_TPMI | VSEC_CAP_DISCOVERY,
+	.deps = oobmsm_deps,
+	.num_deps = ARRAY_SIZE(oobmsm_deps),
 };
 
 /* TGL info */
@@ -426,18 +793,26 @@ static const struct intel_vsec_platform_info lnl_info = {
 #define PCI_DEVICE_ID_INTEL_VSEC_MTL_M		0x7d0d
 #define PCI_DEVICE_ID_INTEL_VSEC_MTL_S		0xad0d
 #define PCI_DEVICE_ID_INTEL_VSEC_OOBMSM		0x09a7
+#define PCI_DEVICE_ID_INTEL_VSEC_OOBMSM_DMR	0x09a1
 #define PCI_DEVICE_ID_INTEL_VSEC_RPL		0xa77d
 #define PCI_DEVICE_ID_INTEL_VSEC_TGL		0x9a0d
 #define PCI_DEVICE_ID_INTEL_VSEC_LNL_M		0x647d
+#define PCI_DEVICE_ID_INTEL_VSEC_PTL		0xb07d
+#define PCI_DEVICE_ID_INTEL_VSEC_WCL		0xfd7d
+#define PCI_DEVICE_ID_INTEL_VSEC_NVL		0xd70d
 static const struct pci_device_id intel_vsec_pci_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, VSEC_ADL, &tgl_info) },
 	{ PCI_DEVICE_DATA(INTEL, VSEC_DG1, &dg1_info) },
 	{ PCI_DEVICE_DATA(INTEL, VSEC_MTL_M, &mtl_info) },
 	{ PCI_DEVICE_DATA(INTEL, VSEC_MTL_S, &mtl_info) },
 	{ PCI_DEVICE_DATA(INTEL, VSEC_OOBMSM, &oobmsm_info) },
+	{ PCI_DEVICE_DATA(INTEL, VSEC_OOBMSM_DMR, &dmr_oobmsm_info) },
 	{ PCI_DEVICE_DATA(INTEL, VSEC_RPL, &tgl_info) },
 	{ PCI_DEVICE_DATA(INTEL, VSEC_TGL, &tgl_info) },
 	{ PCI_DEVICE_DATA(INTEL, VSEC_LNL_M, &lnl_info) },
+	{ PCI_DEVICE_DATA(INTEL, VSEC_PTL, &mtl_info) },
+	{ PCI_DEVICE_DATA(INTEL, VSEC_WCL, &mtl_info) },
+	{ PCI_DEVICE_DATA(INTEL, VSEC_NVL, &mtl_info) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, intel_vsec_pci_ids);
@@ -477,7 +852,7 @@ static pci_ers_result_t intel_vsec_pci_slot_reset(struct pci_dev *pdev)
 
 	xa_for_each(&auxdev_array, index, intel_vsec_dev) {
 		/* check if pdev doesn't match */
-		if (pdev != intel_vsec_dev->pcidev)
+		if (&pdev->dev != intel_vsec_dev->dev)
 			continue;
 		devm_release_action(&pdev->dev, intel_vsec_remove_aux,
 				    &intel_vsec_dev->auxdev);

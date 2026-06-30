@@ -187,7 +187,7 @@ static int vxpocket_config(struct pcmcia_device *link)
 		/* overwrite the hardware information */
 		chip->hw = &vxp440_hw;
 		chip->type = vxp440_hw.type;
-		strcpy(chip->card->driver, vxp440_hw.name);
+		strscpy(chip->card->driver, vxp440_hw.name);
 	}
 
 	ret = pcmcia_request_io(link);
@@ -284,7 +284,13 @@ static int vxpocket_probe(struct pcmcia_device *p_dev)
 
 	vxp->p_dev = p_dev;
 
-	return vxpocket_config(p_dev);
+	err = vxpocket_config(p_dev);
+	if (err < 0) {
+		card_alloc &= ~(1 << i);
+		snd_card_free(card);
+		return err;
+	}
+	return 0;
 }
 
 static void vxpocket_detach(struct pcmcia_device *link)

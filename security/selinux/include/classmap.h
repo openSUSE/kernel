@@ -124,8 +124,6 @@ const struct security_class_mapping secclass_map[] = {
 	{ "key",
 	  { "view", "read", "write", "search", "link", "setattr", "create",
 	    NULL } },
-	{ "dccp_socket",
-	  { COMMON_SOCK_PERMS, "node_bind", "name_connect", NULL } },
 	{ "memprotect", { "mmap_zero", NULL } },
 	{ "peer", { "recv", NULL } },
 	{ "capability2", { COMMON_CAP2_PERMS, NULL } },
@@ -176,7 +174,7 @@ const struct security_class_mapping secclass_map[] = {
 	{ "perf_event",
 	  { "open", "cpu", "kernel", "tracepoint", "read", "write", NULL } },
 	{ "anon_inode", { COMMON_FILE_PERMS, NULL } },
-	{ "io_uring", { "override_creds", "sqpoll", "cmd", NULL } },
+	{ "io_uring", { "override_creds", "sqpoll", "cmd", "allowed", NULL } },
 	{ "user_namespace", { "create", NULL } },
 	{ NULL }
 };

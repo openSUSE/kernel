@@ -52,13 +52,32 @@ struct intel_tlv {
 	u8 val[];
 } __packed;
 
-#define BTINTEL_CNVI_BLAZARI		0x900
+#define BTINTEL_HCI_OP_RESET	0xfc01
+
+#define BTINTEL_CNVI_BLAZARI		0x900	/* BlazarI - Lunar Lake */
+#define BTINTEL_CNVI_BLAZARIW		0x901	/* BlazarIW - Wildcat Lake */
+#define BTINTEL_CNVI_GAP		0x910	/* Gale Peak2 - Meteor Lake */
+#define BTINTEL_CNVI_BLAZARU		0x930	/* BlazarU - Meteor Lake */
+#define BTINTEL_CNVI_SCP		0xA00	/* Scorpius Peak - Panther Lake */
+#define BTINTEL_CNVI_SCP2		0xA10	/* Scorpius Peak2 - Nova Lake */
+#define BTINTEL_CNVI_SCP2F		0xA20	/* Scorpius Peak2F - Nova Lake */
+
+/* CNVR */
+#define BTINTEL_CNVR_FMP2		0x910
 
 #define BTINTEL_IMG_BOOTLOADER		0x01	/* Bootloader image */
 #define BTINTEL_IMG_IML			0x02	/* Intermediate image */
 #define BTINTEL_IMG_OP			0x03	/* Operational image */
 
 #define BTINTEL_FWID_MAXLEN 64
+
+/* CNVi Hardware variant */
+#define BTINTEL_HWID_GAP	0x1c	/* Gale Peak2 - Meteor Lake */
+#define BTINTEL_HWID_BZRI	0x1e	/* BlazarI - Lunar Lake */
+#define BTINTEL_HWID_BZRU	0x1d	/* BlazarU - Meteor Lake */
+#define BTINTEL_HWID_SCP	0x1f	/* Scorpius Peak - Panther Lake */
+#define BTINTEL_HWID_SCP2	0x20	/* Scorpius Peak2 - Nova Lake */
+#define BTINTEL_HWID_BZRIW	0x22	/* BlazarIW - Wildcat Lake */
 
 struct intel_version_tlv {
 	u32	cnvi_top;
@@ -161,6 +180,26 @@ struct hci_ppag_enable_cmd {
 #define INTEL_TLV_DEBUG_EXCEPTION	0x02
 #define INTEL_TLV_TEST_EXCEPTION	0xDE
 
+struct btintel_cp_ddc_write {
+	u8	len;
+	__le16	id;
+	u8	data[];
+} __packed;
+
+/* Bluetooth SAR feature (BRDS), Revision 1 */
+struct btintel_sar_inc_pwr {
+	u8	revision;
+	u32	bt_sar_bios; /* Mode of SAR control to be used, 1:enabled in bios */
+	u32	inc_power_mode;  /* Increased power mode */
+	u8	sar_2400_chain_a; /* Sar power restriction LB */
+	u8	br;
+	u8	edr2;
+	u8	edr3;
+	u8	le;
+	u8	le_2mhz;
+	u8	le_lr;
+};
+
 #define INTEL_HW_PLATFORM(cnvx_bt)	((u8)(((cnvx_bt) & 0x0000ff00) >> 8))
 #define INTEL_HW_VARIANT(cnvx_bt)	((u8)(((cnvx_bt) & 0x003f0000) >> 16))
 #define INTEL_CNVX_TOP_TYPE(cnvx_top)	((cnvx_top) & 0x00000fff)
@@ -178,6 +217,7 @@ enum {
 	INTEL_ROM_LEGACY,
 	INTEL_ROM_LEGACY_NO_WBS_SUPPORT,
 	INTEL_ACPI_RESET_ACTIVE,
+	INTEL_WAIT_FOR_D0,
 
 	__INTEL_NUM_FLAGS,
 };

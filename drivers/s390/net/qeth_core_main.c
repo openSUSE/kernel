@@ -760,7 +760,7 @@ static void qeth_issue_ipa_msg(struct qeth_ipa_cmd *cmd, int rc,
 	if (rc)
 		QETH_DBF_MESSAGE(2, "IPA: %s(%#x) for device %x returned %#x \"%s\"\n",
 				 ipa_name, com, CARD_DEVID(card), rc,
-				 qeth_get_ipa_msg(rc));
+				 qeth_get_ipa_msg(com, rc));
 	else
 		QETH_DBF_MESSAGE(5, "IPA: %s(%#x) for device %x succeeded\n",
 				 ipa_name, com, CARD_DEVID(card));
@@ -7050,14 +7050,16 @@ int qeth_open(struct net_device *dev)
 	card->data.state = CH_STATE_UP;
 	netif_tx_start_all_queues(dev);
 
-	local_bh_disable();
 	qeth_for_each_output_queue(card, queue, i) {
 		netif_napi_add_tx(dev, &queue->napi, qeth_tx_poll);
 		napi_enable(&queue->napi);
+	}
+	napi_enable(&card->napi);
+
+	local_bh_disable();
+	qeth_for_each_output_queue(card, queue, i) {
 		napi_schedule(&queue->napi);
 	}
-
-	napi_enable(&card->napi);
 	napi_schedule(&card->napi);
 	/* kick-start the NAPI softirq: */
 	local_bh_enable();

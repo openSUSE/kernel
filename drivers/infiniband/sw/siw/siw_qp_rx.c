@@ -38,7 +38,7 @@ static int siw_rx_umem(struct siw_rx_stream *srx, struct siw_umem *umem,
 
 		p = siw_get_upage(umem, dest_addr);
 		if (unlikely(!p)) {
-			pr_warn("siw: %s: [QP %u]: bogus addr: %pK, %pK\n",
+			pr_warn("siw: %s: [QP %u]: bogus addr: %p, %p\n",
 				__func__, qp_id(rx_qp(srx)),
 				(void *)(uintptr_t)dest_addr,
 				(void *)(uintptr_t)umem->fp_addr);
@@ -51,7 +51,7 @@ static int siw_rx_umem(struct siw_rx_stream *srx, struct siw_umem *umem,
 		pg_off = dest_addr & ~PAGE_MASK;
 		bytes = min(len, (int)PAGE_SIZE - pg_off);
 
-		siw_dbg_qp(rx_qp(srx), "page %pK, bytes=%u\n", p, bytes);
+		siw_dbg_qp(rx_qp(srx), "page %p, bytes=%u\n", p, bytes);
 
 		dest = kmap_atomic(p);
 		rv = skb_copy_bits(srx->skb, srx->skb_offset, dest + pg_off,
@@ -67,10 +67,10 @@ static int siw_rx_umem(struct siw_rx_stream *srx, struct siw_umem *umem,
 
 			return -EFAULT;
 		}
-		if (srx->mpa_crc_hd) {
+		if (srx->mpa_crc_enabled) {
 			if (rdma_is_kernel_res(&rx_qp(srx)->base_qp.res)) {
-				crypto_shash_update(srx->mpa_crc_hd,
-					(u8 *)(dest + pg_off), bytes);
+				siw_crc_update(&srx->mpa_crc, dest + pg_off,
+					       bytes);
 				kunmap_atomic(dest);
 			} else {
 				kunmap_atomic(dest);
@@ -105,17 +105,17 @@ static int siw_rx_kva(struct siw_rx_stream *srx, void *kva, int len)
 {
 	int rv;
 
-	siw_dbg_qp(rx_qp(srx), "kva: 0x%pK, len: %u\n", kva, len);
+	siw_dbg_qp(rx_qp(srx), "kva: 0x%p, len: %u\n", kva, len);
 
 	rv = skb_copy_bits(srx->skb, srx->skb_offset, kva, len);
 	if (unlikely(rv)) {
-		pr_warn("siw: [QP %u]: %s, len %d, kva 0x%pK, rv %d\n",
+		pr_warn("siw: [QP %u]: %s, len %d, kva 0x%p, rv %d\n",
 			qp_id(rx_qp(srx)), __func__, len, kva, rv);
 
 		return rv;
 	}
-	if (srx->mpa_crc_hd)
-		crypto_shash_update(srx->mpa_crc_hd, (u8 *)kva, len);
+	if (srx->mpa_crc_enabled)
+		siw_crc_update(&srx->mpa_crc, kva, len);
 
 	srx->skb_offset += len;
 	srx->skb_copied += len;
@@ -966,16 +966,16 @@ static int siw_get_trailer(struct siw_qp *qp, struct siw_rx_stream *srx)
 	if (srx->fpdu_part_rem)
 		return -EAGAIN;
 
-	if (!srx->mpa_crc_hd)
+	if (!srx->mpa_crc_enabled)
 		return 0;
 
 	if (srx->pad)
-		crypto_shash_update(srx->mpa_crc_hd, tbuf, srx->pad);
+		siw_crc_update(&srx->mpa_crc, tbuf, srx->pad);
 	/*
 	 * CRC32 is computed, transmitted and received directly in NBO,
 	 * so there's never a reason to convert byte order.
 	 */
-	crypto_shash_final(srx->mpa_crc_hd, (u8 *)&crc_own);
+	siw_crc_final(&srx->mpa_crc, (u8 *)&crc_own);
 	crc_in = (__force __wsum)srx->trailer.crc;
 
 	if (unlikely(crc_in != crc_own)) {
@@ -1082,6 +1082,21 @@ static int siw_get_hdr(struct siw_rx_stream *srx)
 	}
 
 	/*
+	 * Peer-controlled mpa_len must not underflow srx->fpdu_part_rem
+	 * in siw_tcp_rx_data(); a negative value flows as a signed copy
+	 * length into siw_check_mem() and skb_copy_bits().
+	 */
+	if (unlikely(be16_to_cpu(c_hdr->mpa_len) + MPA_HDR_SIZE <
+		     iwarp_pktinfo[opcode].hdr_len)) {
+		pr_warn_ratelimited("siw: short mpa_len %u for opcode %u (hdr_len %u)\n",
+				    be16_to_cpu(c_hdr->mpa_len), opcode,
+				    iwarp_pktinfo[opcode].hdr_len);
+		siw_init_terminate(rx_qp(srx), TERM_ERROR_LAYER_LLP,
+				   LLP_ETYPE_MPA, LLP_ECODE_FPDU_START, 0);
+		return -EINVAL;
+	}
+
+	/*
 	 * DDP/RDMAP header receive completed. Check if the current
 	 * DDP segment starts a new RDMAP message or continues a previously
 	 * started RDMAP message.
@@ -1093,13 +1108,12 @@ static int siw_get_hdr(struct siw_rx_stream *srx)
 	 * (tagged/untagged). E.g., a WRITE can get intersected by a SEND,
 	 * but not by a READ RESPONSE etc.
 	 */
-	if (srx->mpa_crc_hd) {
+	if (srx->mpa_crc_enabled) {
 		/*
 		 * Restart CRC computation
 		 */
-		crypto_shash_init(srx->mpa_crc_hd);
-		crypto_shash_update(srx->mpa_crc_hd, (u8 *)c_hdr,
-				    srx->fpdu_part_rcvd);
+		siw_crc_init(&srx->mpa_crc);
+		siw_crc_update(&srx->mpa_crc, c_hdr, srx->fpdu_part_rcvd);
 	}
 	if (frx->more_ddp_segs) {
 		frx->first_ddp_seg = 0;
@@ -1436,7 +1450,8 @@ int siw_tcp_rx_data(read_descriptor_t *rd_desc, struct sk_buff *skb,
 		}
 		if (unlikely(rv != 0 && rv != -EAGAIN)) {
 			if ((srx->state > SIW_GET_HDR ||
-			     qp->rx_fpdu->more_ddp_segs) && run_completion)
+			     (qp->rx_fpdu && qp->rx_fpdu->more_ddp_segs)) &&
+			    run_completion)
 				siw_rdmap_complete(qp, rv);
 
 			siw_dbg_qp(qp, "rx error %d, rx state %d\n", rv,

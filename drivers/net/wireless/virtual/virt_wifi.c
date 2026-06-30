@@ -146,7 +146,7 @@ static void virt_wifi_inform_bss(struct wiphy *wiphy)
 	static const struct {
 		u8 tag;
 		u8 len;
-		u8 ssid[8];
+		u8 ssid[8] __nonstring;
 	} __packed ssid = {
 		.tag = WLAN_EID_SSID,
 		.len = VIRT_WIFI_SSID_LEN,
@@ -277,7 +277,9 @@ static void virt_wifi_connect_complete(struct work_struct *work)
 		priv->is_connected = true;
 
 	/* Schedules an event that acquires the rtnl lock. */
-	cfg80211_connect_result(priv->upperdev, requested_bss, NULL, 0, NULL, 0,
+	cfg80211_connect_result(priv->upperdev,
+				priv->is_connected ? fake_router_bssid : NULL,
+				NULL, 0, NULL, 0,
 				status, GFP_KERNEL);
 	netif_carrier_on(priv->upperdev);
 }

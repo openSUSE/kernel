@@ -144,9 +144,13 @@ struct link_service {
 	uint32_t (*dp_link_bandwidth_kbps)(
 		const struct dc_link *link,
 		const struct dc_link_settings *link_settings);
-	bool (*validate_dpia_bandwidth)(
-			const struct dc_stream_state *stream,
-			const unsigned int num_streams);
+	enum dc_status (*validate_dp_tunnel_bandwidth)(
+		const struct dc *dc,
+		const struct dc_state *new_ctx);
+
+	uint32_t (*dp_required_hblank_size_bytes)(
+		const struct dc_link *link,
+		struct dp_audio_bandwidth_params *audio_params);
 
 
 	/*************************** DPMS *************************************/
@@ -203,6 +207,9 @@ struct link_service {
 	bool (*dp_decide_link_settings)(
 		struct dc_stream_state *stream,
 		struct dc_link_settings *link_setting);
+	void (*dp_decide_tunnel_settings)(
+		struct dc_stream_state *stream,
+		struct dc_tunnel_settings *dp_tunnel_setting);
 	enum dp_link_encoding (*mst_decide_link_encoding_format)(
 			const struct dc_link *link);
 	bool (*edp_decide_link_settings)(struct dc_link *link,
@@ -214,10 +221,8 @@ struct link_service {
 
 
 	/*************************** DP DPIA/PHY ******************************/
-	int (*dpia_handle_usb4_bandwidth_allocation_for_link)(
+	void (*dpia_handle_usb4_bandwidth_allocation_for_link)(
 			struct dc_link *link, int peak_bw);
-	void (*dpia_handle_bw_alloc_response)(
-			struct dc_link *link, uint8_t bw, uint8_t result);
 	void (*dp_set_drive_settings)(
 		struct dc_link *link,
 		const struct link_resource *link_res,
@@ -248,8 +253,7 @@ struct link_service {
 			uint32_t *backlight_millinits_avg,
 			uint32_t *backlight_millinits_peak);
 	bool (*edp_set_backlight_level)(const struct dc_link *link,
-			uint32_t backlight_pwm_u16_16,
-			uint32_t frame_ramp);
+			struct set_backlight_level_params *backlight_level_params);
 	bool (*edp_set_backlight_level_nits)(struct dc_link *link,
 			bool isHDR,
 			uint32_t backlight_millinits,

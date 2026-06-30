@@ -667,6 +667,9 @@ int make_device_exclusive_range(struct mm_struct *mm, unsigned long start,
 				unsigned long end, struct page **pages,
 				void *arg);
 
+struct page *make_device_exclusive(struct mm_struct *mm, unsigned long addr,
+		void *owner, struct folio **foliop);
+
 /* Avoid racy checks */
 #define PVMW_SYNC		(1 << 0)
 /* Look for migration entries rather than present PTEs */
@@ -741,6 +744,9 @@ unsigned long page_address_in_vma(struct page *, struct vm_area_struct *);
  * returns the number of cleaned PTEs.
  */
 int folio_mkclean(struct folio *);
+
+int mapping_wrprotect_range(struct address_space *mapping, pgoff_t pgoff,
+		unsigned long pfn, unsigned long nr_pages);
 
 int pfn_mkclean_range(unsigned long pfn, unsigned long nr_pages, pgoff_t pgoff,
 		      struct vm_area_struct *vma);

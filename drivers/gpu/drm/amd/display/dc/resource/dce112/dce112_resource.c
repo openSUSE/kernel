@@ -629,7 +629,7 @@ static struct link_encoder *dce112_link_encoder_create(
 		kzalloc(sizeof(struct dce110_link_encoder), GFP_KERNEL);
 	int link_regs_id;
 
-	if (!enc110)
+	if (!enc110 || enc_init_data->hpd_source >= ARRAY_SIZE(link_enc_hpd_regs))
 		return NULL;
 
 	link_regs_id =
@@ -883,10 +883,10 @@ static enum dc_status build_mapped_resource(
 	return DC_OK;
 }
 
-bool dce112_validate_bandwidth(
+enum dc_status dce112_validate_bandwidth(
 	struct dc *dc,
 	struct dc_state *context,
-	bool fast_validate)
+	enum dc_validate_mode validate_mode)
 {
 	bool result = false;
 
@@ -952,7 +952,7 @@ bool dce112_validate_bandwidth(
 			context->bw_ctx.bw.dce.yclk_khz,
 			context->bw_ctx.bw.dce.blackout_recovery_time_us);
 	}
-	return result;
+	return result ? DC_OK : DC_FAIL_BANDWIDTH_VALIDATE;
 }
 
 enum dc_status resource_map_phy_clock_resources(

@@ -25,7 +25,9 @@
 #include <list.h>
 #include <xalloc.h>
 #include "modpost.h"
+#include "../../include/generated/autoconf.h"
 #include "../../include/linux/license.h"
+#include "../../include/generated/uapi/linux/suse_version.h"
 
 static bool module_enabled;
 /* Are we using CONFIG_MODVERSIONS? */
@@ -176,6 +178,7 @@ static struct module *new_module(const char *name, size_t namelen)
 	INIT_LIST_HEAD(&mod->unresolved_symbols);
 	INIT_LIST_HEAD(&mod->missing_namespaces);
 	INIT_LIST_HEAD(&mod->imported_namespaces);
+	INIT_LIST_HEAD(&mod->aliases);
 
 	memcpy(mod->name, name, namelen);
 	mod->name[namelen] = '\0';
@@ -339,8 +342,6 @@ static const char *sec_name(const struct elf_info *info, unsigned int secindex)
 
 	return sech_name(info, &info->sechdrs[secindex]);
 }
-
-#define strstarts(str, prefix) (strncmp(str, prefix, strlen(prefix)) == 0)
 
 static struct symbol *sym_add_exported(const char *name, struct module *mod,
 				       bool gpl_only, const char *namespace)
@@ -593,6 +594,10 @@ static int ignore_undef_symbol(struct elf_info *info, const char *symname)
 		/* Special register function linked on all modules during final link of .ko */
 		if (strstarts(symname, "_restgpr0_") ||
 		    strstarts(symname, "_savegpr0_") ||
+		    strstarts(symname, "_restgpr1_") ||
+		    strstarts(symname, "_savegpr1_") ||
+		    strstarts(symname, "_restfpr_") ||
+		    strstarts(symname, "_savefpr_") ||
 		    strstarts(symname, "_restvr_") ||
 		    strstarts(symname, "_savevr_") ||
 		    strcmp(symname, ".TOC.") == 0)
@@ -785,7 +790,7 @@ static void check_section(const char *modname, struct elf_info *elf,
 		".ltext", ".ltext.*"
 #define OTHER_TEXT_SECTIONS ".ref.text", ".head.text", ".spinlock.text", \
 		".fixup", ".entry.text", ".exception.text", \
-		".coldtext", ".softirqentry.text"
+		".coldtext", ".softirqentry.text", ".irqentry.text"
 
 #define ALL_TEXT_SECTIONS  ".init.text", ".exit.text", \
 		TEXT_SECTIONS, OTHER_TEXT_SECTIONS
@@ -1099,6 +1104,10 @@ static void check_export_symbol(struct module *mod, struct elf_info *elf,
 	}
 
 	data += strlen(data) + 1;	/* namespace */
+	if (data[0] == '"')
+		error("%s: %s: EXPORT_SYMBOL_NS used with a quoted namespace '%s'. Remove the quotes.\n",
+		      mod->name, name, data);
+
 	s = sym_add_exported(name, mod, is_gpl, data);
 
 	/*
@@ -1553,6 +1562,133 @@ static void mod_set_crcs(struct module *mod)
 	free(buf);
 }
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+/*
+ * Replace dashes with underscores.
+ * Dashes inside character range patterns (e.g. [0-9]) are left unchanged.
+ * (copied from module-init-tools/util.c)
+ */
+static char *underscores(char *string)
+{
+	unsigned int i;
+
+	if (!string)
+		return NULL;
+
+	for (i = 0; string[i]; i++) {
+		switch (string[i]) {
+		case '-':
+			string[i] = '_';
+			break;
+
+		case ']':
+			warn("Unmatched bracket in %s\n", string);
+			break;
+
+		case '[':
+			i += strcspn(&string[i], "]");
+			if (!string[i])
+				warn("Unmatched bracket in %s\n", string);
+			break;
+		}
+	}
+	return string;
+}
+
+/**
+  * Return a copy of the next line in a mmap'ed file.
+  * spaces in the beginning of the line is trimmed away.
+  * Return a pointer to a static buffer.
+  **/
+static char *get_next_line(unsigned long *pos, void *file, unsigned long size)
+{
+	static char line[4096];
+	int skip = 1;
+	size_t len = 0;
+	signed char *p = (signed char *)file + *pos;
+	char *s = line;
+
+	for (; *pos < size ; (*pos)++) {
+		if (skip && isspace(*p)) {
+			p++;
+			continue;
+		}
+		skip = 0;
+		if (*p != '\n' && (*pos < size)) {
+			len++;
+			*s++ = *p++;
+			if (len > 4095)
+				break; /* Too long, stop */
+		} else {
+			/* End of string */
+			*s = '\0';
+			return line;
+		}
+	}
+	/* End of buffer */
+	return NULL;
+}
+
+char *supported_file;
+unsigned long supported_size;
+
+static const char *supported(const char *modname)
+{
+	unsigned long pos = 0;
+	char *line;
+
+	/* In a first shot, do a simple linear scan. */
+	while ((line = get_next_line(&pos, supported_file,
+				     supported_size))) {
+		const char *how = "yes";
+		char *l = line;
+		char *pat_basename, *mod, *orig_mod, *mod_basename;
+
+		/* optional type-of-support flag */
+		for (l = line; *l != '\0'; l++) {
+			if (*l == ' ' || *l == '\t') {
+				*l = '\0';
+				how = l + 1;
+				break;
+			}
+		}
+		/* strip .ko extension */
+		l = line + strlen(line);
+		if (l - line > 3 && !strcmp(l-3, ".ko"))
+			*(l-3) = '\0';
+
+		/*
+		 * convert dashes to underscores in the last path component
+		 * of line and mod
+		 */
+		if ((pat_basename = strrchr(line, '/')))
+			pat_basename++;
+		else
+			pat_basename = line;
+		underscores(pat_basename);
+
+		orig_mod = mod = strdup(modname);
+		if ((mod_basename = strrchr(mod, '/')))
+			mod_basename++;
+		else
+			mod_basename = mod;
+		underscores(mod_basename);
+
+		/* only compare the last component if no wildcards are used */
+		if (strcspn(line, "[]*?") == strlen(line)) {
+			line = pat_basename;
+			mod = mod_basename;
+		}
+		if (!fnmatch(line, mod, 0)) {
+			free(orig_mod);
+			return how;
+		}
+		free(orig_mod);
+	}
+	return NULL;
+}
+#endif
+
 static void read_symbols(const char *modname)
 {
 	const char *symname;
@@ -1586,16 +1722,22 @@ static void read_symbols(const char *modname)
 			license = get_next_modinfo(&info, "license", license);
 		}
 
-		namespace = get_modinfo(&info, "import_ns");
-		while (namespace) {
+		for (namespace = get_modinfo(&info, "import_ns");
+		     namespace;
+		     namespace = get_next_modinfo(&info, "import_ns", namespace)) {
+			if (namespace[0] == '"')
+				error("%s: MODULE_IMPORT_NS used with a quoted namespace '%s'. Remove the quotes.\n",
+				      mod->name, namespace);
 			add_namespace(&mod->imported_namespaces, namespace);
-			namespace = get_next_modinfo(&info, "import_ns",
-						     namespace);
 		}
 
 		if (extra_warn && !get_modinfo(&info, "description"))
 			warn("missing MODULE_DESCRIPTION() in %s\n", modname);
 	}
+
+	/* Livepatch modules have unresolved symbols resolved by klp-convert */
+	if (get_modinfo(&info, "livepatch"))
+		mod->is_livepatch = true;
 
 	for (sym = info.symtab_start; sym < info.symtab_stop; sym++) {
 		symname = remove_dot(info.strtab + sym->st_name);
@@ -1675,6 +1817,46 @@ void buf_write(struct buffer *buf, const char *s, int len)
 	buf->pos += len;
 }
 
+/**
+ * verify_module_namespace() - does @modname have access to this symbol's @namespace
+ * @namespace: export symbol namespace
+ * @modname: module name
+ *
+ * If @namespace is prefixed with "module:" to indicate it is a module namespace
+ * then test if @modname matches any of the comma separated patterns.
+ *
+ * The patterns only support tail-glob.
+ */
+static bool verify_module_namespace(const char *namespace, const char *modname)
+{
+	size_t len, modlen = strlen(modname);
+	const char *prefix = "module:";
+	const char *sep;
+	bool glob;
+
+	if (!strstarts(namespace, prefix))
+		return false;
+
+	for (namespace += strlen(prefix); *namespace; namespace = sep) {
+		sep = strchrnul(namespace, ',');
+		len = sep - namespace;
+
+		glob = false;
+		if (sep[-1] == '*') {
+			len--;
+			glob = true;
+		}
+
+		if (*sep)
+			sep++;
+
+		if (strncmp(namespace, modname, len) == 0 && (glob || len == modlen))
+			return true;
+	}
+
+	return false;
+}
+
 static void check_exports(struct module *mod)
 {
 	struct symbol *s, *exp;
@@ -1683,10 +1865,18 @@ static void check_exports(struct module *mod)
 		const char *basename;
 		exp = find_symbol(s->name);
 		if (!exp) {
-			if (!s->weak && nr_unresolved++ < MAX_UNRESOLVED_REPORTS)
+			if (!s->weak && nr_unresolved++ < MAX_UNRESOLVED_REPORTS) {
+				/*
+				 * In case of livepatch module we allow
+				 * unresolved symbol with a specific format
+				 */
+				if (mod->is_livepatch &&
+				    strncmp(s->name, KLP_SYM_RELA, strlen(KLP_SYM_RELA)) == 0)
+					continue;
 				modpost_log(!warn_unresolved,
 					    "\"%s\" [%s.ko] undefined!\n",
 					    s->name, mod->name);
+			}
 			continue;
 		}
 		if (exp->module == mod) {
@@ -1706,7 +1896,8 @@ static void check_exports(struct module *mod)
 		else
 			basename = mod->name;
 
-		if (!contains_namespace(&mod->imported_namespaces, exp->namespace)) {
+		if (!verify_module_namespace(exp->namespace, basename) &&
+		    !contains_namespace(&mod->imported_namespaces, exp->namespace)) {
 			modpost_log(!allow_missing_ns_imports,
 				    "module %s uses symbol %s from namespace %s, but does not import it.\n",
 				    basename, exp->name, exp->namespace);
@@ -1817,6 +2008,15 @@ static void add_exported_symbols(struct buffer *buf, struct module *mod)
 	}
 }
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+static void add_supported_flag(struct buffer *b, struct module *mod)
+{
+	const char *how = supported(mod->name);
+	if (how)
+		buf_printf(b, "\nMODULE_INFO(supported, \"%s\");\n", how);
+}
+#endif
+
 /**
  * Record CRCs for unresolved symbols
  **/
@@ -1915,6 +2115,14 @@ static void write_buf(struct buffer *b, const char *fname)
 	}
 }
 
+static void add_suserelease(struct buffer *b, struct module *mod)
+{
+#ifdef SUSE_PRODUCT_SHORTNAME
+	buf_printf(b, "\n");
+	buf_printf(b, "MODULE_INFO(suserelease, \"%s\");\n",
+		   SUSE_PRODUCT_SHORTNAME);
+#endif
+}
 static void write_if_changed(struct buffer *b, const char *fname)
 {
 	char *tmp;
@@ -1966,15 +2174,27 @@ static void write_vmlinux_export_c_file(struct module *mod)
 static void write_mod_c_file(struct module *mod)
 {
 	struct buffer buf = { };
+	struct module_alias *alias, *next;
 	char fname[PATH_MAX];
 	int ret;
 
 	add_header(&buf, mod);
 	add_exported_symbols(&buf, mod);
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	add_supported_flag(&buf, mod);
+#endif
 	add_versions(&buf, mod);
 	add_depends(&buf, mod);
-	add_moddevtable(&buf, mod);
+
+	buf_printf(&buf, "\n");
+	list_for_each_entry_safe(alias, next, &mod->aliases, node) {
+		buf_printf(&buf, "MODULE_ALIAS(\"%s\");\n", alias->str);
+		list_del(&alias->node);
+		free(alias);
+	}
+
 	add_srcversion(&buf, mod);
+	add_suserelease(&buf, mod);
 
 	ret = snprintf(fname, sizeof(fname), "%s.mod.c", mod->name);
 	if (ret >= sizeof(fname)) {
@@ -1987,6 +2207,17 @@ static void write_mod_c_file(struct module *mod)
 free:
 	free(buf.p);
 }
+
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+static void read_supported(const char *fname)
+{
+	if (fname) {
+		supported_file = grab_file(fname, &supported_size);
+		if (!supported_file)
+			; /* ignore error */
+	}
+}
+#endif
 
 /* parse Module.symvers file. line format:
  * 0x12345678<tab>symbol<tab>module<tab>export<tab>namespace
@@ -2096,6 +2327,20 @@ static void write_namespace_deps_files(const char *fname)
 	free(ns_deps_buf.p);
 }
 
+static void write_livepatch_modules(const char *fname)
+{
+	struct buffer buf = { };
+	struct module *mod;
+
+	list_for_each_entry(mod, &modules, list) {
+		if (mod->is_livepatch)
+			buf_printf(&buf, "%s.o\n", mod->name);
+	}
+
+	write_if_changed(&buf, fname);
+	free(buf.p);
+}
+
 struct dump_list {
 	struct list_head list;
 	const char *file;
@@ -2126,11 +2371,15 @@ int main(int argc, char **argv)
 	char *missing_namespace_deps = NULL;
 	char *unused_exports_white_list = NULL;
 	char *dump_write = NULL, *files_source = NULL;
+	char *livepatch_modules = NULL;
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	const char *supported = NULL;
+#endif
 	int opt;
 	LIST_HEAD(dump_lists);
 	struct dump_list *dl, *dl2;
 
-	while ((opt = getopt(argc, argv, "ei:MmnT:to:au:WwENd:")) != -1) {
+	while ((opt = getopt(argc, argv, "ei:l:MmnT:to:au:WwENd:S:")) != -1) {
 		switch (opt) {
 		case 'e':
 			external_module = true;
@@ -2139,6 +2388,9 @@ int main(int argc, char **argv)
 			dl = xmalloc(sizeof(*dl));
 			dl->file = optarg;
 			list_add_tail(&dl->list, &dump_lists);
+			break;
+		case 'l':
+			livepatch_modules = optarg;
 			break;
 		case 'M':
 			module_enabled = true;
@@ -2179,10 +2431,19 @@ int main(int argc, char **argv)
 		case 'd':
 			missing_namespace_deps = optarg;
 			break;
+		case 'S':
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+			supported = optarg;
+#endif
+			break;
 		default:
 			exit(1);
 		}
 	}
+
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	read_supported(supported);
+#endif
 
 	check_host_endian();
 
@@ -2224,6 +2485,8 @@ int main(int argc, char **argv)
 
 	if (dump_write)
 		write_dump(dump_write);
+	if (livepatch_modules)
+		write_livepatch_modules(livepatch_modules);
 	if (sec_mismatch_count && !sec_mismatch_warn_only)
 		error("Section mismatches detected.\n"
 		      "Set CONFIG_SECTION_MISMATCH_WARN_ONLY=y to allow them.\n");

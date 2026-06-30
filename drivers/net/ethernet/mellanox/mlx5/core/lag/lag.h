@@ -39,6 +39,7 @@ struct lag_func {
 	struct mlx5_core_dev *dev;
 	struct net_device    *netdev;
 	bool has_drop;
+	struct mlx5_nb port_change_nb;
 };
 
 /* Used for collection of netdev event info. */
@@ -48,6 +49,7 @@ struct lag_tracker {
 	unsigned int is_bonded:1;
 	unsigned int has_inactive:1;
 	enum netdev_lag_hash hash_type;
+	u32 bond_speed_mbps;
 };
 
 /* LAG data of a ConnectX card.
@@ -66,7 +68,9 @@ struct mlx5_lag {
 	struct lag_tracker        tracker;
 	struct workqueue_struct   *wq;
 	struct delayed_work       bond_work;
+	struct work_struct        speed_update_work;
 	struct notifier_block     nb;
+	possible_net_t net;
 	struct lag_mp             lag_mp;
 	struct mlx5_lag_port_sel  port_sel;
 	/* Protect lag fields/state changes */
@@ -92,6 +96,7 @@ mlx5_lag_is_ready(struct mlx5_lag *ldev)
 	return test_bit(MLX5_LAG_FLAG_NDEVS_READY, &ldev->state_flags);
 }
 
+bool mlx5_lag_shared_fdb_supported(struct mlx5_lag *ldev);
 bool mlx5_lag_check_prereq(struct mlx5_lag *ldev);
 void mlx5_modify_lag(struct mlx5_lag *ldev,
 		     struct lag_tracker *tracker);
@@ -103,7 +108,7 @@ int mlx5_lag_dev_get_netdev_idx(struct mlx5_lag *ldev,
 				struct net_device *ndev);
 
 char *mlx5_get_str_port_sel_mode(enum mlx5_lag_mode mode, unsigned long flags);
-void mlx5_infer_tx_enabled(struct lag_tracker *tracker, u8 num_ports,
+void mlx5_infer_tx_enabled(struct lag_tracker *tracker, struct mlx5_lag *ldev,
 			   u8 *ports, int *num_enabled);
 
 void mlx5_ldev_add_debugfs(struct mlx5_core_dev *dev);
@@ -114,14 +119,37 @@ int mlx5_deactivate_lag(struct mlx5_lag *ldev);
 void mlx5_lag_add_devices(struct mlx5_lag *ldev);
 struct mlx5_devcom_comp_dev *mlx5_lag_get_devcom_comp(struct mlx5_lag *ldev);
 
+#ifdef CONFIG_MLX5_ESWITCH
+void mlx5_lag_set_vports_agg_speed(struct mlx5_lag *ldev);
+void mlx5_lag_reset_vports_speed(struct mlx5_lag *ldev);
+#else
+static inline void mlx5_lag_set_vports_agg_speed(struct mlx5_lag *ldev) {}
+static inline void mlx5_lag_reset_vports_speed(struct mlx5_lag *ldev) {}
+#endif
+
 static inline bool mlx5_lag_is_supported(struct mlx5_core_dev *dev)
 {
 	if (!MLX5_CAP_GEN(dev, vport_group_manager) ||
 	    !MLX5_CAP_GEN(dev, lag_master) ||
 	    MLX5_CAP_GEN(dev, num_lag_ports) < 2 ||
+	    mlx5_get_dev_index(dev) >= MLX5_MAX_PORTS ||
 	    MLX5_CAP_GEN(dev, num_lag_ports) > MLX5_MAX_PORTS)
 		return false;
 	return true;
 }
 
+#define mlx5_ldev_for_each(i, start_index, ldev) \
+	for (int tmp = start_index; tmp = mlx5_get_next_ldev_func(ldev, tmp), \
+	     i = tmp, tmp < MLX5_MAX_PORTS; tmp++)
+
+#define mlx5_ldev_for_each_reverse(i, start_index, end_index, ldev)      \
+	for (int tmp = start_index, tmp1 = end_index; \
+	     tmp = mlx5_get_pre_ldev_func(ldev, tmp, tmp1), \
+	     i = tmp, tmp >= tmp1; tmp--)
+
+int mlx5_get_pre_ldev_func(struct mlx5_lag *ldev, int start_idx, int end_idx);
+int mlx5_get_next_ldev_func(struct mlx5_lag *ldev, int start_idx);
+int mlx5_lag_get_dev_index_by_seq(struct mlx5_lag *ldev, int seq);
+int mlx5_lag_num_devs(struct mlx5_lag *ldev);
+int mlx5_lag_num_netdevs(struct mlx5_lag *ldev);
 #endif /* __MLX5_LAG_H__ */

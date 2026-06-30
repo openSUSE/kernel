@@ -77,6 +77,7 @@ static struct sdw_intel_link_dev *intel_link_dev_register(struct sdw_intel_res *
 		link->shim = res->mmio_base +  SDW_SHIM2_GENERIC_BASE(link_id);
 		link->shim_vs = res->mmio_base + SDW_SHIM2_VS_BASE(link_id);
 		link->shim_lock = res->eml_lock;
+		link->mic_privacy = res->mic_privacy;
 	}
 
 	link->ops = res->ops;
@@ -252,17 +253,16 @@ static struct sdw_intel_ctx
 			num_slaves++;
 	}
 
-	ctx->ids = kcalloc(num_slaves, sizeof(*ctx->ids), GFP_KERNEL);
-	if (!ctx->ids)
+	ctx->peripherals = kmalloc(struct_size(ctx->peripherals, array, num_slaves),
+				   GFP_KERNEL);
+	if (!ctx->peripherals)
 		goto err;
-
-	ctx->num_slaves = num_slaves;
+	ctx->peripherals->num_peripherals = num_slaves;
 	i = 0;
 	list_for_each_entry(link, &ctx->link_list, list) {
 		bus = &link->cdns->bus;
 		list_for_each_entry(slave, &bus->slaves, node) {
-			ctx->ids[i].id = slave->id;
-			ctx->ids[i].link_id = bus->link_id;
+			ctx->peripherals->array[i] = slave;
 			i++;
 		}
 	}
@@ -371,7 +371,7 @@ void sdw_intel_exit(struct sdw_intel_ctx *ctx)
 	}
 
 	sdw_intel_cleanup(ctx);
-	kfree(ctx->ids);
+	kfree(ctx->peripherals);
 	kfree(ctx->ldev);
 	kfree(ctx);
 }

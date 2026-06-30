@@ -843,11 +843,8 @@ mpt3sas_base_start_watchdog(struct MPT3SAS_ADAPTER *ioc)
 	/* initialize fault polling */
 
 	INIT_DELAYED_WORK(&ioc->fault_reset_work, _base_fault_reset_work);
-	snprintf(ioc->fault_reset_work_q_name,
-	    sizeof(ioc->fault_reset_work_q_name), "poll_%s%d_status",
-	    ioc->driver_name, ioc->id);
 	ioc->fault_reset_work_q = alloc_ordered_workqueue(
-		"%s", WQ_MEM_RECLAIM, ioc->fault_reset_work_q_name);
+		"poll_%s%d_status", WQ_MEM_RECLAIM, ioc->driver_name, ioc->id);
 	if (!ioc->fault_reset_work_q) {
 		ioc_err(ioc, "%s: failed (line=%d)\n", __func__, __LINE__);
 		return;
@@ -1202,6 +1199,11 @@ _base_sas_ioc_info(struct MPT3SAS_ADAPTER *ioc, MPI2DefaultReply_t *mpi_reply,
 		    ioc->sge_size;
 		func_str = "nvme_encapsulated";
 		break;
+	case MPI2_FUNCTION_MCTP_PASSTHROUGH:
+		frame_sz = sizeof(Mpi26MctpPassthroughRequest_t) +
+		    ioc->sge_size;
+		func_str = "mctp_passthru";
+		break;
 	default:
 		frame_sz = 32;
 		func_str = "unknown";
@@ -1415,7 +1417,13 @@ _base_display_reply_info(struct MPT3SAS_ADAPTER *ioc, u16 smid, u8 msix_index,
 
 	if (ioc_status & MPI2_IOCSTATUS_FLAG_LOG_INFO_AVAILABLE) {
 		loginfo = le32_to_cpu(mpi_reply->IOCLogInfo);
-		_base_sas_log_info(ioc, loginfo);
+		if (ioc->logging_level & MPT_DEBUG_REPLY)
+			_base_sas_log_info(ioc, loginfo);
+		else {
+			if (!((ioc_status & MPI2_IOCSTATUS_MASK) &
+			MPI2_IOCSTATUS_CONFIG_INVALID_PAGE))
+				_base_sas_log_info(ioc, loginfo);
+		}
 	}
 
 	if (ioc_status || loginfo) {
@@ -1553,6 +1561,8 @@ _base_get_cb_idx(struct MPT3SAS_ADAPTER *ioc, u16 smid)
 	int i;
 	u16 ctl_smid = ioc->scsiio_depth - INTERNAL_SCSIIO_CMDS_COUNT + 1;
 	u8 cb_idx = 0xFF;
+	u16 discovery_smid =
+	    ioc->shost->can_queue + INTERNAL_SCSIIO_FOR_DISCOVERY;
 
 	if (smid < ioc->hi_priority_smid) {
 		struct scsiio_tracker *st;
@@ -1561,8 +1571,10 @@ _base_get_cb_idx(struct MPT3SAS_ADAPTER *ioc, u16 smid)
 			st = _get_st_from_smid(ioc, smid);
 			if (st)
 				cb_idx = st->cb_idx;
-		} else if (smid == ctl_smid)
+		} else if (smid < discovery_smid)
 			cb_idx = ioc->ctl_cb_idx;
+		else
+			cb_idx = ioc->scsih_cb_idx;
 	} else if (smid < ioc->internal_smid) {
 		i = smid - ioc->hi_priority_smid;
 		cb_idx = ioc->hpr_lookup[i].cb_idx;
@@ -3163,7 +3175,7 @@ _base_request_irq(struct MPT3SAS_ADAPTER *ioc, u8 index)
 
 	if (index >= ioc->iopoll_q_start_index) {
 		qid = index - ioc->iopoll_q_start_index;
-		snprintf(reply_q->name, MPT_NAME_LENGTH, "%s%d-mq-poll%d",
+		scnprintf(reply_q->name, MPT_NAME_LENGTH, "%s%d-mq-poll%d",
 		    ioc->driver_name, ioc->id, qid);
 		reply_q->is_iouring_poll_q = 1;
 		ioc->io_uring_poll_queues[qid].reply_q = reply_q;
@@ -3172,10 +3184,10 @@ _base_request_irq(struct MPT3SAS_ADAPTER *ioc, u8 index)
 
 
 	if (ioc->msix_enable)
-		snprintf(reply_q->name, MPT_NAME_LENGTH, "%s%d-msix%d",
+		scnprintf(reply_q->name, MPT_NAME_LENGTH, "%s%d-msix%d",
 		    ioc->driver_name, ioc->id, index);
 	else
-		snprintf(reply_q->name, MPT_NAME_LENGTH, "%s%d",
+		scnprintf(reply_q->name, MPT_NAME_LENGTH, "%s%d",
 		    ioc->driver_name, ioc->id);
 	r = request_irq(pci_irq_vector(pdev, index), _base_interrupt,
 			IRQF_SHARED, reply_q->name, reply_q);
@@ -4874,6 +4886,12 @@ _base_display_ioc_capabilities(struct MPT3SAS_ADAPTER *ioc)
 		i++;
 	}
 
+	if (ioc->facts.IOCCapabilities &
+	    MPI26_IOCFACTS_CAPABILITY_MCTP_PASSTHRU) {
+		pr_cont("%sMCTP Passthru", i ? "," : "");
+		i++;
+	}
+
 	iounit_pg1_flags = le32_to_cpu(ioc->iounit_pg1.Flags);
 	if (!(iounit_pg1_flags & MPI2_IOUNITPAGE1_NATIVE_COMMAND_Q_DISABLE)) {
 		pr_cont("%sNCQ", i ? "," : "");
@@ -5627,10 +5645,9 @@ _base_static_config_pages(struct MPT3SAS_ADAPTER *ioc)
 	if (rc)
 		return rc;
 	if (!ioc->is_gen35_ioc && ioc->manu_pg11.EEDPTagMode == 0) {
-		pr_err("%s: overriding NVDATA EEDPTagMode setting\n",
+		pr_err("%s: overriding NVDATA EEDPTagMode setting from 0 to 1\n",
 		    ioc->name);
-		ioc->manu_pg11.EEDPTagMode &= ~0x3;
-		ioc->manu_pg11.EEDPTagMode |= 0x1;
+		ioc->manu_pg11.EEDPTagMode = 0x1;
 		mpt3sas_config_set_manufacturing_pg11(ioc, &mpi_reply,
 		    &ioc->manu_pg11);
 	}
@@ -7041,11 +7058,12 @@ _base_handshake_req_reply_wait(struct MPT3SAS_ADAPTER *ioc, int request_bytes,
 	int i;
 	u8 failed;
 	__le32 *mfp;
+	int ret_val;
 
 	/* make sure doorbell is not in use */
 	if ((ioc->base_readl_ext_retry(&ioc->chip->Doorbell) & MPI2_DOORBELL_USED)) {
 		ioc_err(ioc, "doorbell is in use (line=%d)\n", __LINE__);
-		return -EFAULT;
+		goto doorbell_diag_reset;
 	}
 
 	/* clear pending doorbell interrupts from previous state changes */
@@ -7135,6 +7153,10 @@ _base_handshake_req_reply_wait(struct MPT3SAS_ADAPTER *ioc, int request_bytes,
 			    le32_to_cpu(mfp[i]));
 	}
 	return 0;
+
+doorbell_diag_reset:
+	ret_val = _base_diag_reset(ioc);
+	return ret_val;
 }
 
 /**
@@ -8014,7 +8036,7 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 
 	mutex_lock(&ioc->hostdiag_unlock_mutex);
 	if (mpt3sas_base_unlock_and_get_host_diagnostic(ioc, &host_diagnostic))
-		goto out;
+		goto unlock;
 
 	hcb_size = ioc->base_readl(&ioc->chip->HCBSize);
 	drsprintk(ioc, ioc_info(ioc, "diag reset: issued\n"));
@@ -8034,7 +8056,7 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 			ioc_info(ioc,
 			    "Invalid host diagnostic register value\n");
 			_base_dump_reg_set(ioc);
-			goto out;
+			goto unlock;
 		}
 		if (!(host_diagnostic & MPI2_DIAG_RESET_ADAPTER))
 			break;
@@ -8070,17 +8092,19 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 		ioc_err(ioc, "%s: failed going to ready state (ioc_state=0x%x)\n",
 			__func__, ioc_state);
 		_base_dump_reg_set(ioc);
-		goto out;
+		goto fail;
 	}
 
 	pci_cfg_access_unlock(ioc->pdev);
 	ioc_info(ioc, "diag reset: SUCCESS\n");
 	return 0;
 
- out:
+unlock:
+	mutex_unlock(&ioc->hostdiag_unlock_mutex);
+
+fail:
 	pci_cfg_access_unlock(ioc->pdev);
 	ioc_err(ioc, "diag reset: FAILED\n");
-	mutex_unlock(&ioc->hostdiag_unlock_mutex);
 	return -EFAULT;
 }
 

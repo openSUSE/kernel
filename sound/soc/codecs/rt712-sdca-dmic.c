@@ -236,7 +236,6 @@ static int rt712_sdca_dmic_io_init(struct device *dev, struct sdw_slave *slave)
 	/* Mark Slave initialization complete */
 	rt712->hw_init = true;
 
-	pm_runtime_mark_last_busy(&slave->dev);
 	pm_runtime_put_autosuspend(&slave->dev);
 
 	dev_dbg(&slave->dev, "%s hw_init complete\n", __func__);
@@ -263,12 +262,8 @@ static int rt712_sdca_dmic_set_gain_get(struct snd_kcontrol *kcontrol,
 
 		if (!adc_vol_flag) /* boost gain */
 			ctl = regvalue / 0x0a00;
-		else { /* ADC gain */
-			if (adc_vol_flag)
-				ctl = p->max - (((0x1e00 - regvalue) & 0xffff) / interval_offset);
-			else
-				ctl = p->max - (((0 - regvalue) & 0xffff) / interval_offset);
-		}
+		else /* ADC gain */
+			ctl = p->max - (((0x1e00 - regvalue) & 0xffff) / interval_offset);
 
 		ucontrol->value.integer.value[i] = ctl;
 	}
@@ -434,8 +429,7 @@ static const struct snd_kcontrol_new rt712_sdca_dmic_snd_controls[] = {
 static int rt712_sdca_dmic_mux_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_dapm_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_soc_dapm_kcontrol_to_component(kcontrol);
 	struct rt712_sdca_dmic_priv *rt712 = snd_soc_component_get_drvdata(component);
 	unsigned int val = 0, mask_sft;
 
@@ -457,10 +451,8 @@ static int rt712_sdca_dmic_mux_get(struct snd_kcontrol *kcontrol,
 static int rt712_sdca_dmic_mux_put(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_dapm_kcontrol_component(kcontrol);
-	struct snd_soc_dapm_context *dapm =
-		snd_soc_dapm_kcontrol_dapm(kcontrol);
+	struct snd_soc_component *component = snd_soc_dapm_kcontrol_to_component(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kcontrol);
 	struct rt712_sdca_dmic_priv *rt712 = snd_soc_component_get_drvdata(component);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *item = ucontrol->value.enumerated.item;
@@ -884,7 +876,7 @@ static const struct sdw_device_id rt712_sdca_dmic_id[] = {
 };
 MODULE_DEVICE_TABLE(sdw, rt712_sdca_dmic_id);
 
-static int __maybe_unused rt712_sdca_dmic_dev_suspend(struct device *dev)
+static int rt712_sdca_dmic_dev_suspend(struct device *dev)
 {
 	struct rt712_sdca_dmic_priv *rt712 = dev_get_drvdata(dev);
 
@@ -897,7 +889,7 @@ static int __maybe_unused rt712_sdca_dmic_dev_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused rt712_sdca_dmic_dev_system_suspend(struct device *dev)
+static int rt712_sdca_dmic_dev_system_suspend(struct device *dev)
 {
 	struct rt712_sdca_dmic_priv *rt712_sdca = dev_get_drvdata(dev);
 
@@ -909,7 +901,7 @@ static int __maybe_unused rt712_sdca_dmic_dev_system_suspend(struct device *dev)
 
 #define RT712_PROBE_TIMEOUT 5000
 
-static int __maybe_unused rt712_sdca_dmic_dev_resume(struct device *dev)
+static int rt712_sdca_dmic_dev_resume(struct device *dev)
 {
 	struct sdw_slave *slave = dev_to_sdw_dev(dev);
 	struct rt712_sdca_dmic_priv *rt712 = dev_get_drvdata(dev);
@@ -941,8 +933,8 @@ regmap_sync:
 }
 
 static const struct dev_pm_ops rt712_sdca_dmic_pm = {
-	SET_SYSTEM_SLEEP_PM_OPS(rt712_sdca_dmic_dev_system_suspend, rt712_sdca_dmic_dev_resume)
-	SET_RUNTIME_PM_OPS(rt712_sdca_dmic_dev_suspend, rt712_sdca_dmic_dev_resume, NULL)
+	SYSTEM_SLEEP_PM_OPS(rt712_sdca_dmic_dev_system_suspend, rt712_sdca_dmic_dev_resume)
+	RUNTIME_PM_OPS(rt712_sdca_dmic_dev_suspend, rt712_sdca_dmic_dev_resume, NULL)
 };
 
 
@@ -978,7 +970,7 @@ static int rt712_sdca_dmic_sdw_remove(struct sdw_slave *slave)
 static struct sdw_driver rt712_sdca_dmic_sdw_driver = {
 	.driver = {
 		.name = "rt712-sdca-dmic",
-		.pm = &rt712_sdca_dmic_pm,
+		.pm = pm_ptr(&rt712_sdca_dmic_pm),
 	},
 	.probe = rt712_sdca_dmic_sdw_probe,
 	.remove = rt712_sdca_dmic_sdw_remove,

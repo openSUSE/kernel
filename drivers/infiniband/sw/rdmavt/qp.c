@@ -492,7 +492,7 @@ static int alloc_qpn(struct rvt_dev_info *rdi, struct rvt_qpn_table *qpt,
 {
 	u32 i, offset, max_scan, qpn;
 	struct rvt_qpn_map *map;
-	u32 ret;
+	int ret;
 	u32 max_qpn = exclude_prefix == RVT_AIP_QP_PREFIX ?
 		RVT_AIP_QPN_MAX : RVT_QPN_MAX;
 
@@ -510,7 +510,8 @@ static int alloc_qpn(struct rvt_dev_info *rdi, struct rvt_qpn_table *qpt,
 		else
 			qpt->flags |= n;
 		spin_unlock(&qpt->lock);
-		goto bail;
+
+		return ret;
 	}
 
 	qpn = qpt->last + qpt->incr;
@@ -530,7 +531,8 @@ static int alloc_qpn(struct rvt_dev_info *rdi, struct rvt_qpn_table *qpt,
 			if (!test_and_set_bit(offset, map->page)) {
 				qpt->last = qpn;
 				ret = qpn;
-				goto bail;
+
+				return ret;
 			}
 			offset += qpt->incr;
 			/*
@@ -565,10 +567,7 @@ static int alloc_qpn(struct rvt_dev_info *rdi, struct rvt_qpn_table *qpt,
 		qpn = mk_qpn(qpt, map, offset);
 	}
 
-	ret = -ENOMEM;
-
-bail:
-	return ret;
+	return -ENOMEM;
 }
 
 /**
@@ -1107,9 +1106,8 @@ int rvt_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 		}
 		/* initialize timers needed for rc qp */
 		timer_setup(&qp->s_timer, rvt_rc_timeout, 0);
-		hrtimer_init(&qp->s_rnr_timer, CLOCK_MONOTONIC,
-			     HRTIMER_MODE_REL);
-		qp->s_rnr_timer.function = rvt_rc_rnr_retry;
+		hrtimer_setup(&qp->s_rnr_timer, rvt_rc_rnr_retry, CLOCK_MONOTONIC,
+			      HRTIMER_MODE_REL);
 
 		/*
 		 * Driver needs to set up it's private QP structure and do any
@@ -2709,7 +2707,7 @@ int rvt_qp_iter_next(struct rvt_qp_iter *iter)
 				struct rvt_ibport *rvp;
 				int pidx;
 
-				pidx = n % rdi->ibdev.phys_port_cnt;
+				pidx = n / 2; /* QP0 and QP1 */
 				rvp = rdi->ports[pidx];
 				qp = rcu_dereference(rvp->qp[n & 1]);
 			} else {

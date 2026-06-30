@@ -114,7 +114,6 @@ struct bnxt_qplib_sge {
 	u32				size;
 };
 
-#define BNXT_QPLIB_QP_MAX_SGL	6
 struct bnxt_qplib_swq {
 	u64				wr_id;
 	int				next_idx;
@@ -154,7 +153,7 @@ struct bnxt_qplib_swqe {
 #define BNXT_QPLIB_SWQE_FLAGS_UC_FENCE			BIT(2)
 #define BNXT_QPLIB_SWQE_FLAGS_SOLICIT_EVENT		BIT(3)
 #define BNXT_QPLIB_SWQE_FLAGS_INLINE			BIT(4)
-	struct bnxt_qplib_sge		sg_list[BNXT_QPLIB_QP_MAX_SGL];
+	struct bnxt_qplib_sge		sg_list[BNXT_VAR_MAX_SGE];
 	int				num_sge;
 	/* Max inline data is 96 bytes */
 	u32				inline_len;
@@ -281,6 +280,7 @@ struct bnxt_qplib_qp {
 	u8				state;
 	u8				cur_qp_state;
 	u64				modify_flags;
+	u32				ext_modify_flags;
 	u32				max_inline_data;
 	u32				mtu;
 	u8				path_mtu;
@@ -299,6 +299,8 @@ struct bnxt_qplib_qp {
 	u32				dest_qpn;
 	u8				smac[6];
 	u16				vlan_id;
+	u16				port_id;
+	u16				udp_sport;
 	u8				nw_type;
 	struct bnxt_qplib_ah		ah;
 
@@ -343,7 +345,14 @@ struct bnxt_qplib_qp {
 	u32				msn;
 	u32				msn_tbl_sz;
 	bool				is_host_msn_tbl;
+	u8				tos_dscp;
+	u32				ugid_index;
+	u32				rate_limit;
+	u8				shaper_allocation_status;
 };
+
+#define BNXT_RE_MAX_MSG_SIZE	0x80000000
+#define BNXT_RE_INVAL_MSG_SIZE	0xFFFFFFFF
 
 #define BNXT_QPLIB_MAX_CQE_ENTRY_SIZE	sizeof(struct cq_base)
 
@@ -383,6 +392,26 @@ static inline bool bnxt_qplib_queue_full(struct bnxt_qplib_q *que,
 	return avail <= slots;
 }
 
+/* CQ coalescing parameters */
+struct bnxt_qplib_cq_coal_param {
+	u16 buf_maxtime;
+	u8 normal_maxbuf;
+	u8 during_maxbuf;
+	u8 en_ring_idle_mode;
+	u8 enable;
+};
+
+#define BNXT_QPLIB_CQ_COAL_DEF_BUF_MAXTIME		0x1
+#define BNXT_QPLIB_CQ_COAL_DEF_NORMAL_MAXBUF_P7		0x8
+#define BNXT_QPLIB_CQ_COAL_DEF_DURING_MAXBUF_P7		0x8
+#define BNXT_QPLIB_CQ_COAL_DEF_NORMAL_MAXBUF_P5		0x1
+#define BNXT_QPLIB_CQ_COAL_DEF_DURING_MAXBUF_P5		0x1
+#define BNXT_QPLIB_CQ_COAL_DEF_EN_RING_IDLE_MODE	0x1
+#define BNXT_QPLIB_CQ_COAL_MAX_BUF_MAXTIME		0x1bf
+#define BNXT_QPLIB_CQ_COAL_MAX_NORMAL_MAXBUF		0x1f
+#define BNXT_QPLIB_CQ_COAL_MAX_DURING_MAXBUF		0x1f
+#define BNXT_QPLIB_CQ_COAL_MAX_EN_RING_IDLE_MODE	0x1
+
 struct bnxt_qplib_cqe {
 	u8				status;
 	u8				type;
@@ -391,7 +420,7 @@ struct bnxt_qplib_cqe {
 	u16				cfa_meta;
 	u64				wr_id;
 	union {
-		__le32			immdata;
+		u32			immdata;
 		u32			invrkey;
 	};
 	u64				qp_handle;
@@ -445,6 +474,7 @@ struct bnxt_qplib_cq {
  */
 	spinlock_t			flush_lock; /* QP flush management */
 	u16				cnq_events;
+	struct bnxt_qplib_cq_coal_param	*coalescing;
 };
 
 #define BNXT_QPLIB_MAX_IRRQE_ENTRY_SIZE	sizeof(struct xrrq_irrq)
@@ -499,6 +529,7 @@ struct bnxt_qplib_nq {
 	struct tasklet_struct		nq_tasklet;
 	bool				requested;
 	int				budget;
+	u32				load;
 
 	cqn_handler_t			cqn_handler;
 	srqn_handler_t			srqn_handler;
@@ -520,8 +551,6 @@ int bnxt_qplib_enable_nq(struct pci_dev *pdev, struct bnxt_qplib_nq *nq,
 			 cqn_handler_t cqn_handler,
 			 srqn_handler_t srq_handler);
 int bnxt_qplib_create_srq(struct bnxt_qplib_res *res,
-			  struct bnxt_qplib_srq *srq);
-int bnxt_qplib_modify_srq(struct bnxt_qplib_res *res,
 			  struct bnxt_qplib_srq *srq);
 int bnxt_qplib_query_srq(struct bnxt_qplib_res *res,
 			 struct bnxt_qplib_srq *srq);

@@ -38,15 +38,15 @@ definitions:
       -
         name: dsa
       -
-        name: pci_pf
+        name: pci-pf
       -
-        name: pci_vf
+        name: pci-vf
       -
         name: virtual
       -
         name: unused
       -
-        name: pci_sf
+        name: pci-sf
   -
     type: enum
     name: port-fn-state
@@ -99,6 +99,8 @@ definitions:
         name: legacy
       -
         name: switchdev
+      -
+        name: switchdev-inactive
   -
     type: enum
     name: eswitch-inline-mode
@@ -202,6 +204,32 @@ definitions:
         name: exception
       -
         name: control
+  -
+    type: enum
+    name: var-attr-type
+    entries:
+      -
+        name: u8
+        value: 1
+      -
+        name: u16
+      -
+        name: u32
+      -
+        name: u64
+      -
+        name: string
+      -
+        name: flag
+      -
+        name: nul-string
+        value: 10
+      -
+        name: binary
+  -
+    name: rate-tc-index-max
+    type: const
+    value: 7
 
 attribute-sets:
   -
@@ -498,6 +526,7 @@ attribute-sets:
       -
         name: param-type
         type: u8
+        enum: var-attr-type
 
       # TODO: fill in the attributes in between
 
@@ -592,6 +621,7 @@ attribute-sets:
       -
         name: fmsg-obj-value-type
         type: u8
+        enum: var-attr-type
 
       # TODO: fill in the attributes in between
 
@@ -820,7 +850,23 @@ attribute-sets:
       -
         name: region-direct
         type: flag
+      -
+        name: rate-tc-bws
+        type: nest
+        multi-attr: true
+        nested-attributes: dl-rate-tc-bws
+      -
+        name: health-reporter-burst-period
+        type: u64
+        doc: Time (in msec) for recoveries before starting the grace period.
 
+      # TODO: fill in the attributes in between
+
+      -
+        name: param-reset-default
+        type: flag
+        doc: Request restoring parameter to its default value.
+        value: 183
   -
     name: dl-dev-stats
     subset-of: devlink
@@ -1115,7 +1161,7 @@ attribute-sets:
       -
         name: param-type
 
-      # TODO: fill in the attribute param-value-list
+        # TODO: fill in the attribute param-value-list
 
   -
     name: dl-region-snapshots
@@ -1184,6 +1230,8 @@ attribute-sets:
         name: health-reporter-dump-ts-ns
       -
         name: health-reporter-auto-dump
+      -
+        name: health-reporter-burst-period
 
   -
     name: dl-attr-stats
@@ -1225,6 +1273,22 @@ attribute-sets:
       -
         name: flash
         type: flag
+  -
+    name: dl-rate-tc-bws
+    name-prefix: devlink-rate-tc-attr-
+    attributes:
+      -
+        name: index
+        type: u8
+        checks:
+          max: rate-tc-index-max
+      -
+        name: bw
+        type: u32
+        doc: |
+             Specifies the bandwidth share assigned to the Traffic Class.
+             The bandwidth for the traffic class is determined
+             in proportion to the sum of the shares of all configured classes.
 
 operations:
   enum-model: directional
@@ -1242,7 +1306,7 @@ operations:
           attributes: &dev-id-attrs
             - bus-name
             - dev-name
-        reply:  &get-reply
+        reply: &get-reply
           value: 3
           attributes:
             - bus-name
@@ -1737,6 +1801,7 @@ operations:
             - param-type
             # param-value-data is missing here as the type is variable
             - param-value-cmode
+            - param-reset-default
 
     -
       name: region-get
@@ -1868,6 +1933,7 @@ operations:
             - info-version-fixed
             - info-version-running
             - info-version-stored
+            - info-board-serial-number
       dump:
         reply: *info-get-reply
 
@@ -1910,6 +1976,7 @@ operations:
             - health-reporter-graceful-period
             - health-reporter-auto-recover
             - health-reporter-auto-dump
+            - health-reporter-burst-period
 
     -
       name: health-reporter-recover
@@ -2149,6 +2216,7 @@ operations:
             - rate-tx-priority
             - rate-tx-weight
             - rate-parent-node-name
+            - rate-tc-bws
 
     -
       name: rate-new
@@ -2169,6 +2237,7 @@ operations:
             - rate-tx-priority
             - rate-tx-weight
             - rate-parent-node-name
+            - rate-tc-bws
 
     -
       name: rate-del

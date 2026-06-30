@@ -32,6 +32,8 @@ struct typec_altmode {
 	char				*desc;
 	const struct typec_altmode_ops	*ops;
 	const struct typec_cable_ops	*cable_ops;
+
+	void *suse_kabi_padding;
 };
 
 #define to_typec_altmode(d) container_of(d, struct typec_altmode, dev)
@@ -65,6 +67,8 @@ struct typec_altmode_ops {
 	int (*notify)(struct typec_altmode *altmode, unsigned long conf,
 		      void *data);
 	int (*activate)(struct typec_altmode *altmode, int activate);
+
+	void *suse_kabi_padding;
 };
 
 int typec_altmode_enter(struct typec_altmode *altmode, u32 *vdo);
@@ -88,6 +92,8 @@ struct typec_cable_ops {
 	int (*exit)(struct typec_altmode *altmode, enum typec_plug_index sop);
 	int (*vdm)(struct typec_altmode *altmode, enum typec_plug_index sop,
 		   const u32 hdr, const u32 *vdo, int cnt);
+
+	void *suse_kabi_padding;
 };
 
 int typec_cable_altmode_enter(struct typec_altmode *altmode, enum typec_plug_index sop, u32 *vdo);
@@ -186,6 +192,9 @@ struct typec_altmode_driver {
 	const struct typec_device_id *id_table;
 	int (*probe)(struct typec_altmode *altmode);
 	void (*remove)(struct typec_altmode *altmode);
+
+	void *suse_kabi_padding;
+
 	struct device_driver driver;
 };
 

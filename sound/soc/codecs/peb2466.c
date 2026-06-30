@@ -26,8 +26,7 @@ struct peb2466_lookup {
 	unsigned int count;
 };
 
-#define PEB2466_TLV_SIZE  (sizeof((unsigned int []){TLV_DB_SCALE_ITEM(0, 0, 0)}) / \
-			   sizeof(unsigned int))
+#define PEB2466_TLV_SIZE ARRAY_SIZE(((unsigned int[]){TLV_DB_SCALE_ITEM(0, 0, 0)}))
 
 struct peb2466_lkup_ctrl {
 	int reg;
@@ -277,7 +276,7 @@ static int peb2466_lkup_ctrl_put(struct snd_kcontrol *kcontrol,
 {
 	struct peb2466_lkup_ctrl *lkup_ctrl =
 		(struct peb2466_lkup_ctrl *)kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct peb2466 *peb2466 = snd_soc_component_get_drvdata(component);
 	unsigned int index;
 	int ret;
@@ -378,7 +377,7 @@ static const struct soc_enum peb2466_tg_freq[][2] = {
 static int peb2466_tg_freq_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct peb2466 *peb2466 = snd_soc_component_get_drvdata(component);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 
@@ -416,7 +415,7 @@ static int peb2466_tg_freq_get(struct snd_kcontrol *kcontrol,
 static int peb2466_tg_freq_put(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct peb2466 *peb2466 = snd_soc_component_get_drvdata(component);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *tg_freq_item;
@@ -1727,7 +1726,8 @@ end:
 	return ret;
 }
 
-static void peb2466_chip_gpio_set(struct gpio_chip *c, unsigned int offset, int val)
+static int peb2466_chip_gpio_set(struct gpio_chip *c, unsigned int offset,
+				 int val)
 {
 	struct peb2466 *peb2466 = gpiochip_get_data(c);
 	unsigned int xr_reg;
@@ -1741,14 +1741,14 @@ static void peb2466_chip_gpio_set(struct gpio_chip *c, unsigned int offset, int 
 		 */
 		dev_warn(&peb2466->spi->dev, "cannot set gpio %d (read-only)\n",
 			 offset);
-		return;
+		return -EINVAL;
 	}
 
 	ret = peb2466_chip_gpio_offset_to_data_regmask(offset, &xr_reg, &mask);
 	if (ret) {
 		dev_err(&peb2466->spi->dev, "cannot set gpio %d (%d)\n",
 			offset, ret);
-		return;
+		return ret;
 	}
 
 	ret = peb2466_chip_gpio_update_bits(peb2466, xr_reg, mask, val ? mask : 0);
@@ -1756,6 +1756,8 @@ static void peb2466_chip_gpio_set(struct gpio_chip *c, unsigned int offset, int 
 		dev_err(&peb2466->spi->dev, "set gpio %d (0x%x, 0x%x) failed (%d)\n",
 			offset, xr_reg, mask, ret);
 	}
+
+	return ret;
 }
 
 static int peb2466_chip_gpio_get(struct gpio_chip *c, unsigned int offset)
@@ -1880,7 +1882,9 @@ static int peb2466_chip_direction_output(struct gpio_chip *c, unsigned int offse
 		return -EINVAL;
 	}
 
-	peb2466_chip_gpio_set(c, offset, val);
+	ret = peb2466_chip_gpio_set(c, offset, val);
+	if (ret)
+		return ret;
 
 	if (offset < 16) {
 		/* SOx_{0,1} */
@@ -1941,7 +1945,7 @@ static int peb2466_gpio_init(struct peb2466 *peb2466)
 	peb2466->gpio.gpio_chip.direction_input = peb2466_chip_direction_input;
 	peb2466->gpio.gpio_chip.direction_output = peb2466_chip_direction_output;
 	peb2466->gpio.gpio_chip.get = peb2466_chip_gpio_get;
-	peb2466->gpio.gpio_chip.set = peb2466_chip_gpio_set;
+	peb2466->gpio.gpio_chip.set_rv = peb2466_chip_gpio_set;
 	peb2466->gpio.gpio_chip.can_sleep = true;
 
 	return devm_gpiochip_add_data(&peb2466->spi->dev, &peb2466->gpio.gpio_chip,

@@ -108,6 +108,7 @@ more memory-management documentation in Documentation/mm/index.rst.
    dma-isa-lpc
    swiotlb
    mm-api
+   cgroup
    genalloc
    pin_user_pages
    boot-time-mm

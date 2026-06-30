@@ -106,6 +106,7 @@ struct snd_sof_pdata {
 	const char *fw_filename;
 	const char *tplg_filename_prefix;
 	const char *tplg_filename;
+	bool disable_function_topology;
 
 	/* loadable external libraries available under this directory */
 	const char *fw_lib_prefix;
@@ -157,6 +158,9 @@ struct sof_dev_desc {
 
 	/* The platform supports DSPless mode */
 	bool dspless_mode_supported;
+
+	/* On demand DSP booting is possible on the platform */
+	bool on_demand_dsp_boot;
 
 	/* defaults paths for firmware, library and topology files */
 	const char *default_fw_path[SOF_IPC_TYPE_COUNT];

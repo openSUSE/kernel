@@ -24,6 +24,11 @@ static struct cpufreq_governor cpufreq_gov_performance = {
 	.limits		= cpufreq_gov_performance_limits,
 };
 
+struct cpufreq_governor *cpufreq_get_performance_governor(void)
+{
+	return &cpufreq_gov_performance;
+}
+
 #ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE
 struct cpufreq_governor *cpufreq_default_governor(void)
 {

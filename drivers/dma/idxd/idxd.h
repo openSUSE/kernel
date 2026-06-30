@@ -229,6 +229,7 @@ struct idxd_wq {
 	char name[WQ_NAME_SIZE + 1];
 	u64 max_xfer_bytes;
 	u32 max_batch_size;
+	u32 max_sgl_size;
 
 	/* Lock to protect upasid_xa access. */
 	struct mutex uc_lock;
@@ -254,6 +255,9 @@ struct idxd_hw {
 	struct opcap opcap;
 	u32 cmd_cap;
 	union iaa_cap_reg iaa_cap;
+	union dsacap0_reg dsacap0;
+	union dsacap1_reg dsacap1;
+	union dsacap2_reg dsacap2;
 };
 
 enum idxd_device_state {
@@ -347,6 +351,7 @@ struct idxd_device {
 
 	u64 max_xfer_bytes;
 	u32 max_batch_size;
+	u32 max_sgl_size;
 	int max_groups;
 	int max_engines;
 	int max_rdbufs;
@@ -374,6 +379,17 @@ struct idxd_device {
 	struct dentry *dbgfs_evl_file;
 
 	bool user_submission_safe;
+
+	struct idxd_saved_states *idxd_saved;
+};
+
+struct idxd_saved_states {
+	struct idxd_device saved_idxd;
+	struct idxd_evl saved_evl;
+	struct idxd_engine **saved_engines;
+	struct idxd_wq **saved_wqs;
+	struct idxd_group **saved_groups;
+	unsigned long *saved_wq_enable_map;
 };
 
 static inline unsigned int evl_ent_size(struct idxd_device *idxd)
@@ -680,6 +696,20 @@ static inline void idxd_wq_set_max_batch_size(int idxd_type, struct idxd_wq *wq,
 		wq->max_batch_size = max_batch_size;
 }
 
+static bool idxd_sgl_supported(struct idxd_device *idxd)
+{
+	return idxd->data->type == IDXD_TYPE_DSA &&
+	       idxd->hw.version >= DEVICE_VERSION_3 &&
+	       idxd->hw.dsacap0.sgl_formats;
+}
+
+static inline void idxd_wq_set_init_max_sgl_size(struct idxd_device *idxd,
+						 struct idxd_wq *wq)
+{
+	if (idxd_sgl_supported(idxd))
+		wq->max_sgl_size = 1U << idxd->hw.dsacap0.max_sgl_shift;
+}
+
 static inline void idxd_wqcfg_set_max_batch_shift(int idxd_type, union wqcfg *wqcfg,
 						  u32 max_batch_shift)
 {
@@ -725,8 +755,6 @@ static inline void idxd_desc_complete(struct idxd_desc *desc,
 				   &desc->txd, &status);
 }
 
-int idxd_register_bus_type(void);
-void idxd_unregister_bus_type(void);
 int idxd_register_devices(struct idxd_device *idxd);
 void idxd_unregister_devices(struct idxd_device *idxd);
 void idxd_wqs_quiesce(struct idxd_device *idxd);
@@ -742,6 +770,8 @@ void idxd_unmask_error_interrupts(struct idxd_device *idxd);
 
 /* device control */
 int idxd_device_drv_probe(struct idxd_dev *idxd_dev);
+int idxd_pci_probe_alloc(struct idxd_device *idxd, struct pci_dev *pdev,
+			 const struct pci_device_id *id);
 void idxd_device_drv_remove(struct idxd_dev *idxd_dev);
 int idxd_drv_enable_wq(struct idxd_wq *wq);
 void idxd_drv_disable_wq(struct idxd_wq *wq);

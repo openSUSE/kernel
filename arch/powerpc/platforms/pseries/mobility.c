@@ -22,12 +22,16 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/stringify.h>
+#include <linux/netdevice.h>
+#include <linux/rtnetlink.h>
+#include <net/net_namespace.h>
 
 #include <asm/machdep.h>
 #include <asm/nmi.h>
 #include <asm/rtas.h>
 #include "pseries.h"
 #include "vas.h"	/* vas_migration_handler() */
+#include "papr-hvpipe.h"	/* hvpipe_migration_handler() */
 #include "../../kernel/cacheinfo.h"
 
 static struct kobject *mobility_kobj;
@@ -359,6 +363,8 @@ static int pseries_devicetree_update(s32 scope)
 void post_mobility_fixup(void)
 {
 	int rc;
+	struct net_device *netdev;
+	struct net *net;
 
 	rtas_activate_firmware();
 
@@ -388,6 +394,22 @@ void post_mobility_fixup(void)
 
 	/* Reinitialise system information for hv-24x7 */
 	read_24x7_sys_info();
+
+	/* need to force a gratuitous ARP on running interfaces */
+	rtnl_lock();
+	for_each_net(net) {
+		for_each_netdev(net, netdev) {
+			if (netif_device_present(netdev) &&
+			    netif_running(netdev) &&
+			    !(netdev->flags & (IFF_NOARP | IFF_LOOPBACK))) {
+				call_netdevice_notifiers(NETDEV_NOTIFY_PEERS,
+							 netdev);
+				call_netdevice_notifiers(NETDEV_RESEND_IGMP,
+							 netdev);
+			}
+		}
+	}
+	rtnl_unlock();
 
 	return;
 }
@@ -744,6 +766,7 @@ static int pseries_migrate_partition(u64 handle)
 	 * by closing VAS windows at the beginning of this function.
 	 */
 	vas_migration_handler(VAS_SUSPEND);
+	hvpipe_migration_handler(HVPIPE_SUSPEND);
 
 	ret = wait_for_vasi_session_suspending(handle);
 	if (ret)
@@ -770,6 +793,7 @@ static int pseries_migrate_partition(u64 handle)
 
 out:
 	vas_migration_handler(VAS_RESUME);
+	hvpipe_migration_handler(HVPIPE_RESUME);
 
 	return ret;
 }

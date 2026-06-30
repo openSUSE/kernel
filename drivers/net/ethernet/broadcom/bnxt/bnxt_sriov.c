@@ -16,7 +16,7 @@
 #include <linux/interrupt.h>
 #include <linux/etherdevice.h>
 #include <net/dcbnl.h>
-#include "bnxt_hsi.h"
+#include <linux/bnxt/hsi.h>
 #include "bnxt.h"
 #include "bnxt_hwrm.h"
 #include "bnxt_ulp.h"
@@ -332,6 +332,38 @@ int bnxt_set_vf_bw(struct net_device *dev, int vf_id, int min_tx_rate,
 	return rc;
 }
 
+static int bnxt_set_vf_link_admin_state(struct bnxt *bp, int vf_id)
+{
+	struct hwrm_func_cfg_input *req;
+	struct bnxt_vf_info *vf;
+	int rc;
+
+	if (!(bp->fw_cap & BNXT_FW_CAP_LINK_ADMIN))
+		return 0;
+
+	vf = &bp->pf.vf[vf_id];
+
+	rc = bnxt_hwrm_func_cfg_short_req_init(bp, &req);
+	if (rc)
+		return rc;
+
+	req->fid = cpu_to_le16(vf->fw_fid);
+	switch (vf->flags & (BNXT_VF_LINK_FORCED | BNXT_VF_LINK_UP)) {
+	case BNXT_VF_LINK_FORCED:
+		req->options =
+			FUNC_CFG_REQ_OPTIONS_LINK_ADMIN_STATE_FORCED_DOWN;
+		break;
+	case (BNXT_VF_LINK_FORCED | BNXT_VF_LINK_UP):
+		req->options = FUNC_CFG_REQ_OPTIONS_LINK_ADMIN_STATE_FORCED_UP;
+		break;
+	default:
+		req->options = FUNC_CFG_REQ_OPTIONS_LINK_ADMIN_STATE_AUTO;
+		break;
+	}
+	req->enables = cpu_to_le32(FUNC_CFG_REQ_ENABLES_ADMIN_LINK_STATE);
+	return hwrm_req_send(bp, req);
+}
+
 int bnxt_set_vf_link_state(struct net_device *dev, int vf_id, int link)
 {
 	struct bnxt *bp = netdev_priv(dev);
@@ -357,10 +389,11 @@ int bnxt_set_vf_link_state(struct net_device *dev, int vf_id, int link)
 		break;
 	default:
 		netdev_err(bp->dev, "Invalid link option\n");
-		rc = -EINVAL;
-		break;
+		return -EINVAL;
 	}
-	if (vf->flags & (BNXT_VF_LINK_UP | BNXT_VF_LINK_FORCED))
+	if (bp->fw_cap & BNXT_FW_CAP_LINK_ADMIN)
+		rc = bnxt_set_vf_link_admin_state(bp, vf_id);
+	else if (vf->flags & (BNXT_VF_LINK_UP | BNXT_VF_LINK_FORCED))
 		rc = bnxt_hwrm_fwd_async_event_cmpl(bp, vf,
 			ASYNC_EVENT_CMPL_EVENT_ID_LINK_STATUS_CHANGE);
 	return rc;
@@ -520,6 +553,63 @@ static int __bnxt_set_vf_params(struct bnxt *bp, int vf_id)
 	return hwrm_req_send(bp, req);
 }
 
+static void bnxt_hwrm_roce_sriov_cfg(struct bnxt *bp, int num_vfs)
+{
+	struct hwrm_func_qcaps_output *resp;
+	struct hwrm_func_cfg_input *cfg_req;
+	struct hwrm_func_qcaps_input *req;
+	int rc;
+
+	rc = hwrm_req_init(bp, req, HWRM_FUNC_QCAPS);
+	if (rc)
+		return;
+
+	req->fid = cpu_to_le16(0xffff);
+	resp = hwrm_req_hold(bp, req);
+	rc = hwrm_req_send(bp, req);
+	if (rc)
+		goto err;
+
+	rc = hwrm_req_init(bp, cfg_req, HWRM_FUNC_CFG);
+	if (rc)
+		goto err;
+
+	/* In case of VF Dynamic resource allocation, driver will provision
+	 * maximum resources to all the VFs. FW will dynamically allocate
+	 * resources to VFs on the fly, so always divide the resources by 1.
+	 */
+	if (BNXT_ROCE_VF_DYN_ALLOC_CAP(bp))
+		num_vfs = 1;
+
+	cfg_req->fid = cpu_to_le16(0xffff);
+	cfg_req->enables2 =
+		cpu_to_le32(FUNC_CFG_REQ_ENABLES2_ROCE_MAX_AV_PER_VF |
+			    FUNC_CFG_REQ_ENABLES2_ROCE_MAX_CQ_PER_VF |
+			    FUNC_CFG_REQ_ENABLES2_ROCE_MAX_MRW_PER_VF |
+			    FUNC_CFG_REQ_ENABLES2_ROCE_MAX_QP_PER_VF |
+			    FUNC_CFG_REQ_ENABLES2_ROCE_MAX_SRQ_PER_VF |
+			    FUNC_CFG_REQ_ENABLES2_ROCE_MAX_GID_PER_VF);
+	cfg_req->roce_max_av_per_vf =
+		cpu_to_le32(le32_to_cpu(resp->roce_vf_max_av) / num_vfs);
+	cfg_req->roce_max_cq_per_vf =
+		cpu_to_le32(le32_to_cpu(resp->roce_vf_max_cq) / num_vfs);
+	cfg_req->roce_max_mrw_per_vf =
+		cpu_to_le32(le32_to_cpu(resp->roce_vf_max_mrw) / num_vfs);
+	cfg_req->roce_max_qp_per_vf =
+		cpu_to_le32(le32_to_cpu(resp->roce_vf_max_qp) / num_vfs);
+	cfg_req->roce_max_srq_per_vf =
+		cpu_to_le32(le32_to_cpu(resp->roce_vf_max_srq) / num_vfs);
+	cfg_req->roce_max_gid_per_vf =
+		cpu_to_le32(le32_to_cpu(resp->roce_vf_max_gid) / num_vfs);
+
+	rc = hwrm_req_send(bp, cfg_req);
+
+err:
+	hwrm_req_drop(bp, req);
+	if (rc)
+		netdev_err(bp->dev, "RoCE sriov configuration failed\n");
+}
+
 /* Only called by PF to reserve resources for VFs, returns actual number of
  * VFs configured, or < 0 on error.
  */
@@ -609,15 +699,21 @@ static int bnxt_hwrm_func_vf_resc_cfg(struct bnxt *bp, int num_vfs, bool reset)
 
 	hwrm_req_hold(bp, req);
 	for (i = 0; i < num_vfs; i++) {
+		struct bnxt_vf_info *vf = &pf->vf[i];
+
+		vf->fw_fid = pf->first_vf_id + i;
+		rc = bnxt_set_vf_link_admin_state(bp, i);
+		if (rc)
+			break;
+
 		if (reset)
 			__bnxt_set_vf_params(bp, i);
 
-		req->vf_id = cpu_to_le16(pf->first_vf_id + i);
+		req->vf_id = cpu_to_le16(vf->fw_fid);
 		rc = hwrm_req_send(bp, req);
 		if (rc)
 			break;
 		pf->active_vfs = i + 1;
-		pf->vf[i].fw_fid = pf->first_vf_id + i;
 	}
 
 	if (pf->active_vfs) {
@@ -684,7 +780,13 @@ static int bnxt_hwrm_func_cfg(struct bnxt *bp, int num_vfs)
 				   FUNC_CFG_REQ_ENABLES_NUM_VNICS |
 				   FUNC_CFG_REQ_ENABLES_NUM_HW_RING_GRPS);
 
-	mtu = bp->dev->mtu + ETH_HLEN + VLAN_HLEN;
+	if (bp->fw_cap & BNXT_FW_CAP_LINK_ADMIN) {
+		req->options = FUNC_CFG_REQ_OPTIONS_LINK_ADMIN_STATE_AUTO;
+		req->enables |=
+			cpu_to_le32(FUNC_CFG_REQ_ENABLES_ADMIN_LINK_STATE);
+	}
+
+	mtu = bp->dev->mtu + VLAN_ETH_HLEN;
 	req->mru = cpu_to_le16(mtu);
 	req->admin_mtu = cpu_to_le16(mtu);
 
@@ -759,6 +861,9 @@ int bnxt_cfg_hw_sriov(struct bnxt *bp, int *num_vfs, bool reset)
 		*num_vfs = rc;
 	}
 
+	if (BNXT_RDMA_SRIOV_EN(bp) && BNXT_ROCE_VF_RESC_CAP(bp))
+		bnxt_hwrm_roce_sriov_cfg(bp, *num_vfs);
+
 	return 0;
 }
 
@@ -770,7 +875,7 @@ static int bnxt_sriov_enable(struct bnxt *bp, int *num_vfs)
 	int tx_ok = 0, rx_ok = 0, rss_ok = 0;
 	int avail_cp, avail_stat;
 
-	/* Check if we can enable requested num of vf's. At a mininum
+	/* Check if we can enable requested num of vf's. At a minimum
 	 * we require 1 RX 1 TX rings for each VF. In this minimum conf
 	 * features like TPA will not be available.
 	 */
@@ -866,7 +971,7 @@ err_out1:
 	return rc;
 }
 
-void bnxt_sriov_disable(struct bnxt *bp)
+void __bnxt_sriov_disable(struct bnxt *bp)
 {
 	u16 num_vfs = pci_num_vf(bp->pdev);
 
@@ -890,6 +995,14 @@ void bnxt_sriov_disable(struct bnxt *bp)
 	devl_unlock(bp->dl);
 
 	bnxt_free_vf_resources(bp);
+}
+
+static void bnxt_sriov_disable(struct bnxt *bp)
+{
+	if (!pci_num_vf(bp->pdev))
+		return;
+
+	__bnxt_sriov_disable(bp);
 
 	/* Reclaim all resources for the PF. */
 	rtnl_lock();
@@ -1262,7 +1375,7 @@ int bnxt_cfg_hw_sriov(struct bnxt *bp, int *num_vfs, bool reset)
 	return 0;
 }
 
-void bnxt_sriov_disable(struct bnxt *bp)
+void __bnxt_sriov_disable(struct bnxt *bp)
 {
 }
 

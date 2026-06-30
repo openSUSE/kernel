@@ -3363,9 +3363,9 @@ static int get_floppy_geometry(int drive, int type, struct floppy_struct **g)
 	return 0;
 }
 
-static int fd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
+static int fd_getgeo(struct gendisk *disk, struct hd_geometry *geo)
 {
-	int drive = (long)bdev->bd_disk->private_data;
+	int drive = (long)disk->private_data;
 	int type = ITYPE(drive_state[drive].fd_device);
 	struct floppy_struct *g;
 	int ret;
@@ -4596,7 +4596,6 @@ static int __init do_floppy_init(void)
 		tag_sets[drive].nr_maps = 1;
 		tag_sets[drive].queue_depth = 2;
 		tag_sets[drive].numa_node = NUMA_NO_NODE;
-		tag_sets[drive].flags = BLK_MQ_F_SHOULD_MERGE;
 		err = blk_mq_alloc_tag_set(&tag_sets[drive]);
 		if (err)
 			goto out_put_disk;

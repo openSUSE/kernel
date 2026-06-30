@@ -65,7 +65,6 @@
 #include <net/netlink.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
-#include <linux/dccp.h>
 #include <linux/sctp.h>
 #include <net/sctp/structs.h>
 #include <linux/quota.h>
@@ -1191,8 +1190,6 @@ static inline u16 socket_type_to_security_class(int family, int type, int protoc
 				return SECCLASS_ICMP_SOCKET;
 			else
 				return SECCLASS_RAWIP_SOCKET;
-		case SOCK_DCCP:
-			return SECCLASS_DCCP_SOCKET;
 		default:
 			return SECCLASS_RAWIP_SOCKET;
 		}
@@ -2916,7 +2913,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 {
 	const struct task_security_struct *tsec = selinux_cred(current_cred());
 	struct superblock_security_struct *sbsec;
-	struct xattr *xattr = lsm_get_xattr_slot(xattrs, xattr_count);
+	struct xattr *xattr;
 	u32 newsid, clen;
 	u16 newsclass;
 	int rc;
@@ -2942,6 +2939,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	    !(sbsec->flags & SBLABEL_MNT))
 		return -EOPNOTSUPP;
 
+	xattr = lsm_get_xattr_slot(xattrs, xattr_count);
 	if (xattr) {
 		rc = security_sid_to_context_force(newsid,
 						   &context, &clen);
@@ -3582,10 +3580,13 @@ static int selinux_kernfs_init_security(struct kernfs_node *kn_dir,
 		newsid = tsec->create_sid;
 	} else {
 		u16 secclass = inode_mode_to_security_class(kn->mode);
+		const char *kn_name;
 		struct qstr q;
 
-		q.name = kn->name;
-		q.hash_len = hashlen_string(kn_dir, kn->name);
+		/* kn is fresh, can't be renamed, name goes not away */
+		kn_name = rcu_dereference_check(kn->name, true);
+		q.name = kn_name;
+		q.hash_len = hashlen_string(kn_dir, kn_name);
 
 		rc = security_transition_sid(tsec->sid,
 					     parent_sid, secclass, &q,
@@ -4127,7 +4128,7 @@ static int selinux_kernel_read_file(struct file *file,
 
 	switch (id) {
 	case READING_MODULE:
-		rc = selinux_kernel_module_from_file(contents ? file : NULL);
+		rc = selinux_kernel_module_from_file(file);
 		break;
 	default:
 		break;
@@ -4340,22 +4341,6 @@ static int selinux_parse_skb_ipv4(struct sk_buff *skb,
 		break;
 	}
 
-	case IPPROTO_DCCP: {
-		struct dccp_hdr _dccph, *dh;
-
-		if (ntohs(ih->frag_off) & IP_OFFSET)
-			break;
-
-		offset += ihlen;
-		dh = skb_header_pointer(skb, offset, sizeof(_dccph), &_dccph);
-		if (dh == NULL)
-			break;
-
-		ad->u.net->sport = dh->dccph_sport;
-		ad->u.net->dport = dh->dccph_dport;
-		break;
-	}
-
 #if IS_ENABLED(CONFIG_IP_SCTP)
 	case IPPROTO_SCTP: {
 		struct sctphdr _sctph, *sh;
@@ -4431,18 +4416,6 @@ static int selinux_parse_skb_ipv6(struct sk_buff *skb,
 
 		ad->u.net->sport = uh->source;
 		ad->u.net->dport = uh->dest;
-		break;
-	}
-
-	case IPPROTO_DCCP: {
-		struct dccp_hdr _dccph, *dh;
-
-		dh = skb_header_pointer(skb, offset, sizeof(_dccph), &_dccph);
-		if (dh == NULL)
-			break;
-
-		ad->u.net->sport = dh->dccph_sport;
-		ad->u.net->dport = dh->dccph_dport;
 		break;
 	}
 
@@ -4789,10 +4762,6 @@ static int selinux_socket_bind(struct socket *sock, struct sockaddr *address, in
 			node_perm = UDP_SOCKET__NODE_BIND;
 			break;
 
-		case SECCLASS_DCCP_SOCKET:
-			node_perm = DCCP_SOCKET__NODE_BIND;
-			break;
-
 		case SECCLASS_SCTP_SOCKET:
 			node_perm = SCTP_SOCKET__NODE_BIND;
 			break;
@@ -4820,7 +4789,7 @@ out:
 	return err;
 err_af:
 	/* Note that SCTP services expect -EINVAL, others -EAFNOSUPPORT. */
-	if (sksec->sclass == SECCLASS_SCTP_SOCKET)
+	if (sk->sk_protocol == IPPROTO_SCTP)
 		return -EINVAL;
 	return -EAFNOSUPPORT;
 }
@@ -4848,11 +4817,10 @@ static int selinux_socket_connect_helper(struct socket *sock,
 		return 0;
 
 	/*
-	 * If a TCP, DCCP or SCTP socket, check name_connect permission
+	 * If a TCP or SCTP socket, check name_connect permission
 	 * for the port.
 	 */
 	if (sksec->sclass == SECCLASS_TCP_SOCKET ||
-	    sksec->sclass == SECCLASS_DCCP_SOCKET ||
 	    sksec->sclass == SECCLASS_SCTP_SOCKET) {
 		struct common_audit_data ad;
 		struct lsm_network_audit net = {0,};
@@ -4896,9 +4864,6 @@ static int selinux_socket_connect_helper(struct socket *sock,
 		switch (sksec->sclass) {
 		case SECCLASS_TCP_SOCKET:
 			perm = TCP_SOCKET__NAME_CONNECT;
-			break;
-		case SECCLASS_DCCP_SOCKET:
-			perm = DCCP_SOCKET__NAME_CONNECT;
 			break;
 		case SECCLASS_SCTP_SOCKET:
 			perm = SCTP_SOCKET__NAME_CONNECT;
@@ -6800,7 +6765,7 @@ static int selinux_ib_alloc_security(void *ib_sec)
 
 #ifdef CONFIG_BPF_SYSCALL
 static int selinux_bpf(int cmd, union bpf_attr *attr,
-				     unsigned int size)
+		       unsigned int size, bool kernel)
 {
 	u32 sid = current_sid();
 	int ret;
@@ -6850,14 +6815,14 @@ static int bpf_fd_pass(const struct file *file, u32 sid)
 
 	if (file->f_op == &bpf_map_fops) {
 		map = file->private_data;
-		bpfsec = map->security;
+		bpfsec = selinux_bpf_map_security(map);
 		ret = avc_has_perm(sid, bpfsec->sid, SECCLASS_BPF,
 				   bpf_map_fmode_to_av(file->f_mode), NULL);
 		if (ret)
 			return ret;
 	} else if (file->f_op == &bpf_prog_fops) {
 		prog = file->private_data;
-		bpfsec = prog->aux->security;
+		bpfsec = selinux_bpf_prog_security(prog);
 		ret = avc_has_perm(sid, bpfsec->sid, SECCLASS_BPF,
 				   BPF__PROG_RUN, NULL);
 		if (ret)
@@ -6871,7 +6836,7 @@ static int selinux_bpf_map(struct bpf_map *map, fmode_t fmode)
 	u32 sid = current_sid();
 	struct bpf_security_struct *bpfsec;
 
-	bpfsec = map->security;
+	bpfsec = selinux_bpf_map_security(map);
 	return avc_has_perm(sid, bpfsec->sid, SECCLASS_BPF,
 			    bpf_map_fmode_to_av(fmode), NULL);
 }
@@ -6881,55 +6846,31 @@ static int selinux_bpf_prog(struct bpf_prog *prog)
 	u32 sid = current_sid();
 	struct bpf_security_struct *bpfsec;
 
-	bpfsec = prog->aux->security;
+	bpfsec = selinux_bpf_prog_security(prog);
 	return avc_has_perm(sid, bpfsec->sid, SECCLASS_BPF,
 			    BPF__PROG_RUN, NULL);
 }
 
 static int selinux_bpf_map_create(struct bpf_map *map, union bpf_attr *attr,
-				  struct bpf_token *token)
+				  struct bpf_token *token, bool kernel)
 {
 	struct bpf_security_struct *bpfsec;
 
-	bpfsec = kzalloc(sizeof(*bpfsec), GFP_KERNEL);
-	if (!bpfsec)
-		return -ENOMEM;
-
+	bpfsec = selinux_bpf_map_security(map);
 	bpfsec->sid = current_sid();
-	map->security = bpfsec;
 
 	return 0;
-}
-
-static void selinux_bpf_map_free(struct bpf_map *map)
-{
-	struct bpf_security_struct *bpfsec = map->security;
-
-	map->security = NULL;
-	kfree(bpfsec);
 }
 
 static int selinux_bpf_prog_load(struct bpf_prog *prog, union bpf_attr *attr,
-				 struct bpf_token *token)
+				 struct bpf_token *token, bool kernel)
 {
 	struct bpf_security_struct *bpfsec;
 
-	bpfsec = kzalloc(sizeof(*bpfsec), GFP_KERNEL);
-	if (!bpfsec)
-		return -ENOMEM;
-
+	bpfsec = selinux_bpf_prog_security(prog);
 	bpfsec->sid = current_sid();
-	prog->aux->security = bpfsec;
 
 	return 0;
-}
-
-static void selinux_bpf_prog_free(struct bpf_prog *prog)
-{
-	struct bpf_security_struct *bpfsec = prog->aux->security;
-
-	prog->aux->security = NULL;
-	kfree(bpfsec);
 }
 
 static int selinux_bpf_token_create(struct bpf_token *token, union bpf_attr *attr,
@@ -6937,22 +6878,10 @@ static int selinux_bpf_token_create(struct bpf_token *token, union bpf_attr *att
 {
 	struct bpf_security_struct *bpfsec;
 
-	bpfsec = kzalloc(sizeof(*bpfsec), GFP_KERNEL);
-	if (!bpfsec)
-		return -ENOMEM;
-
+	bpfsec = selinux_bpf_token_security(token);
 	bpfsec->sid = current_sid();
-	token->security = bpfsec;
 
 	return 0;
-}
-
-static void selinux_bpf_token_free(struct bpf_token *token)
-{
-	struct bpf_security_struct *bpfsec = token->security;
-
-	token->security = NULL;
-	kfree(bpfsec);
 }
 #endif
 
@@ -6971,10 +6900,13 @@ struct lsm_blob_sizes selinux_blob_sizes __ro_after_init = {
 	.lbs_xattr_count = SELINUX_INODE_INIT_XATTRS,
 	.lbs_tun_dev = sizeof(struct tun_security_struct),
 	.lbs_ib = sizeof(struct ib_security_struct),
+	.lbs_bpf_map = sizeof(struct bpf_security_struct),
+	.lbs_bpf_prog = sizeof(struct bpf_security_struct),
+	.lbs_bpf_token = sizeof(struct bpf_security_struct),
 };
 
 #ifdef CONFIG_PERF_EVENTS
-static int selinux_perf_event_open(struct perf_event_attr *attr, int type)
+static int selinux_perf_event_open(int type)
 {
 	u32 requested, sid = current_sid();
 
@@ -7070,6 +7002,19 @@ static int selinux_uring_cmd(struct io_uring_cmd *ioucmd)
 
 	return avc_has_perm(current_sid(), isec->sid,
 			    SECCLASS_IO_URING, IO_URING__CMD, &ad);
+}
+
+/**
+ * selinux_uring_allowed - check if io_uring_setup() can be called
+ *
+ * Check to see if the current task is allowed to call io_uring_setup().
+ */
+static int selinux_uring_allowed(void)
+{
+	u32 sid = current_sid();
+
+	return avc_has_perm(sid, sid, SECCLASS_IO_URING, IO_URING__ALLOWED,
+			    NULL);
 }
 #endif /* CONFIG_IO_URING */
 
@@ -7308,9 +7253,6 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(bpf, selinux_bpf),
 	LSM_HOOK_INIT(bpf_map, selinux_bpf_map),
 	LSM_HOOK_INIT(bpf_prog, selinux_bpf_prog),
-	LSM_HOOK_INIT(bpf_map_free, selinux_bpf_map_free),
-	LSM_HOOK_INIT(bpf_prog_free, selinux_bpf_prog_free),
-	LSM_HOOK_INIT(bpf_token_free, selinux_bpf_token_free),
 #endif
 
 #ifdef CONFIG_PERF_EVENTS
@@ -7323,6 +7265,7 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(uring_override_creds, selinux_uring_override_creds),
 	LSM_HOOK_INIT(uring_sqpoll, selinux_uring_sqpoll),
 	LSM_HOOK_INIT(uring_cmd, selinux_uring_cmd),
+	LSM_HOOK_INIT(uring_allowed, selinux_uring_allowed),
 #endif
 
 	/*

@@ -160,15 +160,13 @@ static void output_urb_complete(struct urb *urb)
 {
 	struct snd_usb_midi2_urb *ctx = urb->context;
 	struct snd_usb_midi2_endpoint *ep = ctx->ep;
-	unsigned long flags;
 
-	spin_lock_irqsave(&ep->lock, flags);
+	guard(spinlock_irqsave)(&ep->lock);
 	set_bit(ctx->index, &ep->urb_free);
 	if (urb->status >= 0 && atomic_read(&ep->running))
 		submit_output_urbs_locked(ep);
 	if (ep->urb_free == ep->urb_free_mask)
 		wake_up(&ep->wait);
-	spin_unlock_irqrestore(&ep->lock, flags);
 }
 
 /* prepare for input submission: just set the buffer length */
@@ -189,10 +187,9 @@ static void input_urb_complete(struct urb *urb)
 {
 	struct snd_usb_midi2_urb *ctx = urb->context;
 	struct snd_usb_midi2_endpoint *ep = ctx->ep;
-	unsigned long flags;
 	int len;
 
-	spin_lock_irqsave(&ep->lock, flags);
+	guard(spinlock_irqsave)(&ep->lock);
 	if (ep->disconnected || urb->status < 0)
 		goto dequeue;
 	len = urb->actual_length;
@@ -208,22 +205,18 @@ static void input_urb_complete(struct urb *urb)
 	submit_input_urbs_locked(ep);
 	if (ep->urb_free == ep->urb_free_mask)
 		wake_up(&ep->wait);
-	spin_unlock_irqrestore(&ep->lock, flags);
 }
 
 /* URB submission helper; for both direction */
 static void submit_io_urbs(struct snd_usb_midi2_endpoint *ep)
 {
-	unsigned long flags;
-
 	if (!ep)
 		return;
-	spin_lock_irqsave(&ep->lock, flags);
+	guard(spinlock_irqsave)(&ep->lock);
 	if (ep->direction == STR_IN)
 		submit_input_urbs_locked(ep);
 	else
 		submit_output_urbs_locked(ep);
-	spin_unlock_irqrestore(&ep->lock, flags);
 }
 
 /* kill URBs for close, suspend and disconnect */
@@ -234,7 +227,7 @@ static void kill_midi_urbs(struct snd_usb_midi2_endpoint *ep, bool suspending)
 	if (!ep)
 		return;
 	if (suspending)
-		ep->suspended = ep->running;
+		atomic_set(&ep->suspended, atomic_read(&ep->running));
 	atomic_set(&ep->running, 0);
 	for (i = 0; i < ep->num_urbs; i++) {
 		if (!ep->urbs[i].urb)
@@ -248,13 +241,12 @@ static void drain_urb_queue(struct snd_usb_midi2_endpoint *ep)
 {
 	if (!ep)
 		return;
-	spin_lock_irq(&ep->lock);
+	guard(spinlock_irq)(&ep->lock);
 	atomic_set(&ep->running, 0);
 	wait_event_lock_irq_timeout(ep->wait,
 				    ep->disconnected ||
 				    ep->urb_free == ep->urb_free_mask,
 				    ep->lock, msecs_to_jiffies(500));
-	spin_unlock_irq(&ep->lock);
 }
 
 /* release URBs for an EP */
@@ -478,6 +470,11 @@ static int create_midi2_endpoint(struct snd_usb_midi2_interface *umidi,
 static void free_midi2_endpoint(struct snd_usb_midi2_endpoint *ep)
 {
 	list_del(&ep->list);
+	if (!ep->disconnected) {
+		ep->disconnected = 1;
+		kill_midi_urbs(ep, false);
+		drain_urb_queue(ep);
+	}
 	free_midi_urbs(ep);
 	kfree(ep);
 }
@@ -504,15 +501,17 @@ static void *find_usb_ms_endpoint_descriptor(struct usb_host_endpoint *hostep,
 	while (extralen > 3) {
 		struct usb_ms_endpoint_descriptor *ms_ep =
 			(struct usb_ms_endpoint_descriptor *)extra;
+		int length = ms_ep->bLength;
 
-		if (ms_ep->bLength > 3 &&
+		if (!length || length > extralen)
+			break;
+
+		if (length > 3 &&
 		    ms_ep->bDescriptorType == USB_DT_CS_ENDPOINT &&
 		    ms_ep->bDescriptorSubtype == subtype)
 			return ms_ep;
-		if (!extra[0])
-			break;
-		extralen -= extra[0];
-		extra += extra[0];
+		extralen -= length;
+		extra += length;
 	}
 	return NULL;
 }
@@ -1058,7 +1057,8 @@ static void set_fallback_rawmidi_names(struct snd_usb_midi2_interface *umidi)
 			fill_ump_ep_name(ump, dev, dev->descriptor.iProduct);
 		/* fill fallback name */
 		if (!*ump->info.name)
-			sprintf(ump->info.name, "USB MIDI %d", rmidi->index);
+			scnprintf(ump->info.name, sizeof(ump->info.name),
+				  "USB MIDI %d", rmidi->index);
 		/* copy as rawmidi name if not set */
 		if (!*ump->core.name)
 			strscpy(ump->core.name, ump->info.name,
@@ -1197,10 +1197,11 @@ void snd_usb_midi_v2_suspend_all(struct snd_usb_audio *chip)
 
 static void resume_midi2_endpoint(struct snd_usb_midi2_endpoint *ep)
 {
-	ep->running = ep->suspended;
-	if (ep->direction == STR_IN)
+	atomic_set(&ep->running, atomic_read(&ep->suspended));
+	atomic_set(&ep->suspended, 0);
+
+	if (ep->direction == STR_IN || atomic_read(&ep->running))
 		submit_io_urbs(ep);
-	/* FIXME: does it all? */
 }
 
 void snd_usb_midi_v2_resume_all(struct snd_usb_audio *chip)

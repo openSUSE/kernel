@@ -38,7 +38,7 @@
 #include "util/tracepoint.h"
 #include "util/util.h"
 #include <linux/err.h>
-#include <traceevent/event-parse.h>
+#include <event-parse.h>
 
 #ifdef LACKS_OPEN_MEMSTREAM_PROTOTYPE
 FILE *open_memstream(char **ptr, size_t *sizeloc);
@@ -1158,7 +1158,6 @@ static void draw_io_bars(struct timechart *tchart)
 			}
 
 			svg_box(Y, c->start_time, c->end_time, "process3");
-			sample = c->io_samples;
 			for (sample = c->io_samples; sample; sample = sample->next) {
 				double h = (double)sample->bytes / c->max_bytes;
 
@@ -1619,7 +1618,7 @@ static int __cmd_timechart(struct timechart *tchart, const char *output_name)
 	if (IS_ERR(session))
 		return PTR_ERR(session);
 
-	symbol__init(&session->header.env);
+	symbol__init(perf_session__env(session));
 
 	(void)perf_header__process_sections(&session->header,
 					    perf_data__fd(session->data),
@@ -1652,7 +1651,7 @@ out_delete:
 	return ret;
 }
 
-static int timechart__io_record(int argc, const char **argv)
+static int timechart__io_record(int argc, const char **argv, const char *output_data)
 {
 	unsigned int rec_argc, i;
 	const char **rec_argv;
@@ -1660,7 +1659,7 @@ static int timechart__io_record(int argc, const char **argv)
 	char *filter = NULL;
 
 	const char * const common_args[] = {
-		"record", "-a", "-R", "-c", "1",
+		"record", "-a", "-R", "-c", "1", "-o", output_data,
 	};
 	unsigned int common_args_nr = ARRAY_SIZE(common_args);
 
@@ -1787,7 +1786,8 @@ static int timechart__io_record(int argc, const char **argv)
 }
 
 
-static int timechart__record(struct timechart *tchart, int argc, const char **argv)
+static int timechart__record(struct timechart *tchart, int argc, const char **argv,
+			     const char *output_data)
 {
 	unsigned int rec_argc, i, j;
 	const char **rec_argv;
@@ -1795,7 +1795,7 @@ static int timechart__record(struct timechart *tchart, int argc, const char **ar
 	unsigned int record_elems;
 
 	const char * const common_args[] = {
-		"record", "-a", "-R", "-c", "1",
+		"record", "-a", "-R", "-c", "1", "-o", output_data,
 	};
 	unsigned int common_args_nr = ARRAY_SIZE(common_args);
 
@@ -1935,6 +1935,7 @@ int cmd_timechart(int argc, const char **argv)
 		.merge_dist = 1000,
 	};
 	const char *output_name = "output.svg";
+	const char *output_record_data = "perf.data";
 	const struct option timechart_common_options[] = {
 	OPT_BOOLEAN('P', "power-only", &tchart.power_only, "output power data only"),
 	OPT_BOOLEAN('T', "tasks-only", &tchart.tasks_only, "output processes data only"),
@@ -1977,6 +1978,7 @@ int cmd_timechart(int argc, const char **argv)
 	OPT_BOOLEAN('I', "io-only", &tchart.io_only,
 		    "record only IO data"),
 	OPT_BOOLEAN('g', "callchain", &tchart.with_backtrace, "record callchain"),
+	OPT_STRING('o', "output", &output_record_data, "file", "output data file name"),
 	OPT_PARENT(timechart_common_options),
 	};
 	const char * const timechart_record_usage[] = {
@@ -2025,9 +2027,9 @@ int cmd_timechart(int argc, const char **argv)
 		}
 
 		if (tchart.io_only)
-			ret = timechart__io_record(argc, argv);
+			ret = timechart__io_record(argc, argv, output_record_data);
 		else
-			ret = timechart__record(&tchart, argc, argv);
+			ret = timechart__record(&tchart, argc, argv, output_record_data);
 		goto out;
 	} else if (argc)
 		usage_with_options(timechart_usage, timechart_options);

@@ -146,6 +146,7 @@ static void slim_dev_release(struct device *dev)
 {
 	struct slim_device *sbdev = to_slim_device(dev);
 
+	of_node_put(sbdev->dev.of_node);
 	kfree(sbdev);
 }
 
@@ -280,7 +281,6 @@ EXPORT_SYMBOL_GPL(slim_register_controller);
 /* slim_remove_device: Remove the effect of slim_add_device() */
 static void slim_remove_device(struct slim_device *sbdev)
 {
-	of_node_put(sbdev->dev.of_node);
 	device_unregister(&sbdev->dev);
 }
 
@@ -328,7 +328,8 @@ void slim_report_absent(struct slim_device *sbdev)
 }
 EXPORT_SYMBOL_GPL(slim_report_absent);
 
-static bool slim_eaddr_equal(struct slim_eaddr *a, struct slim_eaddr *b)
+static bool slim_eaddr_equal(const struct slim_eaddr *a,
+			     const struct slim_eaddr *b)
 {
 	return (a->manf_id == b->manf_id &&
 		a->prod_code == b->prod_code &&
@@ -336,9 +337,9 @@ static bool slim_eaddr_equal(struct slim_eaddr *a, struct slim_eaddr *b)
 		a->instance == b->instance);
 }
 
-static int slim_match_dev(struct device *dev, void *data)
+static int slim_match_dev(struct device *dev, const void *data)
 {
-	struct slim_eaddr *e_addr = data;
+	const struct slim_eaddr *e_addr = data;
 	struct slim_device *sbdev = to_slim_device(dev);
 
 	return slim_eaddr_equal(&sbdev->e_addr, e_addr);
@@ -378,15 +379,17 @@ struct slim_device *slim_get_device(struct slim_controller *ctrl,
 		sbdev = slim_alloc_device(ctrl, e_addr, NULL);
 		if (!sbdev)
 			return ERR_PTR(-ENOMEM);
+
+		get_device(&sbdev->dev);
 	}
 
 	return sbdev;
 }
 EXPORT_SYMBOL_GPL(slim_get_device);
 
-static int of_slim_match_dev(struct device *dev, void *data)
+static int of_slim_match_dev(struct device *dev, const void *data)
 {
-	struct device_node *np = data;
+	const struct device_node *np = data;
 	struct slim_device *sbdev = to_slim_device(dev);
 
 	return (sbdev->dev.of_node == np);
@@ -410,11 +413,13 @@ static struct slim_device *of_find_slim_device(struct slim_controller *ctrl,
 /**
  * of_slim_get_device() - get handle to a device using dt node.
  *
- * @ctrl: Controller on which this device will be added/queried
+ * @ctrl: Controller on which this device will be queried
  * @np: node pointer to device
  *
- * Return: pointer to a device if it has already reported. Creates a new
- * device and returns pointer to it if the device has not yet enumerated.
+ * Takes a reference to the embedded struct device which needs to be dropped
+ * after use.
+ *
+ * Return: pointer to a device if it has been registered, otherwise NULL.
  */
 struct slim_device *of_slim_get_device(struct slim_controller *ctrl,
 				       struct device_node *np)
@@ -496,21 +501,24 @@ int slim_device_report_present(struct slim_controller *ctrl,
 	if (ctrl->sched.clk_state != SLIM_CLK_ACTIVE) {
 		dev_err(ctrl->dev, "slim ctrl not active,state:%d, ret:%d\n",
 				    ctrl->sched.clk_state, ret);
-		goto slimbus_not_active;
+		goto out_put_rpm;
 	}
 
 	sbdev = slim_get_device(ctrl, e_addr);
-	if (IS_ERR(sbdev))
-		return -ENODEV;
+	if (IS_ERR(sbdev)) {
+		ret = -ENODEV;
+		goto out_put_rpm;
+	}
 
 	if (sbdev->is_laddr_valid) {
 		*laddr = sbdev->laddr;
-		return 0;
+		ret = 0;
+	} else {
+		ret = slim_device_alloc_laddr(sbdev, true);
 	}
 
-	ret = slim_device_alloc_laddr(sbdev, true);
-
-slimbus_not_active:
+	put_device(&sbdev->dev);
+out_put_rpm:
 	pm_runtime_mark_last_busy(ctrl->dev);
 	pm_runtime_put_autosuspend(ctrl->dev);
 	return ret;

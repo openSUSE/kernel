@@ -75,11 +75,11 @@ static u8 energ_perf_values[] = {
 	[EPB_INDEX_POWERSAVE] = ENERGY_PERF_BIAS_POWERSAVE,
 };
 
-static int intel_epb_save(void)
+static int intel_epb_save(void *data)
 {
 	u64 epb;
 
-	rdmsrl(MSR_IA32_ENERGY_PERF_BIAS, epb);
+	rdmsrq(MSR_IA32_ENERGY_PERF_BIAS, epb);
 	/*
 	 * Ensure that saved_epb will always be nonzero after this write even if
 	 * the EPB value read from the MSR is 0.
@@ -89,12 +89,12 @@ static int intel_epb_save(void)
 	return 0;
 }
 
-static void intel_epb_restore(void)
+static void intel_epb_restore(void *data)
 {
 	u64 val = this_cpu_read(saved_epb);
 	u64 epb;
 
-	rdmsrl(MSR_IA32_ENERGY_PERF_BIAS, epb);
+	rdmsrq(MSR_IA32_ENERGY_PERF_BIAS, epb);
 	if (val) {
 		val &= EPB_MASK;
 	} else {
@@ -111,12 +111,16 @@ static void intel_epb_restore(void)
 			pr_warn_once("ENERGY_PERF_BIAS: Set to 'normal', was 'performance'\n");
 		}
 	}
-	wrmsrl(MSR_IA32_ENERGY_PERF_BIAS, (epb & ~EPB_MASK) | val);
+	wrmsrq(MSR_IA32_ENERGY_PERF_BIAS, (epb & ~EPB_MASK) | val);
 }
 
-static struct syscore_ops intel_epb_syscore_ops = {
+static const struct syscore_ops intel_epb_syscore_ops = {
 	.suspend = intel_epb_save,
 	.resume = intel_epb_restore,
+};
+
+static struct syscore intel_epb_syscore = {
+	.ops = &intel_epb_syscore_ops,
 };
 
 static const char * const energy_perf_strings[] = {
@@ -135,7 +139,7 @@ static ssize_t energy_perf_bias_show(struct device *dev,
 	u64 epb;
 	int ret;
 
-	ret = rdmsrl_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS, &epb);
+	ret = rdmsrq_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS, &epb);
 	if (ret < 0)
 		return ret;
 
@@ -157,11 +161,11 @@ static ssize_t energy_perf_bias_store(struct device *dev,
 	else if (kstrtou64(buf, 0, &val) || val > MAX_EPB)
 		return -EINVAL;
 
-	ret = rdmsrl_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS, &epb);
+	ret = rdmsrq_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS, &epb);
 	if (ret < 0)
 		return ret;
 
-	ret = wrmsrl_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS,
+	ret = wrmsrq_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS,
 			    (epb & ~EPB_MASK) | val);
 	if (ret < 0)
 		return ret;
@@ -185,7 +189,7 @@ static int intel_epb_online(unsigned int cpu)
 {
 	struct device *cpu_dev = get_cpu_device(cpu);
 
-	intel_epb_restore();
+	intel_epb_restore(NULL);
 	if (!cpuhp_tasks_frozen)
 		sysfs_merge_group(&cpu_dev->kobj, &intel_epb_attr_group);
 
@@ -199,7 +203,7 @@ static int intel_epb_offline(unsigned int cpu)
 	if (!cpuhp_tasks_frozen)
 		sysfs_unmerge_group(&cpu_dev->kobj, &intel_epb_attr_group);
 
-	intel_epb_save();
+	intel_epb_save(NULL);
 	return 0;
 }
 
@@ -230,7 +234,7 @@ static __init int intel_epb_init(void)
 	if (ret < 0)
 		goto err_out_online;
 
-	register_syscore_ops(&intel_epb_syscore_ops);
+	register_syscore(&intel_epb_syscore);
 	return 0;
 
 err_out_online:

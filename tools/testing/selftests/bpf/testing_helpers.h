@@ -39,6 +39,7 @@ int kern_sync_rcu(void);
 int finit_module(int fd, const char *param_values, int flags);
 int delete_module(const char *name, int flags);
 int load_module(const char *path, bool verbose);
+int load_module_params(const char *path, const char *param_values, bool verbose);
 int unload_module(const char *name, bool verbose);
 
 static inline __u64 get_time_ns(void)
@@ -57,5 +58,6 @@ struct bpf_insn;
 int get_xlated_program(int fd_prog, struct bpf_insn **buf, __u32 *cnt);
 int testing_prog_flags(void);
 bool is_jit_enabled(void);
+int stack_mprotect(void);
 
 #endif /* __TESTING_HELPERS_H */

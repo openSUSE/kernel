@@ -14,12 +14,17 @@
 
 enum host1x_class {
 	HOST1X_CLASS_HOST1X = 0x1,
+	HOST1X_CLASS_NVJPG1 = 0x7,
+	HOST1X_CLASS_NVENC = 0x21,
+	HOST1X_CLASS_NVENC1 = 0x22,
 	HOST1X_CLASS_GR2D = 0x51,
 	HOST1X_CLASS_GR2D_SB = 0x52,
 	HOST1X_CLASS_VIC = 0x5D,
 	HOST1X_CLASS_GR3D = 0x60,
+	HOST1X_CLASS_NVJPG = 0xC0,
 	HOST1X_CLASS_NVDEC = 0xF0,
 	HOST1X_CLASS_NVDEC1 = 0xF5,
+	HOST1X_CLASS_OFA = 0xF8,
 };
 
 struct host1x;
@@ -138,6 +143,12 @@ static inline struct host1x_bo_mapping *to_host1x_bo_mapping(struct kref *ref)
 	return container_of(ref, struct host1x_bo_mapping, ref);
 }
 
+/**
+ * struct host1x_bo_ops - operations implemented by a host1x_bo provider
+ *
+ * @pin: create a DMA mapping. Implementation must not touch the bo's refcount.
+ * @unpin: destroy a DMA mapping. Implementation must not touch the bo's refcount.
+ */
 struct host1x_bo_ops {
 	struct host1x_bo *(*get)(struct host1x_bo *bo);
 	void (*put)(struct host1x_bo *bo);
@@ -176,6 +187,7 @@ struct host1x_bo_mapping *host1x_bo_pin(struct device *dev, struct host1x_bo *bo
 					enum dma_data_direction dir,
 					struct host1x_bo_cache *cache);
 void host1x_bo_unpin(struct host1x_bo_mapping *map);
+void host1x_bo_clear_cached_mappings(struct host1x_bo *bo);
 
 static inline void *host1x_bo_mmap(struct host1x_bo *bo)
 {

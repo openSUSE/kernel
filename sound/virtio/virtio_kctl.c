@@ -18,6 +18,21 @@ static const snd_ctl_elem_type_t g_v2a_type_map[] = {
 	[VIRTIO_SND_CTL_TYPE_IEC958] = SNDRV_CTL_ELEM_TYPE_IEC958
 };
 
+/* Map for converting VirtIO types to maximum value counts. */
+static const unsigned int g_v2a_count_map[] = {
+	[VIRTIO_SND_CTL_TYPE_BOOLEAN] =
+		ARRAY_SIZE(((struct virtio_snd_ctl_value *)0)->value.integer),
+	[VIRTIO_SND_CTL_TYPE_INTEGER] =
+		ARRAY_SIZE(((struct virtio_snd_ctl_value *)0)->value.integer),
+	[VIRTIO_SND_CTL_TYPE_INTEGER64] =
+		ARRAY_SIZE(((struct virtio_snd_ctl_value *)0)->value.integer64),
+	[VIRTIO_SND_CTL_TYPE_ENUMERATED] =
+		ARRAY_SIZE(((struct virtio_snd_ctl_value *)0)->value.enumerated),
+	[VIRTIO_SND_CTL_TYPE_BYTES] =
+		ARRAY_SIZE(((struct virtio_snd_ctl_value *)0)->value.bytes),
+	[VIRTIO_SND_CTL_TYPE_IEC958] = 1
+};
+
 /* Map for converting VirtIO access rights to ALSA access rights. */
 static const unsigned int g_v2a_access_map[] = {
 	[VIRTIO_SND_CTL_ACCESS_READ] = SNDRV_CTL_ELEM_ACCESS_READ,
@@ -36,6 +51,37 @@ static const unsigned int g_v2a_mask_map[] = {
 	[VIRTIO_SND_CTL_EVT_MASK_TLV] = SNDRV_CTL_EVENT_MASK_TLV
 };
 
+static int virtsnd_kctl_validate_info(struct virtio_snd *snd, u32 cid,
+				      struct virtio_snd_ctl_info *kinfo)
+{
+	struct virtio_device *vdev = snd->vdev;
+	unsigned int type = le32_to_cpu(kinfo->type);
+	unsigned int count = le32_to_cpu(kinfo->count);
+
+	if (type >= ARRAY_SIZE(g_v2a_type_map)) {
+		dev_err(&vdev->dev, "control #%u: unknown type %u\n",
+			cid, type);
+		return -EINVAL;
+	}
+
+	if (count > g_v2a_count_map[type] ||
+	    (type == VIRTIO_SND_CTL_TYPE_IEC958 && count != 1)) {
+		dev_err(&vdev->dev, "control #%u: invalid count %u for type %u\n",
+			cid, count, type);
+		return -EINVAL;
+	}
+
+	if (type == VIRTIO_SND_CTL_TYPE_ENUMERATED &&
+	    !le32_to_cpu(kinfo->value.enumerated.items)) {
+		dev_err(&vdev->dev,
+			"control #%u: no items for enumerated control\n",
+			cid);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /**
  * virtsnd_kctl_info() - Returns information about the control.
  * @kcontrol: ALSA control element.
@@ -47,7 +93,7 @@ static const unsigned int g_v2a_mask_map[] = {
 static int virtsnd_kctl_info(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_info *uinfo)
 {
-	struct virtio_snd *snd = kcontrol->private_data;
+	struct virtio_snd *snd = snd_kcontrol_chip(kcontrol);
 	struct virtio_kctl *kctl = &snd->kctls[kcontrol->private_value];
 	struct virtio_snd_ctl_info *kinfo =
 		&snd->kctl_infos[kcontrol->private_value];
@@ -102,7 +148,7 @@ static int virtsnd_kctl_info(struct snd_kcontrol *kcontrol,
 static int virtsnd_kctl_get(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *uvalue)
 {
-	struct virtio_snd *snd = kcontrol->private_data;
+	struct virtio_snd *snd = snd_kcontrol_chip(kcontrol);
 	struct virtio_snd_ctl_info *kinfo =
 		&snd->kctl_infos[kcontrol->private_value];
 	unsigned int type = le32_to_cpu(kinfo->type);
@@ -175,7 +221,7 @@ on_failure:
 static int virtsnd_kctl_put(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *uvalue)
 {
-	struct virtio_snd *snd = kcontrol->private_data;
+	struct virtio_snd *snd = snd_kcontrol_chip(kcontrol);
 	struct virtio_snd_ctl_info *kinfo =
 		&snd->kctl_infos[kcontrol->private_value];
 	unsigned int type = le32_to_cpu(kinfo->type);
@@ -239,7 +285,7 @@ static int virtsnd_kctl_put(struct snd_kcontrol *kcontrol,
 static int virtsnd_kctl_tlv_op(struct snd_kcontrol *kcontrol, int op_flag,
 			       unsigned int size, unsigned int __user *utlv)
 {
-	struct virtio_snd *snd = kcontrol->private_data;
+	struct virtio_snd *snd = snd_kcontrol_chip(kcontrol);
 	struct virtio_snd_msg *msg;
 	struct virtio_snd_ctl_hdr *hdr;
 	unsigned int *tlv;
@@ -384,6 +430,10 @@ int virtsnd_kctl_parse_cfg(struct virtio_snd *snd)
 	for (i = 0; i < snd->nkctls; ++i) {
 		struct virtio_snd_ctl_info *kinfo = &snd->kctl_infos[i];
 		unsigned int type = le32_to_cpu(kinfo->type);
+
+		rc = virtsnd_kctl_validate_info(snd, i, kinfo);
+		if (rc)
+			return rc;
 
 		if (type == VIRTIO_SND_CTL_TYPE_ENUMERATED) {
 			rc = virtsnd_kctl_get_enum_items(snd, i);

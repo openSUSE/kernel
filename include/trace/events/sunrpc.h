@@ -21,7 +21,6 @@ TRACE_DEFINE_ENUM(SOCK_DGRAM);
 TRACE_DEFINE_ENUM(SOCK_RAW);
 TRACE_DEFINE_ENUM(SOCK_RDM);
 TRACE_DEFINE_ENUM(SOCK_SEQPACKET);
-TRACE_DEFINE_ENUM(SOCK_DCCP);
 TRACE_DEFINE_ENUM(SOCK_PACKET);
 
 #define show_socket_type(type)					\
@@ -31,7 +30,6 @@ TRACE_DEFINE_ENUM(SOCK_PACKET);
 		{ SOCK_RAW,		"RAW" },		\
 		{ SOCK_RDM,		"RDM" },		\
 		{ SOCK_SEQPACKET,	"SEQPACKET" },		\
-		{ SOCK_DCCP,		"DCCP" },		\
 		{ SOCK_PACKET,		"PACKET" })
 
 /* This list is known to be incomplete, add new enums as needed. */
@@ -360,8 +358,7 @@ TRACE_EVENT(rpc_request,
 		{ (1UL << RPC_TASK_ACTIVE), "ACTIVE" },			\
 		{ (1UL << RPC_TASK_NEED_XMIT), "NEED_XMIT" },		\
 		{ (1UL << RPC_TASK_NEED_RECV), "NEED_RECV" },		\
-		{ (1UL << RPC_TASK_MSG_PIN_WAIT), "MSG_PIN_WAIT" },	\
-		{ (1UL << RPC_TASK_SIGNALLED), "SIGNALLED" })
+		{ (1UL << RPC_TASK_MSG_PIN_WAIT), "MSG_PIN_WAIT" })
 
 DECLARE_EVENT_CLASS(rpc_task_running,
 

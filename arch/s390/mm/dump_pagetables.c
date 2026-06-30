@@ -49,7 +49,7 @@ struct pg_state {
 	struct seq_file *__m = (m);		\
 						\
 	if (__m)				\
-		seq_printf(__m, fmt);		\
+		seq_puts(__m, fmt);		\
 })
 
 static void print_prot(struct seq_file *m, unsigned int pr, int level)
@@ -203,11 +203,9 @@ static int ptdump_show(struct seq_file *m, void *v)
 		.marker = markers,
 	};
 
-	get_online_mems();
 	mutex_lock(&cpa_mutex);
 	ptdump_walk_pgd(&st.ptdump, &init_mm, NULL);
 	mutex_unlock(&cpa_mutex);
-	put_online_mems();
 	return 0;
 }
 DEFINE_SHOW_ATTRIBUTE(ptdump);

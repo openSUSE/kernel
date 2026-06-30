@@ -39,6 +39,7 @@
 
 #include <net/tcp.h>
 #include <net/mptcp.h>
+#include <net/smc.h>
 #include <net/proto_memory.h>
 
 #include <linux/compiler.h>
@@ -265,11 +266,14 @@ static u16 tcp_select_window(struct sock *sk)
 	u32 cur_win, new_win;
 
 	/* Make the window 0 if we failed to queue the data because we
-	 * are out of memory. The window is temporary, so we don't store
-	 * it on the socket.
+	 * are out of memory.
 	 */
-	if (unlikely(inet_csk(sk)->icsk_ack.pending & ICSK_ACK_NOMEM))
+	if (unlikely(inet_csk(sk)->icsk_ack.pending & ICSK_ACK_NOMEM)) {
+		tp->pred_flags = 0;
+		tp->rcv_wnd = 0;
+		tp->rcv_wup = tp->rcv_nxt;
 		return 0;
+	}
 
 	cur_win = tcp_receive_window(tp);
 	new_win = __tcp_select_window(sk);
@@ -759,34 +763,36 @@ static void tcp_options_write(struct tcphdr *th, struct tcp_sock *tp,
 	mptcp_options_write(th, ptr, tp, opts);
 }
 
-static void smc_set_option(const struct tcp_sock *tp,
+static void smc_set_option(struct tcp_sock *tp,
 			   struct tcp_out_options *opts,
 			   unsigned int *remaining)
 {
 #if IS_ENABLED(CONFIG_SMC)
-	if (static_branch_unlikely(&tcp_have_smc)) {
-		if (tp->syn_smc) {
-			if (*remaining >= TCPOLEN_EXP_SMC_BASE_ALIGNED) {
-				opts->options |= OPTION_SMC;
-				*remaining -= TCPOLEN_EXP_SMC_BASE_ALIGNED;
-			}
+	if (static_branch_unlikely(&tcp_have_smc) && tp->syn_smc) {
+		tp->syn_smc = !!smc_call_hsbpf(1, tp, syn_option);
+		/* re-check syn_smc */
+		if (tp->syn_smc &&
+		    *remaining >= TCPOLEN_EXP_SMC_BASE_ALIGNED) {
+			opts->options |= OPTION_SMC;
+			*remaining -= TCPOLEN_EXP_SMC_BASE_ALIGNED;
 		}
 	}
 #endif
 }
 
 static void smc_set_option_cond(const struct tcp_sock *tp,
-				const struct inet_request_sock *ireq,
+				struct inet_request_sock *ireq,
 				struct tcp_out_options *opts,
 				unsigned int *remaining)
 {
 #if IS_ENABLED(CONFIG_SMC)
-	if (static_branch_unlikely(&tcp_have_smc)) {
-		if (tp->syn_smc && ireq->smc_ok) {
-			if (*remaining >= TCPOLEN_EXP_SMC_BASE_ALIGNED) {
-				opts->options |= OPTION_SMC;
-				*remaining -= TCPOLEN_EXP_SMC_BASE_ALIGNED;
-			}
+	if (static_branch_unlikely(&tcp_have_smc) && tp->syn_smc && ireq->smc_ok) {
+		ireq->smc_ok = !!smc_call_hsbpf(1, tp, synack_option, ireq);
+		/* re-check smc_ok */
+		if (ireq->smc_ok &&
+		    *remaining >= TCPOLEN_EXP_SMC_BASE_ALIGNED) {
+			opts->options |= OPTION_SMC;
+			*remaining -= TCPOLEN_EXP_SMC_BASE_ALIGNED;
 		}
 	}
 #endif
@@ -883,8 +889,10 @@ static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
 		unsigned int size;
 
 		if (mptcp_syn_options(sk, skb, &size, &opts->mptcp)) {
-			opts->options |= OPTION_MPTCP;
-			remaining -= size;
+			if (remaining >= size) {
+				opts->options |= OPTION_MPTCP;
+				remaining -= size;
+			}
 		}
 	}
 
@@ -2373,6 +2381,7 @@ static int tcp_clone_payload(struct sock *sk, struct sk_buff *to,
 			todo = min_t(int, skb_frag_size(fragfrom),
 				     probe_size - len);
 			len += todo;
+			skb_shinfo(to)->flags |= skb_shinfo(skb)->flags & SKBFL_SHARED_FRAG;
 			if (lastfrag &&
 			    skb_frag_page(fragfrom) == skb_frag_page(lastfrag) &&
 			    skb_frag_off(fragfrom) == skb_frag_off(lastfrag) +
@@ -2923,7 +2932,9 @@ static bool skb_still_in_host_queue(struct sock *sk,
 		if (skb_fclone_busy(sk, skb)) {
 			NET_INC_STATS(sock_net(sk),
 				      LINUX_MIB_TCPSPURIOUS_RTX_HOSTQUEUES);
-			return true;
+			/* unclog the qdisc queue if previous transmit is still
+			 * there because of a race condition
+			 */
 		}
 	}
 	return false;

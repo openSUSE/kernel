@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <linux/compiler.h>
+#include <linux/bitmap.h>
 #include <sys/types.h>
 #ifndef __cplusplus
 #include <internal/cpumap.h>
@@ -20,6 +21,9 @@ extern const char perf_usage_string[];
 extern const char perf_more_info_string[];
 
 extern const char *input_name;
+
+/* This will control if perf_{host,guest} will set attr.exclude_{host,guest}. */
+extern bool exclude_GH_default;
 
 extern bool perf_host;
 extern bool perf_guest;
@@ -43,15 +47,11 @@ int sysctl__max_stack(void);
 
 bool sysctl__nmi_watchdog_enabled(void);
 
-int fetch_kernel_version(unsigned int *puint,
-			 char *str, size_t str_sz);
-#define KVER_VERSION(x)		(((x) >> 16) & 0xff)
-#define KVER_PATCHLEVEL(x)	(((x) >> 8) & 0xff)
-#define KVER_SUBLEVEL(x)	((x) & 0xff)
-#define KVER_FMT	"%d.%d.%d"
-#define KVER_PARAM(x)	KVER_VERSION(x), KVER_PATCHLEVEL(x), KVER_SUBLEVEL(x)
-
 int perf_tip(char **strp, const char *dirpath);
+
+void cpumask_to_cpulist(char *cpumask, char *cpulist);
+
+void print_separator2(int pre_dash_cnt, const char *s, int post_dash_cnt);
 
 #ifndef HAVE_SCHED_GETCPU_SUPPORT
 int sched_getcpu(void);
@@ -80,13 +80,6 @@ char *perf_exe(char *buf, int len);
 #define O_CLOEXEC      02000000
 #endif
 #endif
-
-extern bool test_attr__enabled;
-void test_attr__ready(void);
-void test_attr__init(void);
-struct perf_event_attr;
-void test_attr__open(struct perf_event_attr *attr, pid_t pid, struct perf_cpu cpu,
-		     int fd, int group_fd, unsigned long flags);
 
 struct perf_debuginfod {
 	const char	*urls;

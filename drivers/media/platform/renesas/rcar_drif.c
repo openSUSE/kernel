@@ -861,8 +861,6 @@ static const struct vb2_ops rcar_drif_vb2_ops = {
 	.buf_queue              = rcar_drif_buf_queue,
 	.start_streaming        = rcar_drif_start_streaming,
 	.stop_streaming         = rcar_drif_stop_streaming,
-	.wait_prepare		= vb2_ops_wait_prepare,
-	.wait_finish		= vb2_ops_wait_finish,
 };
 
 static int rcar_drif_querycap(struct file *file, void *fh,
@@ -1071,7 +1069,6 @@ static int rcar_drif_sdr_register(struct rcar_drif_sdr *sdr)
 	sdr->vdev->release = video_device_release;
 	sdr->vdev->lock = &sdr->v4l2_mutex;
 	sdr->vdev->queue = &sdr->vb_queue;
-	sdr->vdev->queue->lock = &sdr->vb_queue_mutex;
 	sdr->vdev->ctrl_handler = &sdr->ctrl_hdl;
 	sdr->vdev->v4l2_dev = &sdr->v4l2_dev;
 	sdr->vdev->device_caps = V4L2_CAP_SDR_CAPTURE | V4L2_CAP_TUNER |
@@ -1249,6 +1246,7 @@ static struct device_node *rcar_drif_bond_enabled(struct platform_device *p)
 	if (np && of_device_is_available(np))
 		return np;
 
+	of_node_put(np);
 	return NULL;
 }
 
@@ -1316,6 +1314,7 @@ static int rcar_drif_sdr_probe(struct rcar_drif_sdr *sdr)
 	sdr->vb_queue.ops = &rcar_drif_vb2_ops;
 	sdr->vb_queue.mem_ops = &vb2_vmalloc_memops;
 	sdr->vb_queue.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	sdr->vb_queue.lock = &sdr->vb_queue_mutex;
 
 	/* Init videobuf2 queue */
 	ret = vb2_queue_init(&sdr->vb_queue);

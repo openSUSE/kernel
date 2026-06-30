@@ -8,11 +8,13 @@
 struct typec_switch_dev {
 	struct device dev;
 	typec_switch_set_fn_t set;
+	void *suse_kabi_padding;
 };
 
 struct typec_mux_dev {
 	struct device dev;
 	typec_mux_set_fn_t set;
+	void *suse_kabi_padding;
 };
 
 #define to_typec_switch_dev(_dev_) container_of(_dev_, struct typec_switch_dev, dev)

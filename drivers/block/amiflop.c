@@ -1523,13 +1523,13 @@ static blk_status_t amiflop_queue_rq(struct blk_mq_hw_ctx *hctx,
 	return BLK_STS_OK;
 }
 
-static int fd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
+static int fd_getgeo(struct gendisk *disk, struct hd_geometry *geo)
 {
-	int drive = MINOR(bdev->bd_dev) & 3;
+	struct amiga_floppy_struct *p = disk->private_data;
 
-	geo->heads = unit[drive].type->heads;
-	geo->sectors = unit[drive].dtype->sects * unit[drive].type->sect_mult;
-	geo->cylinders = unit[drive].type->tracks;
+	geo->heads = p->type->heads;
+	geo->sectors = p->dtype->sects * p->type->sect_mult;
+	geo->cylinders = p->type->tracks;
 	return 0;
 }
 
@@ -1819,7 +1819,6 @@ static int fd_alloc_drive(int drive)
 	unit[drive].tag_set.nr_maps = 1;
 	unit[drive].tag_set.queue_depth = 2;
 	unit[drive].tag_set.numa_node = NUMA_NO_NODE;
-	unit[drive].tag_set.flags = BLK_MQ_F_SHOULD_MERGE;
 	if (blk_mq_alloc_tag_set(&unit[drive].tag_set))
 		goto out_cleanup_trackbuf;
 

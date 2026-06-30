@@ -116,6 +116,9 @@ struct lsm_blob_sizes {
 	int lbs_xattr_count; /* number of xattr slots in new_xattrs array */
 	int lbs_tun_dev;
 	int lbs_bdev;
+	int lbs_bpf_map;
+	int lbs_bpf_prog;
+	int lbs_bpf_token;
 };
 
 /*
@@ -172,6 +175,11 @@ extern char *lsm_names;
 extern struct lsm_static_calls_table static_calls_table __ro_after_init;
 extern struct lsm_info __start_lsm_info[], __end_lsm_info[];
 extern struct lsm_info __start_early_lsm_info[], __end_early_lsm_info[];
+
+extern struct security_hook_list* lockdown_hooks_secure_boot;
+
+#define INDEX_LOCKED_DOWN 0
+#define INDEX_LOCK_KERNEL_DOWN 1
 
 /**
  * lsm_get_xattr_slot - Return the next available slot and increment the index

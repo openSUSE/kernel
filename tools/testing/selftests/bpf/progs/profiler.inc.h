@@ -223,7 +223,7 @@ static INLINE void* read_full_cgroup_path(struct kernfs_node* cgroup_node,
 		if (bpf_cmp_likely(filepart_length, <=, MAX_PATH)) {
 			payload += filepart_length;
 		}
-		cgroup_node = BPF_CORE_READ(cgroup_node, parent);
+		cgroup_node = BPF_CORE_READ(cgroup_node, __parent);
 	}
 	return payload;
 }
@@ -261,7 +261,7 @@ static INLINE void* populate_cgroup_info(struct cgroup_data_t* cgroup_data,
 #ifdef UNROLL
 		__pragma_loop_unroll
 #endif
-		for (int i = 0; i < CGROUP_SUBSYS_COUNT; i++) {
+		for (int i = 0; i < CGROUP_SUBSYS_COUNT_USED; i++) {
 			struct cgroup_subsys_state* subsys =
 				BPF_CORE_READ(task, cgroups, subsys[i]);
 			if (subsys != NULL) {

@@ -24,7 +24,7 @@
 #include <asm/asm-const.h>
 #include <asm/reg.h>
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 struct pt_regs
 {
 	union {
@@ -53,6 +53,9 @@ struct pt_regs
 				unsigned long esr;
 			};
 			unsigned long result;
+			unsigned long exit_flags;
+			/* Maintain 16 byte interrupt stack alignment */
+			unsigned long __pt_regs_pad[3];
 		};
 	};
 #if defined(CONFIG_PPC64) || defined(CONFIG_PPC_KUAP)
@@ -165,7 +168,7 @@ struct pt_regs
 #define STACK_INT_FRAME_SIZE	(KERNEL_REDZONE_SIZE + STACK_USER_INT_FRAME_SIZE)
 #define STACK_INT_FRAME_MARKER_LONGS	(STACK_INT_FRAME_MARKER/sizeof(long))
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #include <asm/paca.h>
 
 #ifdef CONFIG_SMP
@@ -173,9 +176,6 @@ extern unsigned long profile_pc(struct pt_regs *regs);
 #else
 #define profile_pc(regs) instruction_pointer(regs)
 #endif
-
-long do_syscall_trace_enter(struct pt_regs *regs);
-void do_syscall_trace_leave(struct pt_regs *regs);
 
 static inline void set_return_regs_changed(void)
 {
@@ -414,7 +414,7 @@ static inline unsigned long regs_get_kernel_argument(struct pt_regs *regs, unsig
 	return 0;
 }
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #ifndef __powerpc64__
 /* We need PT_SOFTE defined at all time to avoid #ifdefs */

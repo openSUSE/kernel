@@ -37,6 +37,8 @@ static const struct usb_device_id rtw_8821cu_id_table[] = {
 	  .driver_info = (kernel_ulong_t)&(rtw8821c_hw_spec) }, /* Edimax */
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x7392, 0xd811, 0xff, 0xff, 0xff),
 	  .driver_info = (kernel_ulong_t)&(rtw8821c_hw_spec) }, /* Edimax */
+	{ USB_DEVICE_AND_INTERFACE_INFO(0x2c4e, 0x0105, 0xff, 0xff, 0xff),
+	  .driver_info = (kernel_ulong_t)&(rtw8821c_hw_spec) }, /* Mercusys */
 	{},
 };
 MODULE_DEVICE_TABLE(usb, rtw_8821cu_id_table);
@@ -48,7 +50,7 @@ static int rtw_8821cu_probe(struct usb_interface *intf,
 }
 
 static struct usb_driver rtw_8821cu_driver = {
-	.name = "rtw_8821cu",
+	.name = KBUILD_MODNAME,
 	.id_table = rtw_8821cu_id_table,
 	.probe = rtw_8821cu_probe,
 	.disconnect = rtw_usb_disconnect,

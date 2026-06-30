@@ -1697,7 +1697,7 @@ static inline struct pic32_gpio_bank *irqd_to_bank(struct irq_data *d)
 }
 
 static inline struct pic32_gpio_bank *pctl_to_bank(struct pic32_pinctrl *pctl,
-						unsigned pin)
+						unsigned int pin)
 {
 	return &pctl->gpio_banks[pin / PINS_PER_BANK];
 }
@@ -1710,7 +1710,7 @@ static int pic32_pinctrl_get_groups_count(struct pinctrl_dev *pctldev)
 }
 
 static const char *pic32_pinctrl_get_group_name(struct pinctrl_dev *pctldev,
-						    unsigned group)
+						    unsigned int group)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 
@@ -1718,9 +1718,9 @@ static const char *pic32_pinctrl_get_group_name(struct pinctrl_dev *pctldev,
 }
 
 static int pic32_pinctrl_get_group_pins(struct pinctrl_dev *pctldev,
-					    unsigned group,
-					    const unsigned **pins,
-					    unsigned *num_pins)
+					    unsigned int group,
+					    const unsigned int **pins,
+					    unsigned int *num_pins)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 
@@ -1746,7 +1746,7 @@ static int pic32_pinmux_get_functions_count(struct pinctrl_dev *pctldev)
 }
 
 static const char *
-pic32_pinmux_get_function_name(struct pinctrl_dev *pctldev, unsigned func)
+pic32_pinmux_get_function_name(struct pinctrl_dev *pctldev, unsigned int func)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 
@@ -1754,9 +1754,9 @@ pic32_pinmux_get_function_name(struct pinctrl_dev *pctldev, unsigned func)
 }
 
 static int pic32_pinmux_get_function_groups(struct pinctrl_dev *pctldev,
-						unsigned func,
+						unsigned int func,
 						const char * const **groups,
-						unsigned * const num_groups)
+						unsigned int * const num_groups)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 
@@ -1767,7 +1767,7 @@ static int pic32_pinmux_get_function_groups(struct pinctrl_dev *pctldev,
 }
 
 static int pic32_pinmux_enable(struct pinctrl_dev *pctldev,
-				   unsigned func, unsigned group)
+				   unsigned int func, unsigned int group)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 	const struct pic32_pin_group *pg = &pctl->groups[group];
@@ -1796,7 +1796,7 @@ static int pic32_pinmux_enable(struct pinctrl_dev *pctldev,
 
 static int pic32_gpio_request_enable(struct pinctrl_dev *pctldev,
 				     struct pinctrl_gpio_range *range,
-				     unsigned offset)
+				     unsigned int offset)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 	struct pic32_gpio_bank *bank = gpiochip_get_data(range->gc);
@@ -1811,7 +1811,7 @@ static int pic32_gpio_request_enable(struct pinctrl_dev *pctldev,
 }
 
 static int pic32_gpio_direction_input(struct gpio_chip *chip,
-					  unsigned offset)
+					  unsigned int offset)
 {
 	struct pic32_gpio_bank *bank = gpiochip_get_data(chip);
 	u32 mask = BIT(offset);
@@ -1821,7 +1821,7 @@ static int pic32_gpio_direction_input(struct gpio_chip *chip,
 	return 0;
 }
 
-static int pic32_gpio_get(struct gpio_chip *chip, unsigned offset)
+static int pic32_gpio_get(struct gpio_chip *chip, unsigned int offset)
 {
 	struct pic32_gpio_bank *bank = gpiochip_get_data(chip);
 
@@ -1841,7 +1841,7 @@ static void pic32_gpio_set(struct gpio_chip *chip, unsigned offset,
 }
 
 static int pic32_gpio_direction_output(struct gpio_chip *chip,
-					   unsigned offset, int value)
+					   unsigned int offset, int value)
 {
 	struct pic32_gpio_bank *bank = gpiochip_get_data(chip);
 	u32 mask = BIT(offset);
@@ -1854,7 +1854,7 @@ static int pic32_gpio_direction_output(struct gpio_chip *chip,
 
 static int pic32_gpio_set_direction(struct pinctrl_dev *pctldev,
 					      struct pinctrl_gpio_range *range,
-					      unsigned offset, bool input)
+					      unsigned int offset, bool input)
 {
 	struct gpio_chip *chip = range->gc;
 
@@ -1875,12 +1875,12 @@ static const struct pinmux_ops pic32_pinmux_ops = {
 	.gpio_set_direction = pic32_gpio_set_direction,
 };
 
-static int pic32_pinconf_get(struct pinctrl_dev *pctldev, unsigned pin,
+static int pic32_pinconf_get(struct pinctrl_dev *pctldev, unsigned int pin,
 				 unsigned long *config)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 	struct pic32_gpio_bank *bank = pctl_to_bank(pctl, pin);
-	unsigned param = pinconf_to_config_param(*config);
+	unsigned int param = pinconf_to_config_param(*config);
 	u32 mask = BIT(pin - bank->gpio_chip.base);
 	u32 arg;
 
@@ -1916,12 +1916,12 @@ static int pic32_pinconf_get(struct pinctrl_dev *pctldev, unsigned pin,
 	return 0;
 }
 
-static int pic32_pinconf_set(struct pinctrl_dev *pctldev, unsigned pin,
-				 unsigned long *configs, unsigned num_configs)
+static int pic32_pinconf_set(struct pinctrl_dev *pctldev, unsigned int pin,
+				 unsigned long *configs, unsigned int num_configs)
 {
 	struct pic32_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 	struct pic32_gpio_bank *bank = pctl_to_bank(pctl, pin);
-	unsigned param;
+	unsigned int param;
 	u32 arg;
 	unsigned int i;
 	u32 offset = pin - bank->gpio_chip.base;
@@ -1937,7 +1937,7 @@ static int pic32_pinconf_set(struct pinctrl_dev *pctldev, unsigned pin,
 		switch (param) {
 		case PIN_CONFIG_BIAS_PULL_UP:
 			dev_dbg(pctl->dev, "   pullup\n");
-			writel(mask, bank->reg_base +PIC32_SET(CNPU_REG));
+			writel(mask, bank->reg_base + PIC32_SET(CNPU_REG));
 			break;
 		case PIN_CONFIG_BIAS_PULL_DOWN:
 			dev_dbg(pctl->dev, "   pulldown\n");
@@ -1986,7 +1986,7 @@ static struct pinctrl_desc pic32_pinctrl_desc = {
 	.owner = THIS_MODULE,
 };
 
-static int pic32_gpio_get_direction(struct gpio_chip *chip, unsigned offset)
+static int pic32_gpio_get_direction(struct gpio_chip *chip, unsigned int offset)
 {
 	struct pic32_gpio_bank *bank = gpiochip_get_data(chip);
 
@@ -2173,16 +2173,10 @@ static int pic32_pinctrl_probe(struct platform_device *pdev)
 	if (IS_ERR(pctl->reg_base))
 		return PTR_ERR(pctl->reg_base);
 
-	pctl->clk = devm_clk_get(&pdev->dev, NULL);
+	pctl->clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(pctl->clk)) {
 		ret = PTR_ERR(pctl->clk);
-		dev_err(&pdev->dev, "clk get failed\n");
-		return ret;
-	}
-
-	ret = clk_prepare_enable(pctl->clk);
-	if (ret) {
-		dev_err(&pdev->dev, "clk enable failed\n");
+		dev_err(&pdev->dev, "Failed to get and enable clock\n");
 		return ret;
 	}
 
@@ -2238,16 +2232,10 @@ static int pic32_gpio_probe(struct platform_device *pdev)
 	if (irq < 0)
 		return irq;
 
-	bank->clk = devm_clk_get(&pdev->dev, NULL);
+	bank->clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(bank->clk)) {
 		ret = PTR_ERR(bank->clk);
-		dev_err(&pdev->dev, "clk get failed\n");
-		return ret;
-	}
-
-	ret = clk_prepare_enable(bank->clk);
-	if (ret) {
-		dev_err(&pdev->dev, "clk enable failed\n");
+		dev_err(&pdev->dev, "Failed to get and enable clock\n");
 		return ret;
 	}
 

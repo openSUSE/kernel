@@ -12,6 +12,9 @@ edac_core-y	:= edac_mc.o edac_device.o edac_mc_sysfs.o
 edac_core-y	+= edac_module.o edac_device_sysfs.o wq.o
 
 edac_core-$(CONFIG_EDAC_DEBUG)		+= debugfs.o
+edac_core-$(CONFIG_EDAC_SCRUB)		+= scrub.o
+edac_core-$(CONFIG_EDAC_ECS)		+= ecs.o
+edac_core-$(CONFIG_EDAC_MEM_REPAIR)	+= mem_repair.o
 
 ifdef CONFIG_PCI
 edac_core-y	+= edac_pci.o edac_pci_sysfs.o
@@ -65,6 +68,9 @@ obj-$(CONFIG_EDAC_I10NM)		+= i10nm_edac.o skx_edac_common.o
 obj-$(CONFIG_EDAC_CELL)			+= cell_edac.o
 obj-$(CONFIG_EDAC_AMD8111)		+= amd8111_edac.o
 obj-$(CONFIG_EDAC_AMD8131)		+= amd8131_edac.o
+
+imh_edac-y				:= imh_base.o
+obj-$(CONFIG_EDAC_IMH)			+= imh_edac.o skx_edac_common.o
 
 obj-$(CONFIG_EDAC_HIGHBANK_MC)		+= highbank_mc_edac.o
 obj-$(CONFIG_EDAC_HIGHBANK_L2)		+= highbank_l2_edac.o

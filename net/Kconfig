@@ -72,6 +72,13 @@ config NET_DEVMEM
 	depends on GENERIC_ALLOCATOR
 	depends on PAGE_POOL
 
+config NET_SHAPER
+	bool
+
+config NET_CRC32C
+	bool
+	select CRC32
+
 menu "Networking options"
 
 source "net/packet/Kconfig"
@@ -80,6 +87,7 @@ source "net/tls/Kconfig"
 source "net/xfrm/Kconfig"
 source "net/iucv/Kconfig"
 source "net/smc/Kconfig"
+source "drivers/dibs/Kconfig"
 source "net/xdp/Kconfig"
 
 config NET_HANDSHAKE
@@ -242,7 +250,6 @@ source "net/bridge/netfilter/Kconfig"
 
 endif
 
-source "net/dccp/Kconfig"
 source "net/sctp/Kconfig"
 source "net/rds/Kconfig"
 source "net/tipc/Kconfig"

@@ -8,6 +8,9 @@
 #include <asm/pvclock.h>
 #include "kvm_cache_regs.h"
 #include "kvm_emulate.h"
+#include "cpuid.h"
+
+#define KVM_MAX_MCE_BANKS 32
 
 struct kvm_caps {
 	/* control of guest tsc rate supported? */
@@ -31,6 +34,9 @@ struct kvm_caps {
 	u64 supported_xcr0;
 	u64 supported_xss;
 	u64 supported_perf_cap;
+
+	u64 supported_quirks;
+	u64 inapplicable_quirks;
 };
 
 struct kvm_host_values {
@@ -44,6 +50,7 @@ struct kvm_host_values {
 	u64 efer;
 	u64 xcr0;
 	u64 xss;
+	u64 s_cet;
 	u64 arch_capabilities;
 };
 
@@ -72,6 +79,16 @@ void kvm_spurious_fault(void);
 #define KVM_VMX_DEFAULT_PLE_WINDOW_MAX	UINT_MAX
 #define KVM_SVM_DEFAULT_PLE_WINDOW_MAX	USHRT_MAX
 #define KVM_SVM_DEFAULT_PLE_WINDOW	3000
+
+/*
+ * KVM's internal, non-ABI indices for synthetic MSRs. The values themselves
+ * are arbitrary and have no meaning, the only requirement is that they don't
+ * conflict with "real" MSRs that KVM supports. Use values at the upper end
+ * of KVM's reserved paravirtual MSR range to minimize churn, i.e. these values
+ * will be usable until KVM exhausts its supply of paravirtual MSR indices.
+ */
+
+#define MSR_KVM_INTERNAL_GUEST_SSP	0x4b564dff
 
 static inline unsigned int __grow_ple_window(unsigned int val,
 		unsigned int base, unsigned int modifier, unsigned int max)
@@ -118,6 +135,13 @@ static inline void kvm_leave_nested(struct kvm_vcpu *vcpu)
 static inline bool kvm_vcpu_has_run(struct kvm_vcpu *vcpu)
 {
 	return vcpu->arch.last_vmentry_cpu != -1;
+}
+
+static inline void kvm_set_mp_state(struct kvm_vcpu *vcpu, int mp_state)
+{
+	vcpu->arch.mp_state = mp_state;
+	if (mp_state == KVM_MP_STATE_RUNNABLE)
+		vcpu->arch.pv.pv_unhalted = false;
 }
 
 static inline bool kvm_is_exception_pending(struct kvm_vcpu *vcpu)
@@ -233,9 +257,52 @@ static inline u8 vcpu_virt_addr_bits(struct kvm_vcpu *vcpu)
 	return kvm_is_cr4_bit_set(vcpu, X86_CR4_LA57) ? 57 : 48;
 }
 
-static inline bool is_noncanonical_address(u64 la, struct kvm_vcpu *vcpu)
+static inline u8 max_host_virt_addr_bits(void)
 {
-	return !__is_canonical_address(la, vcpu_virt_addr_bits(vcpu));
+	return kvm_cpu_cap_has(X86_FEATURE_LA57) ? 57 : 48;
+}
+
+/*
+ * x86 MSRs which contain linear addresses, x86 hidden segment bases, and
+ * IDT/GDT bases have static canonicality checks, the size of which depends
+ * only on the CPU's support for 5-level paging, rather than on the state of
+ * CR4.LA57.  This applies to both WRMSR and to other instructions that set
+ * their values, e.g. SGDT.
+ *
+ * KVM passes through most of these MSRS and also doesn't intercept the
+ * instructions that set the hidden segment bases.
+ *
+ * Because of this, to be consistent with hardware, even if the guest doesn't
+ * have LA57 enabled in its CPUID, perform canonicality checks based on *host*
+ * support for 5 level paging.
+ *
+ * Finally, instructions which are related to MMU invalidation of a given
+ * linear address, also have a similar static canonical check on address.
+ * This allows for example to invalidate 5-level addresses of a guest from a
+ * host which uses 4-level paging.
+ */
+static inline bool is_noncanonical_address(u64 la, struct kvm_vcpu *vcpu,
+					   unsigned int flags)
+{
+	if (flags & (X86EMUL_F_INVLPG | X86EMUL_F_MSR | X86EMUL_F_DT_LOAD))
+		return !__is_canonical_address(la, max_host_virt_addr_bits());
+	else
+		return !__is_canonical_address(la, vcpu_virt_addr_bits(vcpu));
+}
+
+static inline bool is_noncanonical_msr_address(u64 la, struct kvm_vcpu *vcpu)
+{
+	return is_noncanonical_address(la, vcpu, X86EMUL_F_MSR);
+}
+
+static inline bool is_noncanonical_base_address(u64 la, struct kvm_vcpu *vcpu)
+{
+	return is_noncanonical_address(la, vcpu, X86EMUL_F_DT_LOAD);
+}
+
+static inline bool is_noncanonical_invlpg_address(u64 la, struct kvm_vcpu *vcpu)
+{
+	return is_noncanonical_address(la, vcpu, X86EMUL_F_INVLPG);
 }
 
 static inline void vcpu_cache_mmio_info(struct kvm_vcpu *vcpu,
@@ -347,6 +414,8 @@ extern struct kvm_caps kvm_caps;
 extern struct kvm_host_values kvm_host;
 
 extern bool enable_pmu;
+
+void kvm_setup_xss_caps(void);
 
 /*
  * Get a filtered version of KVM's supported XCR0 that strips out dynamic
@@ -506,7 +575,6 @@ static inline void kvm_machine_check(void)
 void kvm_load_guest_xsave_state(struct kvm_vcpu *vcpu);
 void kvm_load_host_xsave_state(struct kvm_vcpu *vcpu);
 int kvm_spec_ctrl_test_value(u64 value);
-bool __kvm_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4);
 int kvm_handle_memory_failure(struct kvm_vcpu *vcpu, int r,
 			      struct x86_exception *e);
 int kvm_handle_invpcid(struct kvm_vcpu *vcpu, unsigned long type, gva_t gva);
@@ -533,6 +601,11 @@ enum kvm_msr_access {
 #define  KVM_MSR_RET_UNSUPPORTED	2
 #define  KVM_MSR_RET_FILTERED		3
 
+static inline bool __kvm_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
+{
+	return !(cr4 & vcpu->arch.cr4_guest_rsvd_bits);
+}
+
 #define __cr4_reserved_bits(__cpu_has, __c)             \
 ({                                                      \
 	u64 __reserved_bits = CR4_RESERVED_BITS;        \
@@ -557,15 +630,59 @@ enum kvm_msr_access {
 		__reserved_bits |= X86_CR4_PCIDE;       \
 	if (!__cpu_has(__c, X86_FEATURE_LAM))           \
 		__reserved_bits |= X86_CR4_LAM_SUP;     \
+	if (!__cpu_has(__c, X86_FEATURE_SHSTK) &&       \
+	    !__cpu_has(__c, X86_FEATURE_IBT))           \
+		__reserved_bits |= X86_CR4_CET;         \
 	__reserved_bits;                                \
 })
 
-int kvm_sev_es_mmio_write(struct kvm_vcpu *vcpu, gpa_t src, unsigned int bytes,
-			  void *dst);
-int kvm_sev_es_mmio_read(struct kvm_vcpu *vcpu, gpa_t src, unsigned int bytes,
-			 void *dst);
+int kvm_sev_es_mmio(struct kvm_vcpu *vcpu, bool is_write, gpa_t gpa,
+		    unsigned int bytes, void *data);
 int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 			 unsigned int port, void *data,  unsigned int count,
 			 int in);
 
+static inline bool user_exit_on_hypercall(struct kvm *kvm, unsigned long hc_nr)
+{
+	return kvm->arch.hypercall_exit_enabled & BIT(hc_nr);
+}
+
+int ____kvm_emulate_hypercall(struct kvm_vcpu *vcpu, int cpl,
+			      int (*complete_hypercall)(struct kvm_vcpu *));
+
+#define __kvm_emulate_hypercall(_vcpu, cpl, complete_hypercall)			\
+({										\
+	int __ret;								\
+	__ret = ____kvm_emulate_hypercall(_vcpu, cpl, complete_hypercall);	\
+										\
+	if (__ret > 0)								\
+		__ret = complete_hypercall(_vcpu);				\
+	__ret;									\
+})
+
+int kvm_emulate_hypercall(struct kvm_vcpu *vcpu);
+
+#define CET_US_RESERVED_BITS		GENMASK(9, 6)
+#define CET_US_SHSTK_MASK_BITS		GENMASK(1, 0)
+#define CET_US_IBT_MASK_BITS		(GENMASK_ULL(5, 2) | GENMASK_ULL(63, 10))
+#define CET_US_LEGACY_BITMAP_BASE(data)	((data) >> 12)
+
+static inline bool kvm_is_valid_u_s_cet(struct kvm_vcpu *vcpu, u64 data)
+{
+	if (data & CET_US_RESERVED_BITS)
+		return false;
+	if (!guest_cpu_cap_has(vcpu, X86_FEATURE_SHSTK) &&
+	    (data & CET_US_SHSTK_MASK_BITS))
+		return false;
+	if (!guest_cpu_cap_has(vcpu, X86_FEATURE_IBT) &&
+	    (data & CET_US_IBT_MASK_BITS))
+		return false;
+	if (!IS_ALIGNED(CET_US_LEGACY_BITMAP_BASE(data), 4))
+		return false;
+	/* IBT can be suppressed iff the TRACKER isn't WAIT_ENDBR. */
+	if ((data & CET_SUPPRESS) && (data & CET_WAIT_ENDBR))
+		return false;
+
+	return true;
+}
 #endif

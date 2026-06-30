@@ -7,6 +7,7 @@
  *	    Mika Westerberg <mika.westerberg@linux.intel.com>
  */
 
+#include <linux/array_size.h>
 #include <linux/bitfield.h>
 #include <linux/debugfs.h>
 #include <linux/delay.h>
@@ -42,6 +43,24 @@
 #define MIN_DWELL_TIME		100 /* ms */
 #define MAX_DWELL_TIME		500 /* ms */
 #define DWELL_SAMPLE_INTERVAL	10
+
+enum usb4_margin_cap_voltage_indp {
+	USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_MIN,
+	USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_HL,
+	USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_BOTH,
+	USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_4_MIN,
+	USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_4_BOTH,
+	USB4_MARGIN_CAP_VOLTAGE_INDP_UNKNOWN,
+};
+
+enum usb4_margin_cap_time_indp {
+	USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_MIN,
+	USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_LR,
+	USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_BOTH,
+	USB4_MARGIN_CAP_TIME_INDP_GEN_4_MIN,
+	USB4_MARGIN_CAP_TIME_INDP_GEN_4_BOTH,
+	USB4_MARGIN_CAP_TIME_INDP_UNKNOWN,
+};
 
 /* Sideband registers and their sizes as defined in the USB4 spec */
 struct sb_reg {
@@ -395,6 +414,7 @@ out:
  * @target: Sideband target
  * @index: Retimer index if taget is %USB4_SB_TARGET_RETIMER
  * @dev: Pointer to the device that is the target (USB4 port or retimer)
+ * @gen: Link generation
  * @caps: Port lane margining capabilities
  * @results: Last lane margining results
  * @lanes: %0, %1 or %7 (all)
@@ -416,15 +436,18 @@ out:
  * @time: %true if time margining is used instead of voltage
  * @right_high: %false if left/low margin test is performed, %true if
  *		right/high
+ * @upper_eye: %false if the lower PAM3 eye is used, %true if the upper
+ *	       eye is used
  */
 struct tb_margining {
 	struct tb_port *port;
 	enum usb4_sb_target target;
 	u8 index;
 	struct device *dev;
-	u32 caps[2];
+	unsigned int gen;
+	u32 caps[3];
 	u32 results[2];
-	unsigned int lanes;
+	enum usb4_margining_lane lanes;
 	unsigned int min_ber_level;
 	unsigned int max_ber_level;
 	unsigned int ber_level;
@@ -441,6 +464,7 @@ struct tb_margining {
 	bool software;
 	bool time;
 	bool right_high;
+	bool upper_eye;
 };
 
 static int margining_modify_error_counter(struct tb_margining *margining,
@@ -463,35 +487,75 @@ static int margining_modify_error_counter(struct tb_margining *margining,
 
 static bool supports_software(const struct tb_margining *margining)
 {
-	return margining->caps[0] & USB4_MARGIN_CAP_0_MODES_SW;
+	if (margining->gen < 4)
+		return margining->caps[0] & USB4_MARGIN_CAP_0_MODES_SW;
+	return margining->caps[2] & USB4_MARGIN_CAP_2_MODES_SW;
 }
 
 static bool supports_hardware(const struct tb_margining *margining)
 {
-	return margining->caps[0] & USB4_MARGIN_CAP_0_MODES_HW;
+	if (margining->gen < 4)
+		return margining->caps[0] & USB4_MARGIN_CAP_0_MODES_HW;
+	return margining->caps[2] & USB4_MARGIN_CAP_2_MODES_HW;
 }
 
-static bool both_lanes(const struct tb_margining *margining)
+static bool all_lanes(const struct tb_margining *margining)
 {
-	return margining->caps[0] & USB4_MARGIN_CAP_0_2_LANES;
+	return margining->caps[0] & USB4_MARGIN_CAP_0_ALL_LANES;
 }
 
-static unsigned int
+static enum usb4_margin_cap_voltage_indp
 independent_voltage_margins(const struct tb_margining *margining)
 {
-	return FIELD_GET(USB4_MARGIN_CAP_0_VOLTAGE_INDP_MASK, margining->caps[0]);
+	if (margining->gen < 4) {
+		switch (FIELD_GET(USB4_MARGIN_CAP_0_VOLTAGE_INDP_MASK, margining->caps[0])) {
+		case USB4_MARGIN_CAP_0_VOLTAGE_MIN:
+			return USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_MIN;
+		case USB4_MARGIN_CAP_0_VOLTAGE_HL:
+			return USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_HL;
+		case USB4_MARGIN_CAP_1_TIME_BOTH:
+			return USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_BOTH;
+		}
+	} else {
+		switch (FIELD_GET(USB4_MARGIN_CAP_2_VOLTAGE_INDP_MASK, margining->caps[2])) {
+		case USB4_MARGIN_CAP_2_VOLTAGE_MIN:
+			return USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_4_MIN;
+		case USB4_MARGIN_CAP_2_VOLTAGE_BOTH:
+			return USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_4_BOTH;
+		}
+	}
+	return USB4_MARGIN_CAP_VOLTAGE_INDP_UNKNOWN;
 }
 
 static bool supports_time(const struct tb_margining *margining)
 {
-	return margining->caps[0] & USB4_MARGIN_CAP_0_TIME;
+	if (margining->gen < 4)
+		return margining->caps[0] & USB4_MARGIN_CAP_0_TIME;
+	return margining->caps[2] & USB4_MARGIN_CAP_2_TIME;
 }
 
 /* Only applicable if supports_time() returns true */
-static unsigned int
+static enum usb4_margin_cap_time_indp
 independent_time_margins(const struct tb_margining *margining)
 {
-	return FIELD_GET(USB4_MARGIN_CAP_1_TIME_INDP_MASK, margining->caps[1]);
+	if (margining->gen < 4) {
+		switch (FIELD_GET(USB4_MARGIN_CAP_1_TIME_INDP_MASK, margining->caps[1])) {
+		case USB4_MARGIN_CAP_1_TIME_MIN:
+			return USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_MIN;
+		case USB4_MARGIN_CAP_1_TIME_LR:
+			return USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_LR;
+		case USB4_MARGIN_CAP_1_TIME_BOTH:
+			return USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_BOTH;
+		}
+	} else {
+		switch (FIELD_GET(USB4_MARGIN_CAP_2_TIME_INDP_MASK, margining->caps[2])) {
+		case USB4_MARGIN_CAP_2_TIME_MIN:
+			return USB4_MARGIN_CAP_TIME_INDP_GEN_4_MIN;
+		case USB4_MARGIN_CAP_2_TIME_BOTH:
+			return USB4_MARGIN_CAP_TIME_INDP_GEN_4_BOTH;
+		}
+	}
+	return USB4_MARGIN_CAP_TIME_INDP_UNKNOWN;
 }
 
 static bool
@@ -570,16 +634,14 @@ static int margining_caps_show(struct seq_file *s, void *not_used)
 {
 	struct tb_margining *margining = s->private;
 	struct tb *tb = margining->port->sw->tb;
-	u32 cap0, cap1;
+	int ret = 0;
 
 	if (mutex_lock_interruptible(&tb->lock))
 		return -ERESTARTSYS;
 
 	/* Dump the raw caps first */
-	cap0 = margining->caps[0];
-	seq_printf(s, "0x%08x\n", cap0);
-	cap1 = margining->caps[1];
-	seq_printf(s, "0x%08x\n", cap1);
+	for (int i = 0; i < ARRAY_SIZE(margining->caps); i++)
+		seq_printf(s, "0x%08x\n", margining->caps[i]);
 
 	seq_printf(s, "# software margining: %s\n",
 		   supports_software(margining) ? "yes" : "no");
@@ -593,8 +655,8 @@ static int margining_caps_show(struct seq_file *s, void *not_used)
 		seq_puts(s, "# hardware margining: no\n");
 	}
 
-	seq_printf(s, "# both lanes simultaneously: %s\n",
-		  both_lanes(margining) ? "yes" : "no");
+	seq_printf(s, "# all lanes simultaneously: %s\n",
+		  str_yes_no(all_lanes(margining)));
 	seq_printf(s, "# voltage margin steps: %u\n",
 		   margining->voltage_steps);
 	seq_printf(s, "# maximum voltage offset: %u mV\n",
@@ -609,32 +671,54 @@ static int margining_caps_show(struct seq_file *s, void *not_used)
 	}
 
 	switch (independent_voltage_margins(margining)) {
-	case USB4_MARGIN_CAP_0_VOLTAGE_MIN:
+	case USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_MIN:
 		seq_puts(s, "# returns minimum between high and low voltage margins\n");
 		break;
-	case USB4_MARGIN_CAP_0_VOLTAGE_HL:
+	case USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_HL:
 		seq_puts(s, "# returns high or low voltage margin\n");
 		break;
-	case USB4_MARGIN_CAP_0_VOLTAGE_BOTH:
+	case USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_BOTH:
 		seq_puts(s, "# returns both high and low margins\n");
 		break;
+	case USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_4_MIN:
+		seq_puts(s, "# returns minimum between high and low voltage margins in both lower and upper eye\n");
+		break;
+	case USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_4_BOTH:
+		seq_puts(s, "# returns both high and low margins of both upper and lower eye\n");
+		break;
+	case USB4_MARGIN_CAP_VOLTAGE_INDP_UNKNOWN:
+		tb_port_warn(margining->port,
+			     "failed to parse independent voltage margining capabilities\n");
+		ret = -EIO;
+		goto out;
 	}
 
 	if (supports_time(margining)) {
 		seq_puts(s, "# time margining: yes\n");
 		seq_printf(s, "# time margining is destructive: %s\n",
-			   cap1 & USB4_MARGIN_CAP_1_TIME_DESTR ? "yes" : "no");
+			   str_yes_no(margining->caps[1] & USB4_MARGIN_CAP_1_TIME_DESTR));
 
 		switch (independent_time_margins(margining)) {
-		case USB4_MARGIN_CAP_1_TIME_MIN:
+		case USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_MIN:
 			seq_puts(s, "# returns minimum between left and right time margins\n");
 			break;
-		case USB4_MARGIN_CAP_1_TIME_LR:
+		case USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_LR:
 			seq_puts(s, "# returns left or right margin\n");
 			break;
-		case USB4_MARGIN_CAP_1_TIME_BOTH:
+		case USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_BOTH:
 			seq_puts(s, "# returns both left and right margins\n");
 			break;
+		case USB4_MARGIN_CAP_TIME_INDP_GEN_4_MIN:
+			seq_puts(s, "# returns minimum between left and right time margins in both lower and upper eye\n");
+			break;
+		case USB4_MARGIN_CAP_TIME_INDP_GEN_4_BOTH:
+			seq_puts(s, "# returns both left and right margins of both upper and lower eye\n");
+			break;
+		case USB4_MARGIN_CAP_TIME_INDP_UNKNOWN:
+			tb_port_warn(margining->port,
+				     "failed to parse independent time margining capabilities\n");
+			ret = -EIO;
+			goto out;
 		}
 
 		seq_printf(s, "# time margin steps: %u\n",
@@ -645,8 +729,9 @@ static int margining_caps_show(struct seq_file *s, void *not_used)
 		seq_puts(s, "# time margining: no\n");
 	}
 
+out:
 	mutex_unlock(&tb->lock);
-	return 0;
+	return ret;
 }
 DEBUGFS_ATTR_RO(margining_caps);
 
@@ -672,13 +757,13 @@ margining_lanes_write(struct file *file, const char __user *user_buf,
 	}
 
 	if (!strcmp(buf, "0")) {
-		margining->lanes = 0;
+		margining->lanes = USB4_MARGINING_LANE_RX0;
 	} else if (!strcmp(buf, "1")) {
-		margining->lanes = 1;
+		margining->lanes = USB4_MARGINING_LANE_RX1;
 	} else if (!strcmp(buf, "all")) {
 		/* Needs to be supported */
-		if (both_lanes(margining))
-			margining->lanes = 7;
+		if (all_lanes(margining))
+			margining->lanes = USB4_MARGINING_LANE_ALL;
 		else
 			ret = -EINVAL;
 	} else {
@@ -696,21 +781,21 @@ static int margining_lanes_show(struct seq_file *s, void *not_used)
 {
 	struct tb_margining *margining = s->private;
 	struct tb *tb = margining->port->sw->tb;
-	unsigned int lanes;
+	enum usb4_margining_lane lanes;
 
 	if (mutex_lock_interruptible(&tb->lock))
 		return -ERESTARTSYS;
 
 	lanes = margining->lanes;
-	if (both_lanes(margining)) {
-		if (!lanes)
+	if (all_lanes(margining)) {
+		if (lanes == USB4_MARGINING_LANE_RX0)
 			seq_puts(s, "[0] 1 all\n");
-		else if (lanes == 1)
+		else if (lanes == USB4_MARGINING_LANE_RX1)
 			seq_puts(s, "0 [1] all\n");
 		else
 			seq_puts(s, "0 1 [all]\n");
 	} else {
-		if (!lanes)
+		if (lanes == USB4_MARGINING_LANE_RX0)
 			seq_puts(s, "[0] 1\n");
 		else
 			seq_puts(s, "0 [1]\n");
@@ -797,7 +882,9 @@ margining_error_counter_write(struct file *file, const char __user *user_buf,
 	else if (!strcmp(buf, "stop"))
 		error_counter = USB4_MARGIN_SW_ERROR_COUNTER_STOP;
 	else
-		return -EINVAL;
+		goto err_free;
+
+	free_page((unsigned long)buf);
 
 	scoped_cond_guard(mutex_intr, return -ERESTARTSYS, &tb->lock) {
 		if (!margining->software)
@@ -807,6 +894,10 @@ margining_error_counter_write(struct file *file, const char __user *user_buf,
 	}
 
 	return count;
+
+err_free:
+	free_page((unsigned long)buf);
+	return -EINVAL;
 }
 
 static int margining_error_counter_show(struct seq_file *s, void *not_used)
@@ -1004,13 +1095,13 @@ static int margining_run_sw(struct tb_margining *margining,
 		if (ret)
 			break;
 
-		if (margining->lanes == USB4_MARGIN_SW_LANE_0)
+		if (margining->lanes == USB4_MARGINING_LANE_RX0)
 			errors = FIELD_GET(USB4_MARGIN_SW_ERR_COUNTER_LANE_0_MASK,
 					   margining->results[1]);
-		else if (margining->lanes == USB4_MARGIN_SW_LANE_1)
+		else if (margining->lanes == USB4_MARGINING_LANE_RX1)
 			errors = FIELD_GET(USB4_MARGIN_SW_ERR_COUNTER_LANE_1_MASK,
 					   margining->results[1]);
-		else if (margining->lanes == USB4_MARGIN_SW_ALL_LANES)
+		else if (margining->lanes == USB4_MARGINING_LANE_ALL)
 			errors = margining->results[1];
 
 		/* Any errors stop the test */
@@ -1080,6 +1171,7 @@ static int margining_run_write(void *data, u64 val)
 			.time = margining->time,
 			.voltage_time_offset = margining->voltage_time_offset,
 			.right_high = margining->right_high,
+			.upper_eye = margining->upper_eye,
 			.optional_voltage_offset_range = margining->optional_voltage_offset_range,
 		};
 
@@ -1095,6 +1187,7 @@ static int margining_run_write(void *data, u64 val)
 			.lanes = margining->lanes,
 			.time = margining->time,
 			.right_high = margining->right_high,
+			.upper_eye = margining->upper_eye,
 			.optional_voltage_offset_range = margining->optional_voltage_offset_range,
 		};
 
@@ -1104,7 +1197,7 @@ static int margining_run_write(void *data, u64 val)
 			    margining->lanes);
 
 		ret = usb4_port_hw_margin(port, margining->target, margining->index, &params,
-					  margining->results);
+					  margining->results, ARRAY_SIZE(margining->results));
 	}
 
 	if (down_sw)
@@ -1132,13 +1225,12 @@ static ssize_t margining_results_write(struct file *file,
 		return -ERESTARTSYS;
 
 	/* Just clear the results */
-	margining->results[0] = 0;
-	margining->results[1] = 0;
+	memset(margining->results, 0, sizeof(margining->results));
 
 	if (margining->software) {
 		/* Clear the error counters */
 		margining_modify_error_counter(margining,
-					       USB4_MARGIN_SW_ALL_LANES,
+					       USB4_MARGINING_LANE_ALL,
 					       USB4_MARGIN_SW_ERROR_COUNTER_CLEAR);
 	}
 
@@ -1151,10 +1243,10 @@ static void voltage_margin_show(struct seq_file *s,
 {
 	unsigned int tmp, voltage;
 
-	tmp = FIELD_GET(USB4_MARGIN_HW_RES_1_MARGIN_MASK, val);
+	tmp = FIELD_GET(USB4_MARGIN_HW_RES_MARGIN_MASK, val);
 	voltage = tmp * margining->max_voltage_offset / margining->voltage_steps;
 	seq_printf(s, "%u mV (%u)", voltage, tmp);
-	if (val & USB4_MARGIN_HW_RES_1_EXCEEDS)
+	if (val & USB4_MARGIN_HW_RES_EXCEEDS)
 		seq_puts(s, " exceeds maximum");
 	seq_puts(s, "\n");
 	if (margining->optional_voltage_offset_range)
@@ -1166,12 +1258,51 @@ static void time_margin_show(struct seq_file *s,
 {
 	unsigned int tmp, interval;
 
-	tmp = FIELD_GET(USB4_MARGIN_HW_RES_1_MARGIN_MASK, val);
+	tmp = FIELD_GET(USB4_MARGIN_HW_RES_MARGIN_MASK, val);
 	interval = tmp * margining->max_time_offset / margining->time_steps;
 	seq_printf(s, "%u mUI (%u)", interval, tmp);
-	if (val & USB4_MARGIN_HW_RES_1_EXCEEDS)
+	if (val & USB4_MARGIN_HW_RES_EXCEEDS)
 		seq_puts(s, " exceeds maximum");
 	seq_puts(s, "\n");
+}
+
+static u8 margining_hw_result_val(const u32 *results,
+				  enum usb4_margining_lane lane,
+				  bool right_high)
+{
+	u32 val;
+
+	if (lane == USB4_MARGINING_LANE_RX0)
+		val = results[1];
+	else if (lane == USB4_MARGINING_LANE_RX1)
+		val = results[1] >> USB4_MARGIN_HW_RES_LANE_SHIFT;
+	else
+		val = 0;
+
+	return right_high ? val : val >> USB4_MARGIN_HW_RES_LL_SHIFT;
+}
+
+static void margining_hw_result_format(struct seq_file *s,
+				       const struct tb_margining *margining,
+				       enum usb4_margining_lane lane)
+{
+	u8 val;
+
+	if (margining->time) {
+		val = margining_hw_result_val(margining->results, lane, true);
+		seq_printf(s, "# lane %u right time margin: ", lane);
+		time_margin_show(s, margining, val);
+		val = margining_hw_result_val(margining->results, lane, false);
+		seq_printf(s, "# lane %u left time margin: ", lane);
+		time_margin_show(s, margining, val);
+	} else {
+		val = margining_hw_result_val(margining->results, lane, true);
+		seq_printf(s, "# lane %u high voltage margin: ", lane);
+		voltage_margin_show(s, margining, val);
+		val = margining_hw_result_val(margining->results, lane, false);
+		seq_printf(s, "# lane %u low voltage margin: ", lane);
+		voltage_margin_show(s, margining, val);
+	}
 }
 
 static int margining_results_show(struct seq_file *s, void *not_used)
@@ -1186,65 +1317,32 @@ static int margining_results_show(struct seq_file *s, void *not_used)
 	seq_printf(s, "0x%08x\n", margining->results[0]);
 	/* Only the hardware margining has two result dwords */
 	if (!margining->software) {
-		unsigned int val;
+		for (int i = 1; i < ARRAY_SIZE(margining->results); i++)
+			seq_printf(s, "0x%08x\n", margining->results[i]);
 
-		seq_printf(s, "0x%08x\n", margining->results[1]);
-
-		if (margining->time) {
-			if (!margining->lanes || margining->lanes == 7) {
-				val = margining->results[1];
-				seq_puts(s, "# lane 0 right time margin: ");
-				time_margin_show(s, margining, val);
-				val = margining->results[1] >>
-					USB4_MARGIN_HW_RES_1_L0_LL_MARGIN_SHIFT;
-				seq_puts(s, "# lane 0 left time margin: ");
-				time_margin_show(s, margining, val);
-			}
-			if (margining->lanes == 1 || margining->lanes == 7) {
-				val = margining->results[1] >>
-					USB4_MARGIN_HW_RES_1_L1_RH_MARGIN_SHIFT;
-				seq_puts(s, "# lane 1 right time margin: ");
-				time_margin_show(s, margining, val);
-				val = margining->results[1] >>
-					USB4_MARGIN_HW_RES_1_L1_LL_MARGIN_SHIFT;
-				seq_puts(s, "# lane 1 left time margin: ");
-				time_margin_show(s, margining, val);
-			}
+		if (margining->lanes == USB4_MARGINING_LANE_ALL) {
+			margining_hw_result_format(s, margining,
+						   USB4_MARGINING_LANE_RX0);
+			margining_hw_result_format(s, margining,
+						   USB4_MARGINING_LANE_RX1);
 		} else {
-			if (!margining->lanes || margining->lanes == 7) {
-				val = margining->results[1];
-				seq_puts(s, "# lane 0 high voltage margin: ");
-				voltage_margin_show(s, margining, val);
-				val = margining->results[1] >>
-					USB4_MARGIN_HW_RES_1_L0_LL_MARGIN_SHIFT;
-				seq_puts(s, "# lane 0 low voltage margin: ");
-				voltage_margin_show(s, margining, val);
-			}
-			if (margining->lanes == 1 || margining->lanes == 7) {
-				val = margining->results[1] >>
-					USB4_MARGIN_HW_RES_1_L1_RH_MARGIN_SHIFT;
-				seq_puts(s, "# lane 1 high voltage margin: ");
-				voltage_margin_show(s, margining, val);
-				val = margining->results[1] >>
-					USB4_MARGIN_HW_RES_1_L1_LL_MARGIN_SHIFT;
-				seq_puts(s, "# lane 1 low voltage margin: ");
-				voltage_margin_show(s, margining, val);
-			}
+			margining_hw_result_format(s, margining,
+						   margining->lanes);
 		}
 	} else {
 		u32 lane_errors, result;
 
 		seq_printf(s, "0x%08x\n", margining->results[1]);
-		result = FIELD_GET(USB4_MARGIN_SW_LANES_MASK, margining->results[0]);
 
-		if (result == USB4_MARGIN_SW_LANE_0 ||
-		    result == USB4_MARGIN_SW_ALL_LANES) {
+		result = FIELD_GET(USB4_MARGIN_SW_LANES_MASK, margining->results[0]);
+		if (result == USB4_MARGINING_LANE_RX0 ||
+		    result == USB4_MARGINING_LANE_ALL) {
 			lane_errors = FIELD_GET(USB4_MARGIN_SW_ERR_COUNTER_LANE_0_MASK,
 						margining->results[1]);
 			seq_printf(s, "# lane 0 errors: %u\n", lane_errors);
 		}
-		if (result == USB4_MARGIN_SW_LANE_1 ||
-		    result == USB4_MARGIN_SW_ALL_LANES) {
+		if (result == USB4_MARGINING_LANE_RX1 ||
+		    result == USB4_MARGINING_LANE_ALL) {
 			lane_errors = FIELD_GET(USB4_MARGIN_SW_ERR_COUNTER_LANE_1_MASK,
 						margining->results[1]);
 			seq_printf(s, "# lane 1 errors: %u\n", lane_errors);
@@ -1382,6 +1480,55 @@ static int margining_margin_show(struct seq_file *s, void *not_used)
 }
 DEBUGFS_ATTR_RW(margining_margin);
 
+static ssize_t margining_eye_write(struct file *file,
+				   const char __user *user_buf,
+				   size_t count, loff_t *ppos)
+{
+	struct seq_file *s = file->private_data;
+	struct tb_port *port = s->private;
+	struct usb4_port *usb4 = port->usb4;
+	struct tb *tb = port->sw->tb;
+	int ret = 0;
+	char *buf;
+
+	buf = validate_and_copy_from_user(user_buf, &count);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	buf[count - 1] = '\0';
+
+	scoped_cond_guard(mutex_intr, ret = -ERESTARTSYS, &tb->lock) {
+		if (!strcmp(buf, "lower"))
+			usb4->margining->upper_eye = false;
+		else if (!strcmp(buf, "upper"))
+			usb4->margining->upper_eye = true;
+		else
+			ret = -EINVAL;
+	}
+
+	free_page((unsigned long)buf);
+	return ret ? ret : count;
+}
+
+static int margining_eye_show(struct seq_file *s, void *not_used)
+{
+	struct tb_port *port = s->private;
+	struct usb4_port *usb4 = port->usb4;
+	struct tb *tb = port->sw->tb;
+
+	scoped_guard(mutex_intr, &tb->lock) {
+		if (usb4->margining->upper_eye)
+			seq_puts(s, "lower [upper]\n");
+		else
+			seq_puts(s, "[lower] upper\n");
+
+		return 0;
+	}
+
+	return -ERESTARTSYS;
+}
+DEBUGFS_ATTR_RW(margining_eye);
+
 static struct tb_margining *margining_alloc(struct tb_port *port,
 					    struct device *dev,
 					    enum usb4_sb_target target,
@@ -1392,6 +1539,12 @@ static struct tb_margining *margining_alloc(struct tb_port *port,
 	unsigned int val;
 	int ret;
 
+	ret = tb_port_get_link_generation(port);
+	if (ret < 0) {
+		tb_port_warn(port, "failed to read link generation\n");
+		return NULL;
+	}
+
 	margining = kzalloc(sizeof(*margining), GFP_KERNEL);
 	if (!margining)
 		return NULL;
@@ -1400,8 +1553,10 @@ static struct tb_margining *margining_alloc(struct tb_port *port,
 	margining->target = target;
 	margining->index = index;
 	margining->dev = dev;
+	margining->gen = ret;
 
-	ret = usb4_port_margining_caps(port, target, index, margining->caps);
+	ret = usb4_port_margining_caps(port, target, index, margining->caps,
+				       ARRAY_SIZE(margining->caps));
 	if (ret) {
 		kfree(margining);
 		return NULL;
@@ -1411,10 +1566,17 @@ static struct tb_margining *margining_alloc(struct tb_port *port,
 	if (supports_software(margining))
 		margining->software = true;
 
-	val = FIELD_GET(USB4_MARGIN_CAP_0_VOLTAGE_STEPS_MASK, margining->caps[0]);
-	margining->voltage_steps = val;
-	val = FIELD_GET(USB4_MARGIN_CAP_0_MAX_VOLTAGE_OFFSET_MASK, margining->caps[0]);
-	margining->max_voltage_offset = 74 + val * 2;
+	if (margining->gen < 4) {
+		val = FIELD_GET(USB4_MARGIN_CAP_0_VOLTAGE_STEPS_MASK, margining->caps[0]);
+		margining->voltage_steps = val;
+		val = FIELD_GET(USB4_MARGIN_CAP_0_MAX_VOLTAGE_OFFSET_MASK, margining->caps[0]);
+		margining->max_voltage_offset = 74 + val * 2;
+	} else {
+		val = FIELD_GET(USB4_MARGIN_CAP_2_VOLTAGE_STEPS_MASK, margining->caps[2]);
+		margining->voltage_steps = val;
+		val = FIELD_GET(USB4_MARGIN_CAP_2_MAX_VOLTAGE_OFFSET_MASK, margining->caps[2]);
+		margining->max_voltage_offset = 74 + val * 2;
+	}
 
 	if (supports_optional_voltage_offset_range(margining)) {
 		val = FIELD_GET(USB4_MARGIN_CAP_0_VOLT_STEPS_OPT_MASK,
@@ -1456,11 +1618,10 @@ static struct tb_margining *margining_alloc(struct tb_port *port,
 	debugfs_create_file("results", 0600, dir, margining,
 			    &margining_results_fops);
 	debugfs_create_file("test", 0600, dir, margining, &margining_test_fops);
-	if (independent_voltage_margins(margining) == USB4_MARGIN_CAP_0_VOLTAGE_HL ||
+	if (independent_voltage_margins(margining) == USB4_MARGIN_CAP_VOLTAGE_INDP_GEN_2_3_HL ||
 	    (supports_time(margining) &&
-	     independent_time_margins(margining) == USB4_MARGIN_CAP_1_TIME_LR))
-		debugfs_create_file("margin", 0600, dir, margining,
-				    &margining_margin_fops);
+	     independent_time_margins(margining) == USB4_MARGIN_CAP_TIME_INDP_GEN_2_3_LR))
+		debugfs_create_file("margin", 0600, dir, margining, &margining_margin_fops);
 
 	margining->error_counter = USB4_MARGIN_SW_ERROR_COUNTER_CLEAR;
 	margining->dwell_time = MIN_DWELL_TIME;
@@ -1477,6 +1638,10 @@ static struct tb_margining *margining_alloc(struct tb_port *port,
 		debugfs_create_file("dwell_time", DEBUGFS_MODE, dir, margining,
 				    &margining_dwell_time_fops);
 	}
+
+	if (margining->gen >= 4)
+		debugfs_create_file("eye", 0600, dir, port, &margining_eye_fops);
+
 	return margining;
 }
 
@@ -2083,8 +2248,10 @@ static int sb_regs_show(struct tb_port *port, const struct sb_reg *sb_regs,
 		memset(data, 0, sizeof(data));
 		ret = usb4_port_sb_read(port, target, index, regs->reg, data,
 					regs->size);
-		if (ret)
-			return ret;
+		if (ret) {
+			seq_printf(s, "0x%02x <not accessible>\n", regs->reg);
+			continue;
+		}
 
 		seq_printf(s, "0x%02x", regs->reg);
 		for (j = 0; j < regs->size; j++)

@@ -565,7 +565,7 @@ static int adc3xxx_coefficient_info(struct snd_kcontrol *kcontrol,
 static int adc3xxx_coefficient_get(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	int numcoeff  = kcontrol->private_value >> 16;
 	int reg = kcontrol->private_value & 0xffff;
 	int index = 0;
@@ -591,7 +591,7 @@ static int adc3xxx_coefficient_get(struct snd_kcontrol *kcontrol,
 static int adc3xxx_coefficient_put(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	int numcoeff  = kcontrol->private_value >> 16;
 	int reg = kcontrol->private_value & 0xffff;
 	int index = 0;
@@ -961,7 +961,7 @@ static int adc3xxx_gpio_request(struct gpio_chip *chip, unsigned int offset)
 	if (offset >= ADC3XXX_GPIOS_MAX)
 		return -EINVAL;
 
-	if (offset >= 0 && offset < ADC3XXX_GPIO_PINS) {
+	if (offset < ADC3XXX_GPIO_PINS) {
 		/* GPIO1 is offset 0, GPIO2 is offset 1 */
 		/* We check here that the GPIO pins are either not configured
 		 * in the DT, or that they purposely are set as outputs.
@@ -1015,10 +1015,10 @@ static int adc3xxx_gpio_direction_out(struct gpio_chip *chip,
  * so we set the output mode and output value in the same call. Hence
  * .set in practice does the same thing as .direction_out .
  */
-static void adc3xxx_gpio_set(struct gpio_chip *chip, unsigned int offset,
-			     int value)
+static int adc3xxx_gpio_set(struct gpio_chip *chip, unsigned int offset,
+			    int value)
 {
-	(void) adc3xxx_gpio_direction_out(chip, offset, value);
+	return adc3xxx_gpio_direction_out(chip, offset, value);
 }
 
 /* Even though we only support GPIO output for now, some GPIO clients
@@ -1052,7 +1052,7 @@ static const struct gpio_chip adc3xxx_gpio_chip = {
 	.owner			= THIS_MODULE,
 	.request		= adc3xxx_gpio_request,
 	.direction_output	= adc3xxx_gpio_direction_out,
-	.set			= adc3xxx_gpio_set,
+	.set_rv			= adc3xxx_gpio_set,
 	.get			= adc3xxx_gpio_get,
 	.can_sleep		= 1,
 };
@@ -1193,7 +1193,7 @@ static int adc3xxx_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_soc_dai *dai)
 {
 	struct snd_soc_component *component = dai->component;
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(dai->component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(dai->component);
 	struct adc3xxx *adc3xxx = snd_soc_component_get_drvdata(component);
 	int i, width = 16;
 	u8 iface_len, bdiv;
@@ -1299,7 +1299,7 @@ static int adc3xxx_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 static int adc3xxx_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 {
 	struct snd_soc_component *component = codec_dai->component;
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct adc3xxx *adc3xxx = snd_soc_component_get_drvdata(component);
 	u8 clkdir = 0, format = 0;
 	int master = 0;
@@ -1401,7 +1401,6 @@ static int adc3xxx_i2c_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
 	struct adc3xxx *adc3xxx = NULL;
-	const struct i2c_device_id *id;
 	int ret;
 
 	adc3xxx = devm_kzalloc(dev, sizeof(struct adc3xxx), GFP_KERNEL);
@@ -1466,8 +1465,7 @@ static int adc3xxx_i2c_probe(struct i2c_client *i2c)
 
 	i2c_set_clientdata(i2c, adc3xxx);
 
-	id = i2c_match_id(adc3xxx_i2c_id, i2c);
-	adc3xxx->type = id->driver_data;
+	adc3xxx->type = (uintptr_t)i2c_get_match_data(i2c);
 
 	/* Reset codec chip */
 	gpiod_set_value_cansleep(adc3xxx->rst_pin, 1);
@@ -1495,8 +1493,7 @@ static void adc3xxx_i2c_remove(struct i2c_client *client)
 {
 	struct adc3xxx *adc3xxx = i2c_get_clientdata(client);
 
-	if (adc3xxx->mclk)
-		clk_disable_unprepare(adc3xxx->mclk);
+	clk_disable_unprepare(adc3xxx->mclk);
 	adc3xxx_free_gpio(adc3xxx);
 	snd_soc_unregister_component(&client->dev);
 }

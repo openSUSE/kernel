@@ -92,6 +92,8 @@ int perf_event__synthesize_threads(const struct perf_tool *tool, perf_event__han
 int perf_event__synthesize_tracing_data(const struct perf_tool *tool, int fd, struct evlist *evlist, perf_event__handler_t process);
 int perf_event__synth_time_conv(const struct perf_event_mmap_page *pc, const struct perf_tool *tool, perf_event__handler_t process, struct machine *machine);
 pid_t perf_event__synthesize_comm(const struct perf_tool *tool, union perf_event *event, pid_t pid, perf_event__handler_t process, struct machine *machine);
+void perf_event__synthesize_final_bpf_metadata(struct perf_session *session,
+					       perf_event__handler_t process);
 
 int perf_tool__process_synth_event(const struct perf_tool *tool, union perf_event *event, struct machine *machine, perf_event__handler_t process);
 
@@ -105,23 +107,8 @@ int machine__synthesize_threads(struct machine *machine, struct target *target,
 				struct perf_thread_map *threads, bool needs_mmap, bool data_mmap,
 				unsigned int nr_threads_synthesize);
 
-#ifdef HAVE_AUXTRACE_SUPPORT
 int perf_event__synthesize_auxtrace_info(struct auxtrace_record *itr, const struct perf_tool *tool,
 					 struct perf_session *session, perf_event__handler_t process);
-
-#else // HAVE_AUXTRACE_SUPPORT
-
-#include <errno.h>
-
-static inline int
-perf_event__synthesize_auxtrace_info(struct auxtrace_record *itr __maybe_unused,
-				     const struct perf_tool *tool __maybe_unused,
-				     struct perf_session *session __maybe_unused,
-				     perf_event__handler_t process __maybe_unused)
-{
-	return -EINVAL;
-}
-#endif // HAVE_AUXTRACE_SUPPORT
 
 #ifdef HAVE_LIBBPF_SUPPORT
 int perf_event__synthesize_bpf_events(struct perf_session *session, perf_event__handler_t process,
@@ -141,4 +128,7 @@ int perf_event__synthesize_for_pipe(const struct perf_tool *tool,
 				    struct perf_data *data,
 				    perf_event__handler_t process);
 
+int perf_event__synthesize_schedstat(const struct perf_tool *tool,
+				     perf_event__handler_t process,
+				     struct perf_cpu_map *user_requested_cpu);
 #endif // __PERF_SYNTHETIC_EVENTS_H

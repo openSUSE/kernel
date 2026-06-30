@@ -418,12 +418,12 @@ static int pxafb_adjust_timing(struct pxafb_info *fbi,
 	var->yres = max_t(int, var->yres, MIN_YRES);
 
 	if (!(fbi->lccr0 & LCCR0_LCDT)) {
-		clamp_val(var->hsync_len, 1, 64);
-		clamp_val(var->vsync_len, 1, 64);
-		clamp_val(var->left_margin,  1, 255);
-		clamp_val(var->right_margin, 1, 255);
-		clamp_val(var->upper_margin, 1, 255);
-		clamp_val(var->lower_margin, 1, 255);
+		var->hsync_len = clamp(var->hsync_len, 1, 64);
+		var->vsync_len = clamp(var->vsync_len, 1, 64);
+		var->left_margin  = clamp(var->left_margin,  1, 255);
+		var->right_margin = clamp(var->right_margin, 1, 255);
+		var->upper_margin = clamp(var->upper_margin, 1, 255);
+		var->lower_margin = clamp(var->lower_margin, 1, 255);
 	}
 
 	/* make sure each line is aligned on word boundary */
@@ -1030,9 +1030,8 @@ static inline unsigned int get_pcd(struct pxafb_info *fbi,
 
 /*
  * Some touchscreens need hsync information from the video driver to
- * function correctly. We export it here.  Note that 'hsync_time' and
- * the value returned from pxafb_get_hsync_time() is the *reciprocal*
- * of the hsync period in seconds.
+ * function correctly. We export it here.  Note that 'hsync_time' is
+ * the *reciprocal* of the hsync period in seconds.
  */
 static inline void set_hsync_time(struct pxafb_info *fbi, unsigned int pcd)
 {
@@ -1047,18 +1046,6 @@ static inline void set_hsync_time(struct pxafb_info *fbi, unsigned int pcd)
 
 	fbi->hsync_time = htime;
 }
-
-unsigned long pxafb_get_hsync_time(struct device *dev)
-{
-	struct pxafb_info *fbi = dev_get_drvdata(dev);
-
-	/* If display is blanked/suspended, hsync isn't active */
-	if (!fbi || (fbi->state != C_ENABLE))
-		return 0;
-
-	return fbi->hsync_time;
-}
-EXPORT_SYMBOL(pxafb_get_hsync_time);
 
 static int setup_frame_dma(struct pxafb_info *fbi, int dma, int pal,
 			   unsigned long start, size_t size)
@@ -2233,31 +2220,26 @@ static int pxafb_probe(struct platform_device *dev)
 {
 	struct pxafb_info *fbi;
 	struct pxafb_mach_info *inf, *pdata;
-	int i, irq, ret;
+	int irq, ret;
 
 	dev_dbg(&dev->dev, "pxafb_probe\n");
 
 	ret = -ENOMEM;
 	pdata = dev_get_platdata(&dev->dev);
-	inf = devm_kmalloc(&dev->dev, sizeof(*inf), GFP_KERNEL);
-	if (!inf)
-		goto failed;
-
 	if (pdata) {
-		*inf = *pdata;
-		inf->modes =
-			devm_kmalloc_array(&dev->dev, pdata->num_modes,
-					   sizeof(inf->modes[0]), GFP_KERNEL);
+		inf = devm_kmemdup(&dev->dev, pdata, sizeof(*pdata), GFP_KERNEL);
+		if (!inf)
+			goto failed;
+
+		inf->modes = devm_kmemdup_array(&dev->dev, pdata->modes, pdata->num_modes,
+						sizeof(*pdata->modes), GFP_KERNEL);
 		if (!inf->modes)
 			goto failed;
-		for (i = 0; i < inf->num_modes; i++)
-			inf->modes[i] = pdata->modes[i];
 	} else {
 		inf = of_pxafb_of_mach_info(&dev->dev);
+		if (IS_ERR_OR_NULL(inf))
+			goto failed;
 	}
-
-	if (IS_ERR_OR_NULL(inf))
-		goto failed;
 
 	ret = pxafb_parse_options(&dev->dev, g_options, inf);
 	if (ret < 0)

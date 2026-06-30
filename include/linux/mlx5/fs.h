@@ -40,6 +40,9 @@
 
 #define MLX5_SET_CFG(p, f, v) MLX5_SET(create_flow_group_in, p, f, v)
 
+#define MLX5_RDMA_TRANSPORT_BYPASS_PRIO 16
+#define MLX5_FS_MAX_POOL_SIZE BIT(30)
+
 enum mlx5_flow_destination_type {
 	MLX5_FLOW_DESTINATION_TYPE_NONE,
 	MLX5_FLOW_DESTINATION_TYPE_VPORT,
@@ -68,6 +71,7 @@ enum {
 	MLX5_FLOW_TABLE_UNMANAGED = BIT(3),
 	MLX5_FLOW_TABLE_OTHER_VPORT = BIT(4),
 	MLX5_FLOW_TABLE_UPLINK_VPORT = BIT(5),
+	MLX5_FLOW_TABLE_OTHER_ESWITCH = BIT(6),
 };
 
 #define LEFTOVERS_RULE_NUM	 2
@@ -108,9 +112,12 @@ enum mlx5_flow_namespace_type {
 	MLX5_FLOW_NAMESPACE_RDMA_TX_IPSEC,
 	MLX5_FLOW_NAMESPACE_RDMA_RX_MACSEC,
 	MLX5_FLOW_NAMESPACE_RDMA_TX_MACSEC,
+	MLX5_FLOW_NAMESPACE_RDMA_TRANSPORT_RX,
+	MLX5_FLOW_NAMESPACE_RDMA_TRANSPORT_TX,
 };
 
 enum {
+	FDB_DROP_ROOT,
 	FDB_BYPASS_PATH,
 	FDB_CRYPTO_INGRESS,
 	FDB_TC_OFFLOAD,
@@ -120,6 +127,24 @@ enum {
 	FDB_SLOW_PATH,
 	FDB_CRYPTO_EGRESS,
 	FDB_PER_VPORT,
+};
+
+enum fs_flow_table_type {
+	FS_FT_NIC_RX          = 0x0,
+	FS_FT_NIC_TX          = 0x1,
+	FS_FT_ESW_EGRESS_ACL  = 0x2,
+	FS_FT_ESW_INGRESS_ACL = 0x3,
+	FS_FT_FDB             = 0X4,
+	FS_FT_SNIFFER_RX	= 0X5,
+	FS_FT_SNIFFER_TX	= 0X6,
+	FS_FT_RDMA_RX		= 0X7,
+	FS_FT_RDMA_TX		= 0X8,
+	FS_FT_PORT_SEL		= 0X9,
+	FS_FT_FDB_RX		= 0xa,
+	FS_FT_FDB_TX		= 0xb,
+	FS_FT_RDMA_TRANSPORT_RX	= 0xd,
+	FS_FT_RDMA_TRANSPORT_TX	= 0xe,
+	FS_FT_MAX_TYPE = FS_FT_RDMA_TRANSPORT_TX,
 };
 
 struct mlx5_pkt_reformat;
@@ -163,7 +188,7 @@ struct mlx5_flow_destination {
 		u32			tir_num;
 		u32			ft_num;
 		struct mlx5_flow_table	*ft;
-		u32			counter_id;
+		struct mlx5_fc          *counter;
 		struct {
 			u16		num;
 			u16		vhca_id;
@@ -192,9 +217,9 @@ struct mlx5_flow_namespace *
 mlx5_get_flow_namespace(struct mlx5_core_dev *dev,
 			enum mlx5_flow_namespace_type type);
 struct mlx5_flow_namespace *
-mlx5_get_flow_vport_acl_namespace(struct mlx5_core_dev *dev,
-				  enum mlx5_flow_namespace_type type,
-				  int vport);
+mlx5_get_flow_vport_namespace(struct mlx5_core_dev *dev,
+			      enum mlx5_flow_namespace_type type,
+			      int vport_idx);
 
 struct mlx5_flow_table_attr {
 	int prio;
@@ -202,6 +227,8 @@ struct mlx5_flow_table_attr {
 	u32 level;
 	u32 flags;
 	u16 uid;
+	u16 vport;
+	u16 esw_owner_vhca_id;
 	struct mlx5_flow_table *next_ft;
 
 	struct {
@@ -238,6 +265,7 @@ void mlx5_destroy_flow_group(struct mlx5_flow_group *fg);
 
 struct mlx5_exe_aso {
 	u32 object_id;
+	int base_id;
 	u8 type;
 	u8 return_reg_id;
 	union {
@@ -298,10 +326,11 @@ int mlx5_modify_rule_destination(struct mlx5_flow_handle *handler,
 
 struct mlx5_fc *mlx5_fc_create(struct mlx5_core_dev *dev, bool aging);
 
-/* As mlx5_fc_create() but doesn't queue stats refresh thread. */
-struct mlx5_fc *mlx5_fc_create_ex(struct mlx5_core_dev *dev, bool aging);
-
 void mlx5_fc_destroy(struct mlx5_core_dev *dev, struct mlx5_fc *counter);
+struct mlx5_fc *mlx5_fc_local_create(u32 counter_id, u32 offset, u32 bulk_size);
+void mlx5_fc_local_destroy(struct mlx5_fc *counter);
+void mlx5_fc_local_get(struct mlx5_fc *counter);
+void mlx5_fc_local_put(struct mlx5_fc *counter);
 u64 mlx5_fc_query_lastuse(struct mlx5_fc *counter);
 void mlx5_fc_query_cached(struct mlx5_fc *counter,
 			  u64 *bytes, u64 *packets, u64 *lastuse);
@@ -345,4 +374,8 @@ u32 mlx5_flow_table_id(struct mlx5_flow_table *ft);
 
 struct mlx5_flow_root_namespace *
 mlx5_get_root_namespace(struct mlx5_core_dev *dev, enum mlx5_flow_namespace_type ns_type);
+
+int mlx5_fs_set_root_dev(struct mlx5_core_dev *dev,
+			 struct mlx5_core_dev *new_dev,
+			 enum fs_flow_table_type table_type);
 #endif

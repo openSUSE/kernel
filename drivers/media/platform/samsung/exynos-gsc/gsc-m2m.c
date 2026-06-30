@@ -276,8 +276,6 @@ static const struct vb2_ops gsc_m2m_qops = {
 	.queue_setup	 = gsc_m2m_queue_setup,
 	.buf_prepare	 = gsc_m2m_buf_prepare,
 	.buf_queue	 = gsc_m2m_buf_queue,
-	.wait_prepare	 = vb2_ops_wait_prepare,
-	.wait_finish	 = vb2_ops_wait_finish,
 	.stop_streaming	 = gsc_m2m_stop_streaming,
 	.start_streaming = gsc_m2m_start_streaming,
 };
@@ -627,8 +625,7 @@ static int gsc_m2m_open(struct file *file)
 
 	/* Use separate control handler per file handle */
 	ctx->fh.ctrl_handler = &ctx->ctrl_handler;
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	ctx->gsc_dev = gsc;
 	/* Default color format */
@@ -657,7 +654,7 @@ static int gsc_m2m_open(struct file *file)
 
 error_ctrls:
 	gsc_ctrls_delete(ctx);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 error_fh:
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
@@ -668,7 +665,7 @@ unlock:
 
 static int gsc_m2m_release(struct file *file)
 {
-	struct gsc_ctx *ctx = fh_to_ctx(file->private_data);
+	struct gsc_ctx *ctx = file_to_ctx(file);
 	struct gsc_dev *gsc = ctx->gsc_dev;
 
 	pr_debug("pid: %d, state: 0x%lx, refcnt= %d",
@@ -678,7 +675,7 @@ static int gsc_m2m_release(struct file *file)
 
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
 	gsc_ctrls_delete(ctx);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 
 	if (--gsc->m2m.refcnt <= 0)
@@ -692,7 +689,7 @@ static int gsc_m2m_release(struct file *file)
 static __poll_t gsc_m2m_poll(struct file *file,
 					struct poll_table_struct *wait)
 {
-	struct gsc_ctx *ctx = fh_to_ctx(file->private_data);
+	struct gsc_ctx *ctx = file_to_ctx(file);
 	struct gsc_dev *gsc = ctx->gsc_dev;
 	__poll_t ret;
 
@@ -707,7 +704,7 @@ static __poll_t gsc_m2m_poll(struct file *file,
 
 static int gsc_m2m_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	struct gsc_ctx *ctx = fh_to_ctx(file->private_data);
+	struct gsc_ctx *ctx = file_to_ctx(file);
 	struct gsc_dev *gsc = ctx->gsc_dev;
 	int ret;
 

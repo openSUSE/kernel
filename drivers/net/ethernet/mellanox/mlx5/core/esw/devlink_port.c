@@ -7,11 +7,7 @@
 static void
 mlx5_esw_get_port_parent_id(struct mlx5_core_dev *dev, struct netdev_phys_item_id *ppid)
 {
-	u64 parent_id;
-
-	parent_id = mlx5_query_nic_system_image_guid(dev);
-	ppid->id_len = sizeof(parent_id);
-	memcpy(ppid->id, &parent_id, sizeof(parent_id));
+	mlx5_query_nic_sw_system_image_guid(dev, ppid->id, &ppid->id_len);
 }
 
 static bool mlx5_esw_devlink_port_supported(struct mlx5_eswitch *esw, u16 vport_num)
@@ -27,12 +23,13 @@ static void mlx5_esw_offloads_pf_vf_devlink_port_attrs_set(struct mlx5_eswitch *
 {
 	struct mlx5_core_dev *dev = esw->dev;
 	struct netdev_phys_item_id ppid = {};
+	struct mlx5_vport *vport;
 	u32 controller_num = 0;
 	bool external;
 	u16 pfnum;
 
 	mlx5_esw_get_port_parent_id(dev, &ppid);
-	pfnum = mlx5_get_dev_index(dev);
+	pfnum = PCI_FUNC(dev->pdev->devfn);
 	external = mlx5_core_is_ecpf_esw_manager(dev);
 	if (external)
 		controller_num = dev->priv.eswitch->offloads.host_number + 1;
@@ -42,15 +39,25 @@ static void mlx5_esw_offloads_pf_vf_devlink_port_attrs_set(struct mlx5_eswitch *
 		dl_port->attrs.switch_id.id_len = ppid.id_len;
 		devlink_port_attrs_pci_pf_set(dl_port, controller_num, pfnum, external);
 	} else if (mlx5_eswitch_is_vf_vport(esw, vport_num)) {
+		u16 func_id = vport_num - 1;
+
+		vport = mlx5_eswitch_get_vport(esw, vport_num);
 		memcpy(dl_port->attrs.switch_id.id, ppid.id, ppid.id_len);
 		dl_port->attrs.switch_id.id_len = ppid.id_len;
+		if (vport->adjacent) {
+			func_id = vport->adj_info.function_id;
+			pfnum = vport->adj_info.parent_pci_devfn;
+		}
+
 		devlink_port_attrs_pci_vf_set(dl_port, controller_num, pfnum,
-					      vport_num - 1, external);
+					      func_id, external);
 	}  else if (mlx5_core_is_ec_vf_vport(esw->dev, vport_num)) {
+		u16 base_vport = mlx5_core_ec_vf_vport_base(dev);
+
 		memcpy(dl_port->attrs.switch_id.id, ppid.id, ppid.id_len);
 		dl_port->attrs.switch_id.id_len = ppid.id_len;
 		devlink_port_attrs_pci_vf_set(dl_port, 0, pfnum,
-					      vport_num - 1, false);
+					      vport_num - base_vport, false);
 	}
 }
 
@@ -92,6 +99,8 @@ static const struct devlink_port_ops mlx5_esw_pf_vf_dl_port_ops = {
 	.port_fn_roce_set = mlx5_devlink_port_fn_roce_set,
 	.port_fn_migratable_get = mlx5_devlink_port_fn_migratable_get,
 	.port_fn_migratable_set = mlx5_devlink_port_fn_migratable_set,
+	.port_fn_state_get = mlx5_devlink_pf_port_fn_state_get,
+	.port_fn_state_set = mlx5_devlink_pf_port_fn_state_set,
 #ifdef CONFIG_XFRM_OFFLOAD
 	.port_fn_ipsec_crypto_get = mlx5_devlink_port_fn_ipsec_crypto_get,
 	.port_fn_ipsec_crypto_set = mlx5_devlink_port_fn_ipsec_crypto_set,
@@ -110,7 +119,7 @@ static void mlx5_esw_offloads_sf_devlink_port_attrs_set(struct mlx5_eswitch *esw
 	struct netdev_phys_item_id ppid = {};
 	u16 pfnum;
 
-	pfnum = mlx5_get_dev_index(dev);
+	pfnum = PCI_FUNC(dev->pdev->devfn);
 	mlx5_esw_get_port_parent_id(dev, &ppid);
 	memcpy(dl_port->attrs.switch_id.id, &ppid.id[0], ppid.id_len);
 	dl_port->attrs.switch_id.id_len = ppid.id_len;
@@ -187,7 +196,7 @@ rate_err:
 	return err;
 }
 
-void mlx5_esw_offloads_devlink_port_unregister(struct mlx5_eswitch *esw, struct mlx5_vport *vport)
+void mlx5_esw_offloads_devlink_port_unregister(struct mlx5_vport *vport)
 {
 	struct mlx5_devlink_port *dl_port;
 
@@ -195,7 +204,7 @@ void mlx5_esw_offloads_devlink_port_unregister(struct mlx5_eswitch *esw, struct 
 		return;
 	dl_port = vport->dl_port;
 
-	mlx5_esw_qos_vport_update_group(esw, vport, NULL, NULL);
+	mlx5_esw_qos_vport_update_parent(vport, NULL, NULL);
 	devl_rate_leaf_destroy(&dl_port->dl_port);
 
 	devl_port_unregister(&dl_port->dl_port);

@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * Copyright © 2024 Intel Corporation
+ */
+
 #ifndef _I915_GEM_STOLEN_H_
 #define _I915_GEM_STOLEN_H_
 
@@ -29,7 +34,7 @@ static inline int i915_gem_stolen_insert_node_in_range(struct xe_device *xe,
 
 	bo = xe_bo_create_locked_range(xe, xe_device_get_root_tile(xe),
 				       NULL, size, start, end,
-				       ttm_bo_type_kernel, flags);
+				       ttm_bo_type_kernel, flags, 0);
 	if (IS_ERR(bo)) {
 		err = PTR_ERR(bo);
 		bo = NULL;

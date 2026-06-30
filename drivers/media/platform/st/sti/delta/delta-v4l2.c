@@ -25,6 +25,12 @@
 #define DELTA_PREFIX "[---:----]"
 
 #define to_ctx(__fh) container_of(__fh, struct delta_ctx, fh)
+
+static inline struct delta_ctx *file_to_ctx(struct file *filp)
+{
+	return to_ctx(file_to_v4l2_fh(filp));
+}
+
 #define to_au(__vbuf) container_of(__vbuf, struct delta_au, vbuf)
 #define to_frame(__vbuf) container_of(__vbuf, struct delta_frame, vbuf)
 
@@ -382,7 +388,7 @@ static int delta_open_decoder(struct delta_ctx *ctx, u32 streamformat,
 static int delta_querycap(struct file *file, void *priv,
 			  struct v4l2_capability *cap)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 
 	strscpy(cap->driver, DELTA_NAME, sizeof(cap->driver));
@@ -396,7 +402,7 @@ static int delta_querycap(struct file *file, void *priv,
 static int delta_enum_fmt_stream(struct file *file, void *priv,
 				 struct v4l2_fmtdesc *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 
 	if (unlikely(f->index >= delta->nb_of_streamformats))
@@ -410,7 +416,7 @@ static int delta_enum_fmt_stream(struct file *file, void *priv,
 static int delta_enum_fmt_frame(struct file *file, void *priv,
 				struct v4l2_fmtdesc *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 
 	if (unlikely(f->index >= delta->nb_of_pixelformats))
@@ -424,7 +430,7 @@ static int delta_enum_fmt_frame(struct file *file, void *priv,
 static int delta_g_fmt_stream(struct file *file, void *fh,
 			      struct v4l2_format *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	struct delta_streaminfo *streaminfo = &ctx->streaminfo;
@@ -452,7 +458,7 @@ static int delta_g_fmt_stream(struct file *file, void *fh,
 
 static int delta_g_fmt_frame(struct file *file, void *fh, struct v4l2_format *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	struct delta_frameinfo *frameinfo = &ctx->frameinfo;
@@ -491,7 +497,7 @@ static int delta_g_fmt_frame(struct file *file, void *fh, struct v4l2_format *f)
 static int delta_try_fmt_stream(struct file *file, void *priv,
 				struct v4l2_format *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	u32 streamformat = pix->pixelformat;
@@ -545,7 +551,7 @@ static int delta_try_fmt_stream(struct file *file, void *priv,
 static int delta_try_fmt_frame(struct file *file, void *priv,
 			       struct v4l2_format *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	u32 pixelformat = pix->pixelformat;
@@ -605,7 +611,7 @@ static int delta_try_fmt_frame(struct file *file, void *priv,
 static int delta_s_fmt_stream(struct file *file, void *fh,
 			      struct v4l2_format *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 	struct vb2_queue *vq;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
@@ -641,7 +647,7 @@ static int delta_s_fmt_stream(struct file *file, void *fh,
 
 static int delta_s_fmt_frame(struct file *file, void *fh, struct v4l2_format *f)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 	const struct delta_dec *dec = ctx->dec;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
@@ -1559,8 +1565,6 @@ static const struct vb2_ops delta_vb2_au_ops = {
 	.queue_setup = delta_vb2_au_queue_setup,
 	.buf_prepare = delta_vb2_au_prepare,
 	.buf_queue = delta_vb2_au_queue,
-	.wait_prepare = vb2_ops_wait_prepare,
-	.wait_finish = vb2_ops_wait_finish,
 	.start_streaming = delta_vb2_au_start_streaming,
 	.stop_streaming = delta_vb2_au_stop_streaming,
 };
@@ -1570,8 +1574,6 @@ static const struct vb2_ops delta_vb2_frame_ops = {
 	.buf_prepare = delta_vb2_frame_prepare,
 	.buf_finish = delta_vb2_frame_finish,
 	.buf_queue = delta_vb2_frame_queue,
-	.wait_prepare = vb2_ops_wait_prepare,
-	.wait_finish = vb2_ops_wait_finish,
 	.stop_streaming = delta_vb2_frame_stop_streaming,
 };
 
@@ -1637,8 +1639,7 @@ static int delta_open(struct file *file)
 	ctx->dev = delta;
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	INIT_WORK(&ctx->run_work, delta_run_work);
 	mutex_init(&ctx->lock);
@@ -1683,7 +1684,7 @@ static int delta_open(struct file *file)
 	return 0;
 
 err_fh_del:
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 err:
@@ -1694,7 +1695,7 @@ err:
 
 static int delta_release(struct file *file)
 {
-	struct delta_ctx *ctx = to_ctx(file->private_data);
+	struct delta_ctx *ctx = file_to_ctx(file);
 	struct delta_dev *delta = ctx->dev;
 	const struct delta_dec *dec = ctx->dec;
 
@@ -1711,7 +1712,7 @@ static int delta_release(struct file *file)
 
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 
 	/* disable ST231 clocks */

@@ -212,6 +212,17 @@ pid>/``).
 This value defaults to 0.
 
 
+core_sort_vma
+=============
+
+The default coredump writes VMAs in address order. By setting
+``core_sort_vma`` to 1, VMAs will be written from smallest size
+to largest size. This is known to break at least elfutils, but
+can be handy when dealing with very large (and truncated)
+coredumps where the more useful debugging details are included
+in the smaller VMAs.
+
+
 core_uses_pid
 =============
 
@@ -1485,26 +1496,27 @@ tainted
 Non-zero if the kernel has been tainted. Numeric values, which can be
 ORed together. The letters are seen in "Tainted" line of Oops reports.
 
-======  =====  ==============================================================
-     1  `(P)`  proprietary module was loaded
-     2  `(F)`  module was force loaded
-     4  `(S)`  kernel running on an out of specification system
-     8  `(R)`  module was force unloaded
-    16  `(M)`  processor reported a Machine Check Exception (MCE)
-    32  `(B)`  bad page referenced or some unexpected page flags
-    64  `(U)`  taint requested by userspace application
-   128  `(D)`  kernel died recently, i.e. there was an OOPS or BUG
-   256  `(A)`  an ACPI table was overridden by user
-   512  `(W)`  kernel issued warning
-  1024  `(C)`  staging driver was loaded
-  2048  `(I)`  workaround for bug in platform firmware applied
-  4096  `(O)`  externally-built ("out-of-tree") module was loaded
-  8192  `(E)`  unsigned module was loaded
- 16384  `(L)`  soft lockup occurred
- 32768  `(K)`  kernel has been live patched
- 65536  `(X)`  Auxiliary taint, defined and used by for distros
-131072  `(T)`  The kernel was built with the struct randomization plugin
-======  =====  ==============================================================
+==========  =====  ==========================================================
+         1  `(P)`  proprietary module was loaded
+         2  `(F)`  module was force loaded
+         4  `(S)`  kernel running on an out of specification system
+         8  `(R)`  module was force unloaded
+        16  `(M)`  processor reported a Machine Check Exception (MCE)
+        32  `(B)`  bad page referenced or some unexpected page flags
+        64  `(U)`  taint requested by userspace application
+       128  `(D)`  kernel died recently, i.e. there was an OOPS or BUG
+       256  `(A)`  an ACPI table was overridden by user
+       512  `(W)`  kernel issued warning
+      1024  `(C)`  staging driver was loaded
+      2048  `(I)`  workaround for bug in platform firmware applied
+      4096  `(O)`  externally-built ("out-of-tree") module was loaded
+      8192  `(E)`  unsigned module was loaded
+     16384  `(L)`  soft lockup occurred
+     32768  `(K)`  kernel has been live patched
+     65536  `(X)`  Auxiliary taint, defined and used by for distros
+    131072  `(T)`  The kernel was built with the struct randomization plugin
+2147483648  `(n)`  An unsupported kernel module was loaded
+==========  =====  ==========================================================
 
 See Documentation/admin-guide/tainted-kernels.rst for more information.
 

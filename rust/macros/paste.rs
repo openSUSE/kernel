@@ -46,7 +46,7 @@ fn concat(tokens: &[TokenTree], group_span: Span) -> TokenTree {
                 };
                 segments.push((value, sp));
             }
-            _ => panic!("unexpected token in paste segments"),
+            token => panic!("unexpected token in paste segments: {token:?}"),
         };
     }
 

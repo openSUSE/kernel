@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- *  Copyright 2016-2023 Broadcom Inc. All rights reserved.
+ *  Copyright 2016-2026 Broadcom Inc. All rights reserved.
  */
 #ifndef MPI30_SAS_H
 #define MPI30_SAS_H     1
@@ -11,6 +11,7 @@
 #define MPI3_SAS_DEVICE_INFO_STP_INITIATOR          (0x00000010)
 #define MPI3_SAS_DEVICE_INFO_SMP_INITIATOR          (0x00000008)
 #define MPI3_SAS_DEVICE_INFO_DEVICE_TYPE_MASK       (0x00000007)
+#define MPI3_SAS_DEVICE_INFO_DEVICE_TYPE_SHIFT      (0)
 #define MPI3_SAS_DEVICE_INFO_DEVICE_TYPE_NO_DEVICE  (0x00000000)
 #define MPI3_SAS_DEVICE_INFO_DEVICE_TYPE_END_DEVICE (0x00000001)
 #define MPI3_SAS_DEVICE_INFO_DEVICE_TYPE_EXPANDER   (0x00000002)

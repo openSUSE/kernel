@@ -328,13 +328,13 @@ static const char *snd_pcm_oss_format_name(int format)
 static void snd_pcm_proc_info_read(struct snd_pcm_substream *substream,
 				   struct snd_info_buffer *buffer)
 {
-	struct snd_pcm_info *info __free(kfree) = NULL;
 	int err;
 
 	if (! substream)
 		return;
 
-	info = kmalloc(sizeof(*info), GFP_KERNEL);
+	struct snd_pcm_info *info __free(kfree) =
+		kmalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return;
 
@@ -592,7 +592,6 @@ static const struct attribute_group *pcm_dev_attr_groups[];
  * PM callbacks: we need to deal only with suspend here, as the resume is
  * triggered either from user-space or the driver's resume callback
  */
-#ifdef CONFIG_PM_SLEEP
 static int do_pcm_suspend(struct device *dev)
 {
 	struct snd_pcm_str *pstr = dev_get_drvdata(dev);
@@ -601,10 +600,9 @@ static int do_pcm_suspend(struct device *dev)
 		snd_pcm_suspend_all(pstr->pcm);
 	return 0;
 }
-#endif
 
 static const struct dev_pm_ops pcm_dev_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(do_pcm_suspend, NULL)
+	SYSTEM_SLEEP_PM_OPS(do_pcm_suspend, NULL)
 };
 
 /* device type for PCM -- basically only for passing PM callbacks */

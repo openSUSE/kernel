@@ -77,6 +77,7 @@ struct snd_rawmidi_runtime {
 	/* private data */
 	void *private_data;
 	void (*private_free)(struct snd_rawmidi_substream *substream);
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_rawmidi_substream {
@@ -89,6 +90,7 @@ struct snd_rawmidi_substream {
 	unsigned int framing;		/* whether to frame input data */
 	unsigned int clock_type;	/* clock source to use for input framing */
 	int use_count;			/* use counter (for output) */
+	bool inactive;			/* inactive substream (for UMP legacy) */
 	size_t bytes;
 	spinlock_t lock;
 	struct snd_rawmidi *rmidi;
@@ -98,6 +100,7 @@ struct snd_rawmidi_substream {
 	struct pid *pid;
 	/* hardware layer */
 	const struct snd_rawmidi_ops *ops;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_rawmidi_file {
@@ -111,6 +114,7 @@ struct snd_rawmidi_str {
 	unsigned int substream_count;
 	unsigned int substream_opened;
 	struct list_head substreams;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_rawmidi {
@@ -118,6 +122,7 @@ struct snd_rawmidi {
 	struct list_head list;
 	unsigned int device;		/* device number */
 	unsigned int info_flags;	/* SNDRV_RAWMIDI_INFO_XXXX */
+	unsigned int tied_device;
 	char id[64];
 	char name[80];
 
@@ -142,6 +147,7 @@ struct snd_rawmidi {
 #if IS_ENABLED(CONFIG_SND_SEQUENCER)
 	struct snd_seq_device *seq_dev;
 #endif
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* main rawmidi functions */
@@ -188,5 +194,14 @@ long snd_rawmidi_kernel_read(struct snd_rawmidi_substream *substream,
 			     unsigned char *buf, long count);
 long snd_rawmidi_kernel_write(struct snd_rawmidi_substream *substream,
 			      const unsigned char *buf, long count);
+
+/* set up the tied devices */
+static inline void snd_rawmidi_tie_devices(struct snd_rawmidi *r1,
+					   struct snd_rawmidi *r2)
+{
+	/* tied_device field keeps the device+1 (so that 0 being unknown) */
+	r1->tied_device = r2->device + 1;
+	r2->tied_device = r1->device + 1;
+}
 
 #endif /* __SOUND_RAWMIDI_H */

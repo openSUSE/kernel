@@ -295,7 +295,7 @@ struct intel_guc {
 	 */
 	struct work_struct dead_guc_worker;
 	/**
-	 * @last_dead_guc_jiffies: timestamp of previous 'dead guc' occurrance
+	 * @last_dead_guc_jiffies: timestamp of previous 'dead guc' occurrence
 	 * used to prevent a fundamentally broken system from continuously
 	 * reloading the GuC.
 	 */
@@ -362,7 +362,7 @@ static inline int intel_guc_send_busy_loop(struct intel_guc *guc,
 {
 	int err;
 	unsigned int sleep_period_ms = 1;
-	bool not_atomic = !in_atomic() && !irqs_disabled();
+	bool not_atomic = !in_atomic() && !irqs_disabled() && !rcu_preempt_depth();
 
 	/*
 	 * FIXME: Have caller pass in if we are in an atomic context to avoid

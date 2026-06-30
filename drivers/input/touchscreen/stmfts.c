@@ -120,7 +120,7 @@ static int stmfts_brightness_set(struct led_classdev *led_cdev,
 			err = regulator_enable(sdata->ledvdd);
 			if (err) {
 				dev_warn(&sdata->client->dev,
-					 "failed to disable ledvdd regulator: %d\n",
+					 "failed to enable ledvdd regulator: %d\n",
 					 err);
 				return err;
 			}
@@ -141,7 +141,7 @@ static enum led_brightness stmfts_brightness_get(struct led_classdev *led_cdev)
 
 /*
  * We can't simply use i2c_smbus_read_i2c_block_data because we
- * need to read more than 255 bytes (
+ * need to read 256 bytes, which exceeds the 255-byte SMBus block limit.
  */
 static int stmfts_read_events(struct stmfts_data *sdata)
 {
@@ -594,9 +594,6 @@ static void stmfts_power_off(void *data)
 						sdata->regulators);
 }
 
-/* This function is void because I don't want to prevent using the touch key
- * only because the LEDs don't get registered
- */
 static int stmfts_enable_led(struct stmfts_data *sdata)
 {
 	int err;

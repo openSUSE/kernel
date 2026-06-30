@@ -503,7 +503,7 @@ static void fc_fcp_recv_data(struct fc_fcp_pkt *fsp, struct fc_frame *fp)
 		host_bcode = FC_ERROR;
 		goto err;
 	}
-	if (offset + len > fsp->data_len) {
+	if (size_add(offset, len) > fsp->data_len) {
 		/* this should never happen */
 		if ((fr_flags(fp) & FCPHF_CRC_UNCHECKED) &&
 		    fc_frame_crc_check(fp))
@@ -2222,13 +2222,13 @@ int fc_eh_host_reset(struct scsi_cmnd *sc_cmd)
 EXPORT_SYMBOL(fc_eh_host_reset);
 
 /**
- * fc_slave_alloc() - Configure the queue depth of a Scsi_Host
+ * fc_sdev_init() - Configure the queue depth of a Scsi_Host
  * @sdev: The SCSI device that identifies the SCSI host
  *
  * Configures queue depth based on host's cmd_per_len. If not set
  * then we use the libfc default.
  */
-int fc_slave_alloc(struct scsi_device *sdev)
+int fc_sdev_init(struct scsi_device *sdev)
 {
 	struct fc_rport *rport = starget_to_rport(scsi_target(sdev));
 
@@ -2238,7 +2238,7 @@ int fc_slave_alloc(struct scsi_device *sdev)
 	scsi_change_queue_depth(sdev, FC_FCP_DFLT_QUEUE_DEPTH);
 	return 0;
 }
-EXPORT_SYMBOL(fc_slave_alloc);
+EXPORT_SYMBOL(fc_sdev_init);
 
 /**
  * fc_fcp_destroy() - Tear down the FCP layer for a given local port

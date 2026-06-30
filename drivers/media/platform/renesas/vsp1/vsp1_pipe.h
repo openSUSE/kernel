@@ -119,6 +119,7 @@ struct vsp1_pipeline {
 	struct vsp1_entity *brx;
 	struct vsp1_entity *hgo;
 	struct vsp1_entity *hgt;
+	struct vsp1_entity *iif;
 	struct vsp1_entity *lif;
 	struct vsp1_entity *uds;
 	struct vsp1_entity *uds_input;
@@ -179,5 +180,8 @@ void vsp1_pipeline_calculate_partition(struct vsp1_pipeline *pipe,
 
 const struct vsp1_format_info *vsp1_get_format_info(struct vsp1_device *vsp1,
 						    u32 fourcc);
+const struct vsp1_format_info *
+vsp1_get_format_info_by_index(struct vsp1_device *vsp1, unsigned int index,
+			      u32 code);
 
 #endif /* __VSP1_PIPE_H__ */

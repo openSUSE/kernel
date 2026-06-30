@@ -16,7 +16,7 @@ static const char * const max98396_core_supplies[MAX98396_NUM_CORE_SUPPLIES] = {
 	"dvddio",
 };
 
-static struct reg_default max98396_reg[] = {
+static const struct reg_default max98396_reg[] = {
 	{MAX98396_R2000_SW_RESET, 0x00},
 	{MAX98396_R2001_INT_RAW1, 0x00},
 	{MAX98396_R2002_INT_RAW2, 0x00},
@@ -174,7 +174,7 @@ static struct reg_default max98396_reg[] = {
 	{MAX98396_R21FF_REVISION_ID, 0x00},
 };
 
-static struct reg_default max98397_reg[] = {
+static const struct reg_default max98397_reg[] = {
 	{MAX98396_R2000_SW_RESET, 0x00},
 	{MAX98396_R2001_INT_RAW1, 0x00},
 	{MAX98396_R2002_INT_RAW2, 0x00},
@@ -953,8 +953,7 @@ static const DECLARE_TLV_DB_RANGE(max98397_spk_tlv,
 static int max98396_mux_get(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_dapm_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_soc_dapm_kcontrol_to_component(kcontrol);
 	struct max98396_priv *max98396 = snd_soc_component_get_drvdata(component);
 	int reg, val;
 
@@ -973,9 +972,8 @@ static int max98396_mux_get(struct snd_kcontrol *kcontrol,
 static int max98396_mux_put(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_dapm_kcontrol_component(kcontrol);
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
+	struct snd_soc_component *component = snd_soc_dapm_kcontrol_to_component(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kcontrol);
 	struct max98396_priv *max98396 = snd_soc_component_get_drvdata(component);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *item = ucontrol->value.enumerated.item;
@@ -1107,6 +1105,7 @@ static int max98396_adc_value_get(struct snd_kcontrol *kcontrol,
 				  struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
 	struct max98396_priv *max98396 = snd_soc_component_get_drvdata(component);
@@ -1115,7 +1114,7 @@ static int max98396_adc_value_get(struct snd_kcontrol *kcontrol,
 	int reg = mc->reg;
 
 	/* ADC value is not available if the device is powered down */
-	if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF)
+	if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_OFF)
 		goto exit;
 
 	if (max98396->device_id == CODEC_TYPE_MAX98397) {
@@ -1571,7 +1570,6 @@ static int max98396_probe(struct snd_soc_component *component)
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int max98396_suspend(struct device *dev)
 {
 	struct max98396_priv *max98396 = dev_get_drvdata(dev);
@@ -1616,10 +1614,9 @@ static int max98396_resume(struct device *dev)
 	regcache_sync(max98396->regmap);
 	return 0;
 }
-#endif
 
 static const struct dev_pm_ops max98396_pm = {
-	SET_SYSTEM_SLEEP_PM_OPS(max98396_suspend, max98396_resume)
+	SYSTEM_SLEEP_PM_OPS(max98396_suspend, max98396_resume)
 };
 
 static const struct snd_soc_component_driver soc_codec_dev_max98396 = {
@@ -1904,7 +1901,7 @@ static struct i2c_driver max98396_i2c_driver = {
 		.name = "max98396",
 		.of_match_table = of_match_ptr(max98396_of_match),
 		.acpi_match_table = ACPI_PTR(max98396_acpi_match),
-		.pm = &max98396_pm,
+		.pm = pm_ptr(&max98396_pm),
 	},
 	.probe = max98396_i2c_probe,
 	.id_table = max98396_i2c_id,

@@ -75,7 +75,7 @@ struct sbitmap {
 	 */
 	struct sbitmap_word *map;
 
-	/*
+	/**
 	 * @alloc_hint: Cache of last successfully allocated or freed bit.
 	 *
 	 * This is per-cpu, which allows multiple users to stick to different
@@ -128,7 +128,7 @@ struct sbitmap_queue {
 	 */
 	struct sbq_wait_state *ws;
 
-	/*
+	/**
 	 * @ws_active: count of currently active ws waitqueues
 	 */
 	atomic_t ws_active;
@@ -208,23 +208,6 @@ void sbitmap_resize(struct sbitmap *sb, unsigned int depth);
  * Return: Non-negative allocated bit number if successful, -1 otherwise.
  */
 int sbitmap_get(struct sbitmap *sb);
-
-/**
- * sbitmap_get_shallow() - Try to allocate a free bit from a &struct sbitmap,
- * limiting the depth used from each word.
- * @sb: Bitmap to allocate from.
- * @shallow_depth: The maximum number of bits to allocate from a single word.
- *
- * This rather specific operation allows for having multiple users with
- * different allocation limits. E.g., there can be a high-priority class that
- * uses sbitmap_get() and a low-priority class that uses sbitmap_get_shallow()
- * with a @shallow_depth of (1 << (@sb->shift - 1)). Then, the low-priority
- * class can only allocate half of the total bits in the bitmap, preventing it
- * from starving out the high-priority class.
- *
- * Return: Non-negative allocated bit number if successful, -1 otherwise.
- */
-int sbitmap_get_shallow(struct sbitmap *sb, unsigned long shallow_depth);
 
 /**
  * sbitmap_any_bit_set() - Check for a set bit in a &struct sbitmap.
@@ -478,7 +461,7 @@ unsigned long __sbitmap_queue_get_batch(struct sbitmap_queue *sbq, int nr_tags,
  * sbitmap_queue, limiting the depth used from each word, with preemption
  * already disabled.
  * @sbq: Bitmap queue to allocate from.
- * @shallow_depth: The maximum number of bits to allocate from a single word.
+ * @shallow_depth: The maximum number of bits to allocate from the queue.
  * See sbitmap_get_shallow().
  *
  * If you call this, make sure to call sbitmap_queue_min_shallow_depth() after
@@ -564,6 +547,8 @@ static inline void sbq_index_atomic_inc(atomic_t *index)
  * sbitmap_queue.
  * @sbq: Bitmap queue to wait on.
  * @wait_index: A counter per "user" of @sbq.
+ *
+ * Return: Next wait queue to be used
  */
 static inline struct sbq_wait_state *sbq_wait_ptr(struct sbitmap_queue *sbq,
 						  atomic_t *wait_index)

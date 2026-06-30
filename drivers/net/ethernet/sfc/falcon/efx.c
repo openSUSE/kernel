@@ -1394,9 +1394,8 @@ static int ef4_probe_interrupts(struct ef4_nic *efx)
 			if (n_channels > extra_channels)
 				n_channels -= extra_channels;
 			if (ef4_separate_tx_channels) {
-				efx->n_tx_channels = min(max(n_channels / 2,
-							     1U),
-							 efx->max_tx_channels);
+				efx->n_tx_channels = clamp(n_channels / 2, 1U,
+							   efx->max_tx_channels);
 				efx->n_rx_channels = max(n_channels -
 							 efx->n_tx_channels,
 							 1U);
@@ -1884,14 +1883,6 @@ unsigned int ef4_usecs_to_ticks(struct ef4_nic *efx, unsigned int usecs)
 	if (usecs * 1000 < efx->timer_quantum_ns)
 		return 1; /* never round down to 0 */
 	return usecs * 1000 / efx->timer_quantum_ns;
-}
-
-unsigned int ef4_ticks_to_usecs(struct ef4_nic *efx, unsigned int ticks)
-{
-	/* We must round up when converting ticks to microseconds
-	 * because we round down when converting the other way.
-	 */
-	return DIV_ROUND_UP(ticks * efx->timer_quantum_ns, 1000);
 }
 
 /* Set interrupt moderation parameters */

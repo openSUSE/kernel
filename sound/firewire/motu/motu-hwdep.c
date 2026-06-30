@@ -75,7 +75,7 @@ static long hwdep_read(struct snd_hwdep *hwdep, char __user *buf, long count,
 		while (consumed < count &&
 		       snd_motu_register_dsp_message_parser_copy_event(motu, &ev)) {
 			ptr = (u32 __user *)(buf + consumed);
-			if (put_user(ev, ptr))
+			if (consumed + sizeof(ev) > count || put_user(ev, ptr))
 				return -EFAULT;
 			consumed += sizeof(ev);
 		}
@@ -83,10 +83,11 @@ static long hwdep_read(struct snd_hwdep *hwdep, char __user *buf, long count,
 		event.motu_register_dsp_change.type = SNDRV_FIREWIRE_EVENT_MOTU_REGISTER_DSP_CHANGE;
 		event.motu_register_dsp_change.count =
 			(consumed - sizeof(event.motu_register_dsp_change)) / 4;
-		if (copy_to_user(buf, &event, sizeof(event.motu_register_dsp_change)))
+		if (copy_to_user(buf, &event,
+				 min_t(long, count, sizeof(event.motu_register_dsp_change))))
 			return -EFAULT;
 
-		count = consumed;
+		count = min_t(long, count, consumed);
 	} else {
 		spin_unlock_irq(&motu->lock);
 
@@ -100,18 +101,14 @@ static __poll_t hwdep_poll(struct snd_hwdep *hwdep, struct file *file,
 			       poll_table *wait)
 {
 	struct snd_motu *motu = hwdep->private_data;
-	__poll_t events;
 
 	poll_wait(file, &motu->hwdep_wait, wait);
 
-	spin_lock_irq(&motu->lock);
+	guard(spinlock_irq)(&motu->lock);
 	if (motu->dev_lock_changed || motu->msg || has_dsp_event(motu))
-		events = EPOLLIN | EPOLLRDNORM;
+		return EPOLLIN | EPOLLRDNORM;
 	else
-		events = 0;
-	spin_unlock_irq(&motu->lock);
-
-	return events | EPOLLOUT;
+		return 0;
 }
 
 static int hwdep_get_info(struct snd_motu *motu, void __user *arg)
@@ -135,48 +132,35 @@ static int hwdep_get_info(struct snd_motu *motu, void __user *arg)
 
 static int hwdep_lock(struct snd_motu *motu)
 {
-	int err;
-
-	spin_lock_irq(&motu->lock);
+	guard(spinlock_irq)(&motu->lock);
 
 	if (motu->dev_lock_count == 0) {
 		motu->dev_lock_count = -1;
-		err = 0;
+		return 0;
 	} else {
-		err = -EBUSY;
+		return -EBUSY;
 	}
-
-	spin_unlock_irq(&motu->lock);
-
-	return err;
 }
 
 static int hwdep_unlock(struct snd_motu *motu)
 {
-	int err;
-
-	spin_lock_irq(&motu->lock);
+	guard(spinlock_irq)(&motu->lock);
 
 	if (motu->dev_lock_count == -1) {
 		motu->dev_lock_count = 0;
-		err = 0;
+		return 0;
 	} else {
-		err = -EBADFD;
+		return -EBADFD;
 	}
-
-	spin_unlock_irq(&motu->lock);
-
-	return err;
 }
 
 static int hwdep_release(struct snd_hwdep *hwdep, struct file *file)
 {
 	struct snd_motu *motu = hwdep->private_data;
 
-	spin_lock_irq(&motu->lock);
+	guard(spinlock_irq)(&motu->lock);
 	if (motu->dev_lock_count == -1)
 		motu->dev_lock_count = 0;
-	spin_unlock_irq(&motu->lock);
 
 	return 0;
 }
@@ -290,7 +274,7 @@ int snd_motu_create_hwdep_device(struct snd_motu *motu)
 	if (err < 0)
 		return err;
 
-	strcpy(hwdep->name, "MOTU");
+	strscpy(hwdep->name, "MOTU");
 	hwdep->iface = SNDRV_HWDEP_IFACE_FW_MOTU;
 	hwdep->ops = ops;
 	hwdep->private_data = motu;

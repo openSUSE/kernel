@@ -460,24 +460,20 @@ out:
 	return err;
 }
 
-/* Use MHz as base so the div needs no u64 */
-static u32 tc358746_cfg_to_cnt(unsigned int cfg_val,
-			       unsigned int clk_mhz,
-			       unsigned int time_base)
+static u32 tc358746_cfg_to_cnt(unsigned long cfg_val, unsigned long clk_hz,
+			       unsigned long long time_base)
 {
-	return DIV_ROUND_UP(cfg_val * clk_mhz, time_base);
+	return div64_u64((u64)cfg_val * clk_hz + time_base - 1, time_base);
 }
 
-static u32 tc358746_ps_to_cnt(unsigned int cfg_val,
-			      unsigned int clk_mhz)
+static u32 tc358746_ps_to_cnt(unsigned long cfg_val, unsigned long clk_hz)
 {
-	return tc358746_cfg_to_cnt(cfg_val, clk_mhz, USEC_PER_SEC);
+	return tc358746_cfg_to_cnt(cfg_val, clk_hz, PSEC_PER_SEC);
 }
 
-static u32 tc358746_us_to_cnt(unsigned int cfg_val,
-			      unsigned int clk_mhz)
+static u32 tc358746_us_to_cnt(unsigned long cfg_val, unsigned long clk_hz)
 {
-	return tc358746_cfg_to_cnt(cfg_val, clk_mhz, 1);
+	return tc358746_cfg_to_cnt(cfg_val, clk_hz, USEC_PER_SEC);
 }
 
 static int tc358746_apply_dphy_config(struct tc358746 *tc358746)
@@ -492,7 +488,6 @@ static int tc358746_apply_dphy_config(struct tc358746 *tc358746)
 
 	/* The hs_byte_clk is also called SYSCLK in the excel sheet */
 	hs_byte_clk = cfg->hs_clk_rate / 8;
-	hs_byte_clk /= HZ_PER_MHZ;
 	hf_clk = hs_byte_clk / 2;
 
 	val = tc358746_us_to_cnt(cfg->init, hf_clk) - 1;
@@ -896,6 +891,7 @@ tc358746_link_validate(struct v4l2_subdev *sd, struct media_link *link,
 	const struct tc358746_format *fmt;
 	unsigned int fifo_sz, tmp, n;
 	struct v4l2_subdev *source;
+	struct media_pad *src_pad;
 	s64 source_link_freq;
 	int err;
 
@@ -910,7 +906,8 @@ tc358746_link_validate(struct v4l2_subdev *sd, struct media_link *link,
 	fmt = tc358746_get_format_by_code(TC358746_SINK, mbusfmt->code);
 
 	source = media_entity_to_v4l2_subdev(link->source->entity);
-	source_link_freq = v4l2_get_link_freq(source->ctrl_handler, 0, 0);
+	src_pad = &source->entity.pads[source_fmt->pad];
+	source_link_freq = v4l2_get_link_freq(src_pad, 0, 0);
 	if (source_link_freq <= 0) {
 		dev_err(tc358746->sd.dev,
 			"Failed to query or invalid source link frequency\n");

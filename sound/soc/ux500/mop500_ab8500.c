@@ -275,12 +275,12 @@ static int mop500_ab8500_hw_params(struct snd_pcm_substream *substream,
 
 	if (driver_mode == DRIVERMODE_NORMAL) {
 		fmt = SND_SOC_DAIFMT_DSP_A |
-			SND_SOC_DAIFMT_CBM_CFM |
+			SND_SOC_DAIFMT_CBP_CFP |
 			SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CONT;
 	} else {
 		fmt = SND_SOC_DAIFMT_DSP_A |
-			SND_SOC_DAIFMT_CBM_CFM |
+			SND_SOC_DAIFMT_CBP_CFP |
 			SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_GATED;
 	}
@@ -357,7 +357,7 @@ const struct snd_soc_ops mop500_ab8500_ops[] = {
 
 int mop500_ab8500_machine_init(struct snd_soc_pcm_runtime *rtd)
 {
-	struct snd_soc_dapm_context *dapm = &rtd->card->dapm;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(rtd->card);
 	struct device *dev = rtd->card->dev;
 	struct mop500_ab8500_drvdata *drvdata;
 	int ret;

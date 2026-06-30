@@ -689,12 +689,11 @@ static int hx9023s_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		ret = iio_device_claim_direct_mode(indio_dev);
-		if (ret)
-			return ret;
+		if (!iio_device_claim_direct(indio_dev))
+			return -EBUSY;
 
 		ret = hx9023s_get_proximity(data, chan, val);
-		iio_device_release_direct_mode(indio_dev);
+		iio_device_release_direct(indio_dev);
 		return ret;
 	case IIO_CHAN_INFO_SAMP_FREQ:
 		return hx9023s_get_samp_freq(data, val, val2);
@@ -707,6 +706,9 @@ static int hx9023s_set_samp_freq(struct hx9023s_data *data, int val, int val2)
 {
 	struct device *dev = regmap_get_device(data->regmap);
 	unsigned int i, period_ms;
+
+	if (!val && !val2)
+		return -EINVAL;
 
 	period_ms = div_u64(NANO, (val * MEGA + val2));
 

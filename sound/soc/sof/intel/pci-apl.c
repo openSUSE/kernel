@@ -86,7 +86,7 @@ static const struct sof_dev_desc glk_desc = {
 /* PCI IDs */
 static const struct pci_device_id sof_pci_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, HDA_APL, &bxt_desc) },
-	{ PCI_DEVICE_DATA(INTEL, HDA_GML, &glk_desc) },
+	{ PCI_DEVICE_DATA(INTEL, HDA_GLK, &glk_desc) },
 	{ 0, }
 };
 MODULE_DEVICE_TABLE(pci, sof_pci_ids);
@@ -99,7 +99,7 @@ static struct pci_driver snd_sof_pci_intel_apl_driver = {
 	.remove = sof_pci_remove,
 	.shutdown = sof_pci_shutdown,
 	.driver = {
-		.pm = &sof_pci_pm,
+		.pm = pm_ptr(&sof_pci_pm),
 	},
 };
 module_pci_driver(snd_sof_pci_intel_apl_driver);

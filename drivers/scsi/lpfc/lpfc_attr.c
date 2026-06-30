@@ -1,8 +1,8 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2024 Broadcom. All Rights Reserved. The term *
- * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.  *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
+ * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
  * www.broadcom.com                                                *
@@ -287,6 +287,138 @@ buffer_done:
 				PAGE_SIZE);
 		strscpy(buf + PAGE_SIZE - 1 - sizeof(LPFC_INFO_MORE_STR),
 			LPFC_INFO_MORE_STR, sizeof(LPFC_INFO_MORE_STR) + 1);
+	}
+	return len;
+}
+
+static ssize_t
+lpfc_vmid_info_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
+{
+	struct Scsi_Host  *shost = class_to_shost(dev);
+	struct lpfc_vport *vport = (struct lpfc_vport *)shost->hostdata;
+	struct lpfc_hba   *phba = vport->phba;
+	struct lpfc_vmid  *vmp;
+	int  len = 0, i, j, k, cpu;
+	char hxstr[LPFC_MAX_VMID_SIZE * 3] = {0};
+	struct timespec64 curr_tm;
+	struct lpfc_vmid_priority_range *vr;
+	u64 *lta, rct_acc = 0, max_lta = 0;
+	struct tm tm_val;
+
+	ktime_get_ts64(&curr_tm);
+
+	len += scnprintf(buf + len, PAGE_SIZE - len, "Key 'vmid':\n");
+
+	/* if enabled continue, else return */
+	if (lpfc_is_vmid_enabled(phba)) {
+		len += scnprintf(buf + len, PAGE_SIZE - len,
+				 "lpfc VMID Page: ON\n\n");
+	} else {
+		len += scnprintf(buf + len, PAGE_SIZE - len,
+				 "lpfc VMID Page: OFF\n\n");
+		return len;
+	}
+
+	/* if using priority tagging */
+	if (vport->phba->pport->vmid_flag & LPFC_VMID_TYPE_PRIO) {
+		len += scnprintf(buf + len, PAGE_SIZE - len,
+				"VMID priority ranges:\n");
+		vr = vport->vmid_priority.vmid_range;
+		for (i = 0; i < vport->vmid_priority.num_descriptors; ++i) {
+			len += scnprintf(buf + len, PAGE_SIZE - len,
+					"\t[x%x - x%x], qos: x%x\n",
+					vr->low, vr->high, vr->qos);
+			vr++;
+		}
+	}
+
+	for (i = 0; i < phba->cfg_max_vmid; i++) {
+		vmp = &vport->vmid[i];
+		max_lta = 0;
+
+		/* only if the slot is used */
+		if (!(vmp->flag & LPFC_VMID_SLOT_USED) ||
+		    !(vmp->flag & LPFC_VMID_REGISTERED))
+			continue;
+
+		/* if using priority tagging */
+		if (vport->phba->pport->vmid_flag & LPFC_VMID_TYPE_PRIO) {
+			len += scnprintf(buf + len, PAGE_SIZE - len,
+					"VEM ID: %02x:%02x:%02x:%02x:"
+					"%02x:%02x:%02x:%02x:%02x:%02x:"
+					"%02x:%02x:%02x:%02x:%02x:%02x\n",
+					vport->lpfc_vmid_host_uuid[0],
+					vport->lpfc_vmid_host_uuid[1],
+					vport->lpfc_vmid_host_uuid[2],
+					vport->lpfc_vmid_host_uuid[3],
+					vport->lpfc_vmid_host_uuid[4],
+					vport->lpfc_vmid_host_uuid[5],
+					vport->lpfc_vmid_host_uuid[6],
+					vport->lpfc_vmid_host_uuid[7],
+					vport->lpfc_vmid_host_uuid[8],
+					vport->lpfc_vmid_host_uuid[9],
+					vport->lpfc_vmid_host_uuid[10],
+					vport->lpfc_vmid_host_uuid[11],
+					vport->lpfc_vmid_host_uuid[12],
+					vport->lpfc_vmid_host_uuid[13],
+					vport->lpfc_vmid_host_uuid[14],
+					vport->lpfc_vmid_host_uuid[15]);
+		}
+
+		/* IO stats */
+		len += scnprintf(buf + len, PAGE_SIZE - len,
+				"ID00 READs:%llx WRITEs:%llx\n",
+				vmp->io_rd_cnt,
+				vmp->io_wr_cnt);
+		for (j = 0, k = 0; j < strlen(vmp->host_vmid); j++, k += 3)
+			sprintf((char *)(hxstr + k), "%2x ", vmp->host_vmid[j]);
+		/* UUIDs */
+		len += scnprintf(buf + len, PAGE_SIZE - len, "UUID:\n");
+		len += scnprintf(buf + len, PAGE_SIZE - len, "%s\n", hxstr);
+
+		len += scnprintf(buf + len, PAGE_SIZE - len, "String (%s)\n",
+				vmp->host_vmid);
+
+		if (vport->phba->pport->vmid_flag & LPFC_VMID_TYPE_PRIO)
+			len += scnprintf(buf + len, PAGE_SIZE - len,
+					"CS_CTL VMID: 0x%x\n",
+					vmp->un.cs_ctl_vmid);
+		else
+			len += scnprintf(buf + len, PAGE_SIZE - len,
+					"Application id: 0x%x\n",
+					vmp->un.app_id);
+
+		/* calculate the last access time */
+		for_each_possible_cpu(cpu) {
+			lta = per_cpu_ptr(vmp->last_io_time, cpu);
+			if (!lta)
+				continue;
+
+			/* if last access time is less than timeout */
+			if (time_after((unsigned long)*lta, jiffies))
+				continue;
+
+			if (*lta > max_lta)
+				max_lta = *lta;
+		}
+
+		rct_acc = jiffies_to_msecs(jiffies - max_lta) / 1000;
+		/* current time */
+		time64_to_tm(ktime_get_real_seconds(),
+			     -(sys_tz.tz_minuteswest * 60) - rct_acc, &tm_val);
+
+		len += scnprintf(buf + len, PAGE_SIZE - len,
+				 "Last Access Time :"
+				 "%ld-%d-%dT%02d:%02d:%02d\n\n",
+				 1900 + tm_val.tm_year, tm_val.tm_mon + 1,
+				 tm_val.tm_mday, tm_val.tm_hour,
+				 tm_val.tm_min, tm_val.tm_sec);
+
+		if (len >= PAGE_SIZE)
+			return len;
+
+		memset(hxstr, 0, LPFC_MAX_VMID_SIZE * 3);
 	}
 	return len;
 }
@@ -3011,6 +3143,7 @@ static DEVICE_ATTR(protocol, S_IRUGO, lpfc_sli4_protocol_show, NULL);
 static DEVICE_ATTR(lpfc_xlane_supported, S_IRUGO, lpfc_oas_supported_show,
 		   NULL);
 static DEVICE_ATTR(cmf_info, 0444, lpfc_cmf_info_show, NULL);
+static DEVICE_ATTR_RO(lpfc_vmid_info);
 
 #define WWN_SZ 8
 /**
@@ -3586,7 +3719,7 @@ unsigned long lpfc_no_hba_reset[MAX_HBAS_NO_RESET] = {
 module_param_array(lpfc_no_hba_reset, ulong, &lpfc_no_hba_reset_cnt, 0444);
 MODULE_PARM_DESC(lpfc_no_hba_reset, "WWPN of HBAs that should not be reset");
 
-LPFC_ATTR(sli_mode, 3, 3, 3,
+LPFC_ATTR(sli_mode, 3, 0, 3,
 	"SLI mode selector: 3 - select SLI-3");
 
 LPFC_ATTR_R(enable_npiv, 1, 0, 1,
@@ -4282,7 +4415,7 @@ static DEVICE_ATTR_RO(lpfc_static_vport);
 /*
 # lpfc_link_speed: Link speed selection for initializing the Fibre Channel
 # connection.
-# Value range is [0,16]. Default value is 0.
+# Value range is [0,128]. Default value is 0.
 */
 /**
  * lpfc_link_speed_store - Set the adapters link speed
@@ -4335,14 +4468,15 @@ lpfc_link_speed_store(struct device *dev, struct device_attribute *attr,
 		"3055 lpfc_link_speed changed from %d to %d %s\n",
 		phba->cfg_link_speed, val, nolip ? "(nolip)" : "(lip)");
 
-	if (((val == LPFC_USER_LINK_SPEED_1G) && !(phba->lmt & LMT_1Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_2G) && !(phba->lmt & LMT_2Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_4G) && !(phba->lmt & LMT_4Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_8G) && !(phba->lmt & LMT_8Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_10G) && !(phba->lmt & LMT_10Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_16G) && !(phba->lmt & LMT_16Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_32G) && !(phba->lmt & LMT_32Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_64G) && !(phba->lmt & LMT_64Gb))) {
+	if ((val == LPFC_USER_LINK_SPEED_1G && !(phba->lmt & LMT_1Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_2G && !(phba->lmt & LMT_2Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_4G && !(phba->lmt & LMT_4Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_8G && !(phba->lmt & LMT_8Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_10G && !(phba->lmt & LMT_10Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_16G && !(phba->lmt & LMT_16Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_32G && !(phba->lmt & LMT_32Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_64G && !(phba->lmt & LMT_64Gb)) ||
+	    (val == LPFC_USER_LINK_SPEED_128G && !(phba->lmt & LMT_128Gb))) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
 				"2879 lpfc_link_speed attribute cannot be set "
 				"to %d. Speed is not supported by this port.\n",
@@ -4367,6 +4501,7 @@ lpfc_link_speed_store(struct device *dev, struct device_attribute *attr,
 	case LPFC_USER_LINK_SPEED_16G:
 	case LPFC_USER_LINK_SPEED_32G:
 	case LPFC_USER_LINK_SPEED_64G:
+	case LPFC_USER_LINK_SPEED_128G:
 		prev_val = phba->cfg_link_speed;
 		phba->cfg_link_speed = val;
 		if (nolip)
@@ -4431,6 +4566,7 @@ lpfc_link_speed_init(struct lpfc_hba *phba, int val)
 	case LPFC_USER_LINK_SPEED_16G:
 	case LPFC_USER_LINK_SPEED_32G:
 	case LPFC_USER_LINK_SPEED_64G:
+	case LPFC_USER_LINK_SPEED_128G:
 		phba->cfg_link_speed = val;
 		return 0;
 	default:
@@ -6117,6 +6253,7 @@ static struct attribute *lpfc_hba_attrs[] = {
 	&dev_attr_lpfc_vmid_inactivity_timeout.attr,
 	&dev_attr_lpfc_vmid_app_header.attr,
 	&dev_attr_lpfc_vmid_priority_tagging.attr,
+	&dev_attr_lpfc_vmid_info.attr,
 	NULL,
 };
 
@@ -6845,6 +6982,42 @@ lpfc_reset_stats(struct Scsi_Host *shost)
 	return;
 }
 
+/**
+ * lpfc_get_enc_info - Return encryption information about the session for
+ *                     a given remote port.
+ * @rport: ptr to fc_rport from scsi transport fc
+ *
+ * Given an rport object, iterate through the fc_nodes list to find node
+ * corresponding with rport. Pass the encryption information from the node to
+ * rport's encryption attribute for reporting to upper layers. Information is
+ * passed through nlp_enc_info struct which contains encryption status.
+ *
+ * Returns:
+ * - Address of rport's fc_encryption_info struct
+ * - NULL when not found
+ **/
+static struct fc_encryption_info *
+lpfc_get_enc_info(struct fc_rport *rport)
+{
+	struct Scsi_Host *shost = rport_to_shost(rport);
+	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
+	struct fc_encryption_info *ef = NULL;
+	struct lpfc_nodelist *ndlp, *next_ndlp;
+	unsigned long iflags;
+
+	spin_lock_irqsave(&vport->fc_nodes_list_lock, iflags);
+	list_for_each_entry_safe(ndlp, next_ndlp, &vport->fc_nodes, nlp_listp) {
+		if (ndlp->rport && ndlp->rport == rport) {
+			ef = &rport->enc_info;
+			ef->status = ndlp->nlp_enc_info.status;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&vport->fc_nodes_list_lock, iflags);
+	return ef;
+}
+
+
 /*
  * The LPFC driver treats linkdown handling as target loss events so there
  * are no sysfs handlers for link_down_tmo.
@@ -7062,6 +7235,8 @@ struct fc_function_template lpfc_transport_functions = {
 	.get_fc_host_stats = lpfc_get_stats,
 	.reset_fc_host_stats = lpfc_reset_stats,
 
+	.get_fc_rport_enc_info = lpfc_get_enc_info,
+
 	.dd_fcrport_size = sizeof(struct lpfc_rport_data),
 	.show_rport_maxframe_size = 1,
 	.show_rport_supported_classes = 1,
@@ -7130,6 +7305,8 @@ struct fc_function_template lpfc_vport_transport_functions = {
 
 	.get_fc_host_stats = lpfc_get_stats,
 	.reset_fc_host_stats = lpfc_reset_stats,
+
+	.get_fc_rport_enc_info = lpfc_get_enc_info,
 
 	.dd_fcrport_size = sizeof(struct lpfc_rport_data),
 	.show_rport_maxframe_size = 1,
@@ -7292,8 +7469,6 @@ lpfc_get_cfgparam(struct lpfc_hba *phba)
 	}
 
 	phba->cfg_auto_imax = (phba->cfg_fcp_imax) ? 0 : 1;
-
-	phba->cfg_enable_pbde = 0;
 
 	/* A value of 0 means use the number of CPUs found in the system */
 	if (phba->cfg_hdw_queue == 0)

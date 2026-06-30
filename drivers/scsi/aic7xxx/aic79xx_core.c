@@ -265,7 +265,7 @@ static void		ahd_run_qoutfifo(struct ahd_softc *ahd);
 #ifdef AHD_TARGET_MODE
 static void		ahd_run_tqinfifo(struct ahd_softc *ahd, int paused);
 #endif
-static void		ahd_handle_hwerrint(struct ahd_softc *ahd);
+static void __noreturn	ahd_handle_hwerrint(struct ahd_softc *ahd);
 static void		ahd_handle_seqint(struct ahd_softc *ahd, u_int intstat);
 static void		ahd_handle_scsiint(struct ahd_softc *ahd,
 					   u_int intstat);
@@ -1693,7 +1693,7 @@ ahd_run_qoutfifo(struct ahd_softc *ahd)
 }
 
 /************************* Interrupt Handling *********************************/
-static void
+static void __noreturn
 ahd_handle_hwerrint(struct ahd_softc *ahd)
 {
 	/*

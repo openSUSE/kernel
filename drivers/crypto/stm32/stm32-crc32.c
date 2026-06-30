@@ -162,7 +162,7 @@ static int burst_update(struct shash_desc *desc, const u8 *d8,
 		if (mctx->poly == CRC32_POLY_LE)
 			ctx->partial = crc32_le(ctx->partial, d8, length);
 		else
-			ctx->partial = __crc32c_le(ctx->partial, d8, length);
+			ctx->partial = crc32c(ctx->partial, d8, length);
 
 		goto pm_out;
 	}
@@ -465,7 +465,7 @@ MODULE_DEVICE_TABLE(of, stm32_dt_ids);
 
 static struct platform_driver stm32_crc_driver = {
 	.probe  = stm32_crc_probe,
-	.remove_new = stm32_crc_remove,
+	.remove = stm32_crc_remove,
 	.driver = {
 		.name           = DRIVER_NAME,
 		.pm		= &stm32_crc_pm_ops,

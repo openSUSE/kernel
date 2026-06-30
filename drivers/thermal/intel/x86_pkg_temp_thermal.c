@@ -20,6 +20,7 @@
 #include <linux/debugfs.h>
 
 #include <asm/cpu_device_id.h>
+#include <asm/msr.h>
 
 #include "thermal_interrupt.h"
 
@@ -126,6 +127,9 @@ sys_set_trip_temp(struct thermal_zone_device *tzd,
 	unsigned int trip_index = THERMAL_TRIP_PRIV_TO_INT(trip->priv);
 	u32 l, h, mask, shift, intr;
 	int tj_max, val, ret;
+
+	if (temp == THERMAL_TEMP_INVALID)
+		temp = 0;
 
 	tj_max = intel_tcc_get_tjmax(zonedev->cpu);
 	if (tj_max < 0)
@@ -329,6 +333,7 @@ static int pkg_temp_thermal_device_add(unsigned int cpu)
 	tj_max = intel_tcc_get_tjmax(cpu);
 	if (tj_max < 0)
 		return tj_max;
+	tj_max *= 1000;
 
 	zonedev = kzalloc(sizeof(*zonedev), GFP_KERNEL);
 	if (!zonedev)

@@ -268,7 +268,7 @@ static int acpi_pci_link_get_current(struct acpi_pci_link *link)
 
 	link->irq.active = irq;
 
-	acpi_handle_debug(handle, "Link at IRQ %d \n", link->irq.active);
+	acpi_handle_debug(handle, "Link at IRQ %d\n", link->irq.active);
 
       end:
 	return result;
@@ -714,8 +714,8 @@ static int acpi_pci_link_add(struct acpi_device *device,
 		return -ENOMEM;
 
 	link->device = device;
-	strcpy(acpi_device_name(device), ACPI_PCI_LINK_DEVICE_NAME);
-	strcpy(acpi_device_class(device), ACPI_PCI_LINK_CLASS);
+	strscpy(acpi_device_name(device), ACPI_PCI_LINK_DEVICE_NAME);
+	strscpy(acpi_device_class(device), ACPI_PCI_LINK_CLASS);
 	device->driver_data = link;
 
 	mutex_lock(&acpi_link_lock);
@@ -761,7 +761,7 @@ static int acpi_pci_link_resume(struct acpi_pci_link *link)
 	return 0;
 }
 
-static void irqrouter_resume(void)
+static void irqrouter_resume(void *data)
 {
 	struct acpi_pci_link *link;
 
@@ -888,8 +888,12 @@ static int __init acpi_irq_balance_set(char *str)
 
 __setup("acpi_irq_balance", acpi_irq_balance_set);
 
-static struct syscore_ops irqrouter_syscore_ops = {
+static const struct syscore_ops irqrouter_syscore_ops = {
 	.resume = irqrouter_resume,
+};
+
+static struct syscore irqrouter_syscore = {
+	.ops = &irqrouter_syscore_ops,
 };
 
 void __init acpi_pci_link_init(void)
@@ -904,6 +908,6 @@ void __init acpi_pci_link_init(void)
 		else
 			acpi_irq_balance = 0;
 	}
-	register_syscore_ops(&irqrouter_syscore_ops);
+	register_syscore(&irqrouter_syscore);
 	acpi_scan_add_handler(&pci_link_handler);
 }

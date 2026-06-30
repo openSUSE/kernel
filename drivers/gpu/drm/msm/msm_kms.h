@@ -60,6 +60,13 @@ struct msm_kms_funcs {
 	void (*disable_commit)(struct msm_kms *kms);
 
 	/**
+	 * @check_mode_changed:
+	 *
+	 * Verify if the commit requires a full modeset on one of CRTCs.
+	 */
+	int (*check_mode_changed)(struct msm_kms *kms, struct drm_atomic_state *state);
+
+	/**
 	 * Prepare for atomic commit.  This is called after any previous
 	 * (async or otherwise) commit has completed.
 	 */
@@ -91,12 +98,6 @@ struct msm_kms_funcs {
 	/*
 	 * Format handling:
 	 */
-
-	/* do format checking on format modified through fb_cmd2 modifiers */
-	int (*check_modified_format)(const struct msm_kms *kms,
-			const struct msm_format *msm_fmt,
-			const struct drm_mode_fb_cmd2 *cmd,
-			struct drm_gem_object **bos);
 
 	/* misc: */
 	long (*round_pixclk)(struct msm_kms *kms, unsigned long rate,
@@ -133,6 +134,9 @@ struct msm_kms {
 	/* irq number to be passed on to msm_irq_install */
 	int irq;
 	bool irq_requested;
+
+	/* rate limit the snapshot capture to once per attach */
+	atomic_t fault_snapshot_capture;
 
 	/* mapper-id used to request GEM buffer mapped for scanout: */
 	struct msm_gem_address_space *aspace;

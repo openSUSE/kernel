@@ -9,6 +9,7 @@
 struct mlx5e_rss_params_hash {
 	u8 hfunc;
 	u8 toeplitz_hash_key[40];
+	bool symmetric;
 };
 
 struct mlx5e_rss_params_traffic_type {
@@ -34,6 +35,9 @@ void mlx5e_tir_builder_build_rss(struct mlx5e_tir_builder *builder,
 				 const struct mlx5e_rss_params_traffic_type *rss_tt,
 				 bool inner);
 void mlx5e_tir_builder_build_direct(struct mlx5e_tir_builder *builder);
+void mlx5e_tir_builder_build_self_lb_block(struct mlx5e_tir_builder *builder,
+					   bool enable_uc_lb,
+					   bool enable_mc_lb);
 void mlx5e_tir_builder_build_tls(struct mlx5e_tir_builder *builder);
 
 struct mlx5_core_dev;

@@ -26,6 +26,7 @@
 #include <linux/node.h>
 #include <asm/hiperdispatch.h>
 #include <asm/sysinfo.h>
+#include <asm/asm.h>
 
 #define PTF_HORIZONTAL	(0UL)
 #define PTF_VERTICAL	(1UL)
@@ -224,15 +225,15 @@ static void topology_update_polarization_simple(void)
 
 static int ptf(unsigned long fc)
 {
-	int rc;
+	int cc;
 
 	asm volatile(
-		"	.insn	rre,0xb9a20000,%1,%1\n"
-		"	ipm	%0\n"
-		"	srl	%0,28\n"
-		: "=d" (rc)
-		: "d" (fc)  : "cc");
-	return rc;
+		"	.insn	rre,0xb9a20000,%[fc],%[fc]\n"
+		CC_IPM(cc)
+		: CC_OUT(cc, cc)
+		: [fc] "d" (fc)
+		: CC_CLOBBER);
+	return CC_TRANSFORM(cc);
 }
 
 int topology_set_cpu_management(int fc)
@@ -370,7 +371,7 @@ static void set_topology_timer(void)
 	if (atomic_add_unless(&topology_poll, -1, 0))
 		mod_timer(&topology_timer, jiffies + msecs_to_jiffies(100));
 	else
-		mod_timer(&topology_timer, jiffies + msecs_to_jiffies(60 * MSEC_PER_SEC));
+		mod_timer(&topology_timer, jiffies + secs_to_jiffies(60));
 }
 
 void topology_expect_change(void)
@@ -507,33 +508,27 @@ int topology_cpu_init(struct cpu *cpu)
 	return rc;
 }
 
-static const struct cpumask *cpu_thread_mask(int cpu)
-{
-	return &cpu_topology[cpu].thread_mask;
-}
-
-
 const struct cpumask *cpu_coregroup_mask(int cpu)
 {
 	return &cpu_topology[cpu].core_mask;
 }
 
-static const struct cpumask *cpu_book_mask(int cpu)
+static const struct cpumask *tl_book_mask(struct sched_domain_topology_level *tl, int cpu)
 {
 	return &cpu_topology[cpu].book_mask;
 }
 
-static const struct cpumask *cpu_drawer_mask(int cpu)
+static const struct cpumask *tl_drawer_mask(struct sched_domain_topology_level *tl, int cpu)
 {
 	return &cpu_topology[cpu].drawer_mask;
 }
 
 static struct sched_domain_topology_level s390_topology[] = {
-	{ cpu_thread_mask, cpu_smt_flags, SD_INIT_NAME(SMT) },
-	{ cpu_coregroup_mask, cpu_core_flags, SD_INIT_NAME(MC) },
-	{ cpu_book_mask, SD_INIT_NAME(BOOK) },
-	{ cpu_drawer_mask, SD_INIT_NAME(DRAWER) },
-	{ cpu_cpu_mask, SD_INIT_NAME(PKG) },
+	SDTL_INIT(tl_smt_mask, cpu_smt_flags, SMT),
+	SDTL_INIT(tl_mc_mask, cpu_core_flags, MC),
+	SDTL_INIT(tl_book_mask, NULL, BOOK),
+	SDTL_INIT(tl_drawer_mask, NULL, DRAWER),
+	SDTL_INIT(tl_pkg_mask, NULL, PKG),
 	{ NULL, },
 };
 
@@ -555,6 +550,16 @@ static void __init alloc_masks(struct sysinfo_15_1_x *info,
 	}
 }
 
+static int __init detect_polarization(union topology_entry *tle)
+{
+	struct topology_core *tl_core;
+
+	while (tle->nl)
+		tle = next_tle(tle);
+	tl_core = (struct topology_core *)tle;
+	return tl_core->pp != POLARIZATION_HRZ;
+}
+
 void __init topology_init_early(void)
 {
 	struct sysinfo_15_1_x *info;
@@ -574,6 +579,7 @@ void __init topology_init_early(void)
 		      __func__, PAGE_SIZE, PAGE_SIZE);
 	info = tl_info;
 	store_topology(info);
+	cpu_management = detect_polarization(info->tle);
 	pr_info("The CPU configuration topology of the machine is: %d %d %d %d %d %d / %d\n",
 		info->mag[0], info->mag[1], info->mag[2], info->mag[3],
 		info->mag[4], info->mag[5], info->mnest);

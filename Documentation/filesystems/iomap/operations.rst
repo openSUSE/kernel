@@ -283,7 +283,7 @@ The ``ops`` structure must be specified and is as follows:
  struct iomap_writeback_ops {
      int (*map_blocks)(struct iomap_writepage_ctx *wpc, struct inode *inode,
                        loff_t offset, unsigned len);
-     int (*prepare_ioend)(struct iomap_ioend *ioend, int status);
+     int (*submit_ioend)(struct iomap_writepage_ctx *wpc, int status);
      void (*discard_folio)(struct folio *folio, loff_t pos);
  };
 
@@ -306,13 +306,12 @@ The fields are as follows:
     purpose.
     This function must be supplied by the filesystem.
 
-  - ``prepare_ioend``: Enables filesystems to transform the writeback
-    ioend or perform any other preparatory work before the writeback I/O
-    is submitted.
+  - ``submit_ioend``: Allows the file systems to hook into writeback bio
+    submission.
     This might include pre-write space accounting updates, or installing
     a custom ``->bi_end_io`` function for internal purposes, such as
     deferring the ioend completion to a workqueue to run metadata update
-    transactions from process context.
+    transactions from process context before submitting the bio.
     This function is optional.
 
   - ``discard_folio``: iomap calls this function after ``->map_blocks``
@@ -341,7 +340,7 @@ This can happen in interrupt or process context, depending on the
 storage device.
 
 Filesystems that need to update internal bookkeeping (e.g. unwritten
-extent conversions) should provide a ``->prepare_ioend`` function to
+extent conversions) should provide a ``->submit_ioend`` function to
 set ``struct iomap_end::bio::bi_end_io`` to its own function.
 This function should call ``iomap_finish_ioends`` after finishing its
 own work (e.g. unwritten extent conversion).
@@ -512,6 +511,21 @@ IOMAP_WRITE`` with any combination of the following enhancements:
    The file I/O range must be aligned to the filesystem block size
    if the mapping is unwritten and the filesystem cannot handle zeroing
    the unaligned regions without exposing stale contents.
+
+ * ``IOMAP_ATOMIC``: This write is being issued with torn-write
+   protection.
+   Only a single bio can be created for the write, and the write must
+   not be split into multiple I/O requests, i.e. flag REQ_ATOMIC must be
+   set.
+   The file range to write must be aligned to satisfy the requirements
+   of both the filesystem and the underlying block device's atomic
+   commit capabilities.
+   If filesystem metadata updates are required (e.g. unwritten extent
+   conversion or copy on write), all updates for the entire file range
+   must be committed atomically as well.
+   Only one space mapping is allowed per untorn write.
+   Untorn writes must be aligned to, and must not be longer than, a
+   single file block.
 
 Callers commonly hold ``i_rwsem`` in shared or exclusive mode before
 calling this function.

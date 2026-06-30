@@ -230,6 +230,14 @@ enum {
 	BTRFS_MOUNT_IGNORESUPERFLAGS		= (1ULL << 32),
 };
 
+/* These mount options require a full read-only fs, no new transaction is allowed. */
+#define BTRFS_MOUNT_FULL_RO_MASK		\
+	(BTRFS_MOUNT_NOLOGREPLAY |		\
+	 BTRFS_MOUNT_IGNOREBADROOTS |		\
+	 BTRFS_MOUNT_IGNOREDATACSUMS |		\
+	 BTRFS_MOUNT_IGNOREMETACSUMS |		\
+	 BTRFS_MOUNT_IGNORESUPERFLAGS)
+
 /*
  * Compat flags that we support.  If any incompat flags are set other than the
  * ones specified below then we will fail to mount
@@ -716,12 +724,6 @@ struct btrfs_fs_info {
 	spinlock_t qgroup_lock;
 
 	/*
-	 * Used to avoid frequently calling ulist_alloc()/ulist_free()
-	 * when doing qgroup accounting, it must be protected by qgroup_lock.
-	 */
-	struct ulist *qgroup_ulist;
-
-	/*
 	 * Protect user change for quota operations. If a transaction is needed,
 	 * it must be started before locking this lock.
 	 */
@@ -796,6 +798,7 @@ struct btrfs_fs_info {
 	u32 csum_size;
 	u32 csums_per_leaf;
 	u32 stripesize;
+	u32 writeback_bio_size;
 
 	/*
 	 * Maximum size of an extent. BTRFS_MAX_EXTENT_SIZE on regular

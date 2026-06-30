@@ -65,6 +65,8 @@ enum xe_uc_fw_type {
  * struct xe_uc_fw_version - Version for XE micro controller firmware
  */
 struct xe_uc_fw_version {
+	/** @branch: branch version of the FW (not always available) */
+	u16 branch;
 	/** @major: major version of the FW */
 	u16 major;
 	/** @minor: minor version of the FW */
@@ -92,7 +94,7 @@ struct xe_uc_fw {
 		const enum xe_uc_fw_status status;
 		/**
 		 * @__status: private firmware load status - only to be used
-		 * by firmware laoding code
+		 * by firmware loading code
 		 */
 		enum xe_uc_fw_status __status;
 	};

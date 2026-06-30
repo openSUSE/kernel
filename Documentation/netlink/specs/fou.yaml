@@ -39,6 +39,8 @@ attribute-sets:
       -
         name: ipproto
         type: u8
+        checks:
+          min: 1
       -
         name: type
         type: u8
@@ -52,7 +54,7 @@ attribute-sets:
         name: local_v6
         type: binary
         checks:
-          min-len: 16
+          exact-len: 16
       -
         name: peer_v4
         type: u32
@@ -60,7 +62,7 @@ attribute-sets:
         name: peer_v6
         type: binary
         checks:
-          min-len: 16
+          exact-len: 16
       -
         name: peer_port
         type: u16

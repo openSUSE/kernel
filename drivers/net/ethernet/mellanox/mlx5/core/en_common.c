@@ -30,6 +30,7 @@
  * SOFTWARE.
  */
 
+#include "devlink.h"
 #include "en.h"
 #include "lib/crypto.h"
 
@@ -140,9 +141,22 @@ err_close_tises:
 	return err;
 }
 
+static unsigned int
+mlx5e_get_devlink_param_num_doorbells(struct mlx5_core_dev *dev)
+{
+	const u32 param_id = DEVLINK_PARAM_GENERIC_ID_NUM_DOORBELLS;
+	struct devlink *devlink = priv_to_devlink(dev);
+	union devlink_param_value val;
+	int err;
+
+	err = devl_param_driverinit_value_get(devlink, param_id, &val);
+	return err ? MLX5_DEFAULT_NUM_DOORBELLS : val.vu32;
+}
+
 int mlx5e_create_mdev_resources(struct mlx5_core_dev *mdev, bool create_tises)
 {
 	struct mlx5e_hw_objs *res = &mdev->mlx5e_res.hw_objs;
+	unsigned int num_doorbells, i;
 	int err;
 
 	err = mlx5_core_alloc_pd(mdev, &res->pdn);
@@ -163,17 +177,30 @@ int mlx5e_create_mdev_resources(struct mlx5_core_dev *mdev, bool create_tises)
 		goto err_dealloc_transport_domain;
 	}
 
-	err = mlx5_alloc_bfreg(mdev, &res->bfreg, false, false);
-	if (err) {
-		mlx5_core_err(mdev, "alloc bfreg failed, %d\n", err);
+	num_doorbells = min(mlx5e_get_devlink_param_num_doorbells(mdev),
+			    mlx5e_get_max_num_channels(mdev));
+	res->bfregs = kcalloc(num_doorbells, sizeof(*res->bfregs), GFP_KERNEL);
+	if (!res->bfregs) {
+		err = -ENOMEM;
 		goto err_destroy_mkey;
 	}
+
+	for (i = 0; i < num_doorbells; i++) {
+		err = mlx5_alloc_bfreg(mdev, res->bfregs + i, false, false);
+		if (err) {
+			mlx5_core_warn(mdev,
+				       "could only allocate %d/%d doorbells, err %d.\n",
+				       i, num_doorbells, err);
+			break;
+		}
+	}
+	res->num_bfregs = i;
 
 	if (create_tises) {
 		err = mlx5e_create_tises(mdev, res->tisn);
 		if (err) {
 			mlx5_core_err(mdev, "alloc tises failed, %d\n", err);
-			goto err_destroy_bfreg;
+			goto err_destroy_bfregs;
 		}
 		res->tisn_valid = true;
 	}
@@ -183,15 +210,17 @@ int mlx5e_create_mdev_resources(struct mlx5_core_dev *mdev, bool create_tises)
 
 	mdev->mlx5e_res.dek_priv = mlx5_crypto_dek_init(mdev);
 	if (IS_ERR(mdev->mlx5e_res.dek_priv)) {
-		mlx5_core_err(mdev, "crypto dek init failed, %ld\n",
-			      PTR_ERR(mdev->mlx5e_res.dek_priv));
+		mlx5_core_err(mdev, "crypto dek init failed, %pe\n",
+			      mdev->mlx5e_res.dek_priv);
 		mdev->mlx5e_res.dek_priv = NULL;
 	}
 
 	return 0;
 
-err_destroy_bfreg:
-	mlx5_free_bfreg(mdev, &res->bfreg);
+err_destroy_bfregs:
+	for (i = 0; i < res->num_bfregs; i++)
+		mlx5_free_bfreg(mdev, res->bfregs + i);
+	kfree(res->bfregs);
 err_destroy_mkey:
 	mlx5_core_destroy_mkey(mdev, res->mkey);
 err_dealloc_transport_domain:
@@ -209,52 +238,52 @@ void mlx5e_destroy_mdev_resources(struct mlx5_core_dev *mdev)
 	mdev->mlx5e_res.dek_priv = NULL;
 	if (res->tisn_valid)
 		mlx5e_destroy_tises(mdev, res->tisn);
-	mlx5_free_bfreg(mdev, &res->bfreg);
+	for (unsigned int i = 0; i < res->num_bfregs; i++)
+		mlx5_free_bfreg(mdev, res->bfregs + i);
+	kfree(res->bfregs);
 	mlx5_core_destroy_mkey(mdev, res->mkey);
 	mlx5_core_dealloc_transport_domain(mdev, res->td.tdn);
 	mlx5_core_dealloc_pd(mdev, res->pdn);
 	memset(res, 0, sizeof(*res));
 }
 
-int mlx5e_refresh_tirs(struct mlx5e_priv *priv, bool enable_uc_lb,
-		       bool enable_mc_lb)
+int mlx5e_modify_tirs_lb(struct mlx5_core_dev *mdev, bool enable_uc_lb,
+			 bool enable_mc_lb)
 {
-	struct mlx5_core_dev *mdev = priv->mdev;
+	struct mlx5e_tir_builder *builder;
 	struct mlx5e_tir *tir;
-	u8 lb_flags = 0;
-	int err  = 0;
-	u32 tirn = 0;
-	int inlen;
-	void *in;
+	int err = 0;
 
-	inlen = MLX5_ST_SZ_BYTES(modify_tir_in);
-	in = kvzalloc(inlen, GFP_KERNEL);
-	if (!in)
+	builder = mlx5e_tir_builder_alloc(true);
+	if (!builder)
 		return -ENOMEM;
 
-	if (enable_uc_lb)
-		lb_flags = MLX5_TIRC_SELF_LB_BLOCK_BLOCK_UNICAST;
-
-	if (enable_mc_lb)
-		lb_flags |= MLX5_TIRC_SELF_LB_BLOCK_BLOCK_MULTICAST;
-
-	if (lb_flags)
-		MLX5_SET(modify_tir_in, in, ctx.self_lb_block, lb_flags);
-
-	MLX5_SET(modify_tir_in, in, bitmask.self_lb_en, 1);
+	mlx5e_tir_builder_build_self_lb_block(builder, enable_uc_lb,
+					      enable_mc_lb);
 
 	mutex_lock(&mdev->mlx5e_res.hw_objs.td.list_lock);
 	list_for_each_entry(tir, &mdev->mlx5e_res.hw_objs.td.tirs_list, list) {
-		tirn = tir->tirn;
-		err = mlx5_core_modify_tir(mdev, tirn, in);
-		if (err)
+		err = mlx5e_tir_modify(tir, builder);
+		if (err) {
+			mlx5_core_err(mdev,
+				      "modify tir(0x%x) enable_lb uc(%d) mc(%d) failed, %d\n",
+				      mlx5e_tir_get_tirn(tir),
+				      enable_uc_lb, enable_mc_lb, err);
 			break;
+		}
 	}
 	mutex_unlock(&mdev->mlx5e_res.hw_objs.td.list_lock);
 
-	kvfree(in);
-	if (err)
-		netdev_err(priv->netdev, "refresh tir(0x%x) failed, %d\n", tirn, err);
+	mlx5e_tir_builder_free(builder);
 
 	return err;
+}
+
+int mlx5e_refresh_tirs(struct mlx5_core_dev *mdev, bool enable_uc_lb,
+		       bool enable_mc_lb)
+{
+	if (MLX5_CAP_GEN(mdev, tis_tir_td_order))
+		return 0; /* refresh not needed */
+
+	return mlx5e_modify_tirs_lb(mdev, enable_uc_lb, enable_mc_lb);
 }

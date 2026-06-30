@@ -66,6 +66,8 @@ enum {
 	NVMF_OPT_TLS		= 1 << 25,
 	NVMF_OPT_KEYRING	= 1 << 26,
 	NVMF_OPT_TLS_KEY	= 1 << 27,
+	NVMF_OPT_CONCAT		= 1 << 28,
+	NVMF_OPT_RECOVERY_DELAY = 1 << 29,
 };
 
 /**
@@ -92,6 +94,7 @@ enum {
  * @queue_size: Number of IO queue elements.
  * @nr_io_queues: Number of controller IO queues that will be established.
  * @reconnect_delay: Time between two consecutive reconnect attempts.
+ * @recovery_delay: Time before error recovery starts after error detection.
  * @discovery_nqn: indicates if the subsysnqn is the well-known discovery NQN.
  * @kato:	Keep-alive timeout.
  * @host:	Virtual NVMe host, contains the NQN and Host ID.
@@ -101,6 +104,7 @@ enum {
  * @keyring:    Keyring to use for key lookups
  * @tls_key:    TLS key for encrypted connections (TCP)
  * @tls:        Start TLS encrypted connections (TCP)
+ * @concat:     Enabled Secure channel concatenation (TCP)
  * @disable_sqflow: disable controller sq flow control
  * @hdr_digest: generate/verify header digest (TCP)
  * @data_digest: generate/verify data digest (TCP)
@@ -121,6 +125,7 @@ struct nvmf_ctrl_options {
 	size_t			queue_size;
 	unsigned int		nr_io_queues;
 	unsigned int		reconnect_delay;
+	unsigned int		recovery_delay;
 	bool			discovery_nqn;
 	bool			duplicate_connect;
 	unsigned int		kato;
@@ -130,6 +135,7 @@ struct nvmf_ctrl_options {
 	struct key		*keyring;
 	struct key		*tls_key;
 	bool			tls;
+	bool			concat;
 	bool			disable_sqflow;
 	bool			hdr_digest;
 	bool			data_digest;
@@ -212,6 +218,12 @@ static inline unsigned int nvmf_nr_io_queues(struct nvmf_ctrl_options *opts)
 	return min(opts->nr_io_queues, num_online_cpus()) +
 		min(opts->nr_write_queues, num_online_cpus()) +
 		min(opts->nr_poll_queues, num_online_cpus());
+}
+
+static inline unsigned long nvmf_get_virt_boundary(struct nvme_ctrl *ctrl,
+						   bool is_admin)
+{
+	return 0;
 }
 
 int nvmf_reg_read32(struct nvme_ctrl *ctrl, u32 off, u32 *val);

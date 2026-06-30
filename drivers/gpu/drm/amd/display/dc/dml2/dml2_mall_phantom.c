@@ -813,7 +813,7 @@ static bool remove_all_phantom_planes_for_stream(struct dml2_context *ctx, struc
 {
 	int i, old_plane_count;
 	struct dc_stream_status *stream_status = NULL;
-	struct dc_plane_state *del_planes[MAX_SURFACE_NUM] = { 0 };
+	struct dc_plane_state *del_planes[MAX_SURFACES] = { 0 };
 
 	for (i = 0; i < context->stream_count; i++)
 			if (context->streams[i] == stream) {
@@ -868,7 +868,7 @@ bool dml2_svp_remove_all_phantom_pipes(struct dml2_context *ctx, struct dc_state
 
 /* Conditions for setting up phantom pipes for SubVP:
  * 1. Not force disable SubVP
- * 2. Full update (i.e. !fast_validate)
+ * 2. Full update (i.e. DC_VALIDATE_MODE_AND_PROGRAMMING)
  * 3. Enough pipes are available to support SubVP (TODO: Which pipes will use VACTIVE / VBLANK / SUBVP?)
  * 4. Display configuration passes validation
  * 5. (Config doesn't support MCLK in VACTIVE/VBLANK || dc->debug.force_subvp_mclk_switch)

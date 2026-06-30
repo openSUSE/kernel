@@ -129,8 +129,8 @@ static void ipte_lock_simple(struct kvm *kvm)
 retry:
 	read_lock(&kvm->arch.sca_lock);
 	ic = kvm_s390_get_ipte_control(kvm);
+	old = READ_ONCE(*ic);
 	do {
-		old = READ_ONCE(*ic);
 		if (old.k) {
 			read_unlock(&kvm->arch.sca_lock);
 			cond_resched();
@@ -138,7 +138,7 @@ retry:
 		}
 		new = old;
 		new.k = 1;
-	} while (cmpxchg(&ic->val, old.val, new.val) != old.val);
+	} while (!try_cmpxchg(&ic->val, &old.val, new.val));
 	read_unlock(&kvm->arch.sca_lock);
 out:
 	mutex_unlock(&kvm->arch.ipte_mutex);
@@ -154,11 +154,11 @@ static void ipte_unlock_simple(struct kvm *kvm)
 		goto out;
 	read_lock(&kvm->arch.sca_lock);
 	ic = kvm_s390_get_ipte_control(kvm);
+	old = READ_ONCE(*ic);
 	do {
-		old = READ_ONCE(*ic);
 		new = old;
 		new.k = 0;
-	} while (cmpxchg(&ic->val, old.val, new.val) != old.val);
+	} while (!try_cmpxchg(&ic->val, &old.val, new.val));
 	read_unlock(&kvm->arch.sca_lock);
 	wake_up(&kvm->arch.ipte_wq);
 out:
@@ -172,8 +172,8 @@ static void ipte_lock_siif(struct kvm *kvm)
 retry:
 	read_lock(&kvm->arch.sca_lock);
 	ic = kvm_s390_get_ipte_control(kvm);
+	old = READ_ONCE(*ic);
 	do {
-		old = READ_ONCE(*ic);
 		if (old.kg) {
 			read_unlock(&kvm->arch.sca_lock);
 			cond_resched();
@@ -182,7 +182,7 @@ retry:
 		new = old;
 		new.k = 1;
 		new.kh++;
-	} while (cmpxchg(&ic->val, old.val, new.val) != old.val);
+	} while (!try_cmpxchg(&ic->val, &old.val, new.val));
 	read_unlock(&kvm->arch.sca_lock);
 }
 
@@ -192,13 +192,13 @@ static void ipte_unlock_siif(struct kvm *kvm)
 
 	read_lock(&kvm->arch.sca_lock);
 	ic = kvm_s390_get_ipte_control(kvm);
+	old = READ_ONCE(*ic);
 	do {
-		old = READ_ONCE(*ic);
 		new = old;
 		new.kh--;
 		if (!new.kh)
 			new.k = 0;
-	} while (cmpxchg(&ic->val, old.val, new.val) != old.val);
+	} while (!try_cmpxchg(&ic->val, &old.val, new.val));
 	read_unlock(&kvm->arch.sca_lock);
 	if (!new.kh)
 		wake_up(&kvm->arch.ipte_wq);
@@ -317,7 +317,7 @@ enum prot_type {
 	PROT_TYPE_DAT  = 3,
 	PROT_TYPE_IEP  = 4,
 	/* Dummy value for passing an initialized value when code != PGM_PROTECTION */
-	PROT_NONE,
+	PROT_TYPE_DUMMY,
 };
 
 static int trans_exc_ending(struct kvm_vcpu *vcpu, int code, unsigned long gva, u8 ar,
@@ -333,7 +333,7 @@ static int trans_exc_ending(struct kvm_vcpu *vcpu, int code, unsigned long gva, 
 	switch (code) {
 	case PGM_PROTECTION:
 		switch (prot) {
-		case PROT_NONE:
+		case PROT_TYPE_DUMMY:
 			/* We should never get here, acts like termination */
 			WARN_ON_ONCE(1);
 			break;
@@ -803,7 +803,7 @@ static int guest_range_to_gpas(struct kvm_vcpu *vcpu, unsigned long ga, u8 ar,
 			gpa = kvm_s390_real_to_abs(vcpu, ga);
 			if (!kvm_is_gpa_in_memslot(vcpu->kvm, gpa)) {
 				rc = PGM_ADDRESSING;
-				prot = PROT_NONE;
+				prot = PROT_TYPE_DUMMY;
 			}
 		}
 		if (rc)
@@ -961,7 +961,7 @@ int access_guest_with_key(struct kvm_vcpu *vcpu, unsigned long ga, u8 ar,
 		if (rc == PGM_PROTECTION)
 			prot = PROT_TYPE_KEYC;
 		else
-			prot = PROT_NONE;
+			prot = PROT_TYPE_DUMMY;
 		rc = trans_exc_ending(vcpu, rc, ga, ar, mode, prot, terminate);
 	}
 out_unlock:

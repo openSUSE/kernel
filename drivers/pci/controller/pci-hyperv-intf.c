@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/hyperv.h>
+#include <linux/export.h>
 
 struct hyperv_pci_block_ops hvpci_block_ops;
 EXPORT_SYMBOL_GPL(hvpci_block_ops);
@@ -50,18 +51,6 @@ int hyperv_reg_block_invalidate(struct pci_dev *dev, void *context,
 						  block_invalidate);
 }
 EXPORT_SYMBOL_GPL(hyperv_reg_block_invalidate);
-
-static void __exit exit_hv_pci_intf(void)
-{
-}
-
-static int __init init_hv_pci_intf(void)
-{
-	return 0;
-}
-
-module_init(init_hv_pci_intf);
-module_exit(exit_hv_pci_intf);
 
 MODULE_DESCRIPTION("Hyper-V PCI Interface");
 MODULE_LICENSE("GPL v2");

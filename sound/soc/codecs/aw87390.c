@@ -175,9 +175,9 @@ static int aw87390_dev_set_profile_index(struct aw_device *aw_dev, int index)
 static int aw87390_profile_info(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_info *uinfo)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw87390 *aw87390 = snd_soc_component_get_drvdata(codec);
-	char *prof_name, *name;
+	char *prof_name;
 	int count, ret;
 
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
@@ -194,17 +194,15 @@ static int aw87390_profile_info(struct snd_kcontrol *kcontrol,
 	if (uinfo->value.enumerated.item >= count)
 		uinfo->value.enumerated.item = count - 1;
 
-	name = uinfo->value.enumerated.name;
 	count = uinfo->value.enumerated.item;
 
 	ret = aw87390_dev_get_prof_name(aw87390->aw_pa, count, &prof_name);
 	if (ret) {
-		strscpy(uinfo->value.enumerated.name, "null",
-						strlen("null") + 1);
+		strscpy(uinfo->value.enumerated.name, "null");
 		return 0;
 	}
 
-	strscpy(name, prof_name, sizeof(uinfo->value.enumerated.name));
+	strscpy(uinfo->value.enumerated.name, prof_name);
 
 	return 0;
 }
@@ -212,7 +210,7 @@ static int aw87390_profile_info(struct snd_kcontrol *kcontrol,
 static int aw87390_profile_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw87390 *aw87390 = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.integer.value[0] = aw87390->aw_pa->prof_index;
@@ -223,7 +221,7 @@ static int aw87390_profile_get(struct snd_kcontrol *kcontrol,
 static int aw87390_profile_set(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw87390 *aw87390 = snd_soc_component_get_drvdata(codec);
 	int ret;
 
@@ -362,7 +360,7 @@ static void aw87390_parse_channel_dt(struct aw87390 *aw87390)
 	aw_dev->channel = channel_value;
 }
 
-static int aw87390_init(struct aw87390 **aw87390, struct i2c_client *i2c, struct regmap *regmap)
+static int aw87390_init(struct aw87390 *aw87390, struct i2c_client *i2c, struct regmap *regmap)
 {
 	struct aw_device *aw_dev;
 	unsigned int chip_id;
@@ -386,7 +384,7 @@ static int aw87390_init(struct aw87390 **aw87390, struct i2c_client *i2c, struct
 	if (!aw_dev)
 		return -ENOMEM;
 
-	(*aw87390)->aw_pa = aw_dev;
+	aw87390->aw_pa = aw_dev;
 	aw_dev->i2c = i2c;
 	aw_dev->regmap = regmap;
 	aw_dev->dev = &i2c->dev;
@@ -400,7 +398,7 @@ static int aw87390_init(struct aw87390 **aw87390, struct i2c_client *i2c, struct
 	aw_dev->prof_index = AW87390_INIT_PROFILE;
 	aw_dev->status = AW87390_DEV_PW_OFF;
 
-	aw87390_parse_channel_dt(*aw87390);
+	aw87390_parse_channel_dt(aw87390);
 
 	return 0;
 }
@@ -428,7 +426,7 @@ static int aw87390_i2c_probe(struct i2c_client *i2c)
 					"failed to init regmap\n");
 
 	/* aw pa init */
-	ret = aw87390_init(&aw87390, i2c, aw87390->regmap);
+	ret = aw87390_init(aw87390, i2c, aw87390->regmap);
 	if (ret)
 		return ret;
 

@@ -98,14 +98,14 @@ void dcn32_add_phantom_pipes(struct dc *dc,
 		unsigned int pipe_cnt,
 		unsigned int index);
 
-bool dcn32_validate_bandwidth(struct dc *dc,
+enum dc_status dcn32_validate_bandwidth(struct dc *dc,
 		struct dc_state *context,
-		bool fast_validate);
+		enum dc_validate_mode validate_mode);
 
 int dcn32_populate_dml_pipes_from_context(
 	struct dc *dc, struct dc_state *context,
 	display_e2e_pipe_params_st *pipes,
-	bool fast_validate);
+	enum dc_validate_mode validate_mode);
 
 void dcn32_calculate_wm_and_dlg(
 		struct dc *dc, struct dc_state *context,
@@ -187,6 +187,10 @@ void dcn32_update_dml_pipes_odm_policy_based_on_context(struct dc *dc, struct dc
 void dcn32_override_min_req_dcfclk(struct dc *dc, struct dc_state *context);
 
 unsigned int dcn32_calculate_mall_ways_from_bytes(const struct dc *dc, unsigned int total_size_in_mall_bytes);
+
+unsigned int dcn32_get_max_hw_cursor_size(const struct dc *dc,
+			struct dc_state *state,
+			const struct dc_stream_state *stream);
 
 /* definitions for run time init of reg offsets */
 
@@ -1054,7 +1058,9 @@ unsigned int dcn32_calculate_mall_ways_from_bytes(const struct dc *dc, unsigned 
       SRI_ARR(OPTC_BYTES_PER_PIXEL, ODM, inst),                                \
       SRI_ARR(OPTC_WIDTH_CONTROL, ODM, inst),                                  \
       SRI_ARR(OPTC_MEMORY_CONFIG, ODM, inst),                                  \
-      SRI_ARR(OTG_DRR_CONTROL, OTG, inst)
+      SRI_ARR(OTG_DRR_CONTROL, OTG, inst),                                     \
+      SRI_ARR(OTG_PIPE_UPDATE_STATUS, OTG, inst),                              \
+      SRI_ARR(INTERRUPT_DEST, OTG, inst)
 
 /* HUBP */
 

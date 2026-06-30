@@ -223,7 +223,7 @@ static int rt286_jack_detect(struct rt286_priv *rt286, bool *hp, bool *mic)
 	if (!rt286->component)
 		return -EINVAL;
 
-	dapm = snd_soc_component_get_dapm(rt286->component);
+	dapm = snd_soc_component_to_dapm(rt286->component);
 
 	if (rt286->pdata.cbj_en) {
 		regmap_read(rt286->regmap, RT286_GET_HP_SENSE, &buf);
@@ -314,7 +314,7 @@ static void rt286_jack_detect_work(struct work_struct *work)
 static int rt286_mic_detect(struct snd_soc_component *component,
 			    struct snd_soc_jack *jack, void *data)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct rt286_priv *rt286 = snd_soc_component_get_drvdata(component);
 
 	rt286->jack = jack;
@@ -765,11 +765,11 @@ static int rt286_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	struct snd_soc_component *component = dai->component;
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
+	case SND_SOC_DAIFMT_CBP_CFP:
 		snd_soc_component_update_bits(component,
 			RT286_I2S_CTRL1, 0x800, 0x800);
 		break;
-	case SND_SOC_DAIFMT_CBS_CFS:
+	case SND_SOC_DAIFMT_CBC_CFC:
 		snd_soc_component_update_bits(component,
 			RT286_I2S_CTRL1, 0x800, 0x0);
 		break;
@@ -887,9 +887,11 @@ static int rt286_set_bclk_ratio(struct snd_soc_dai *dai, unsigned int ratio)
 static int rt286_set_bias_level(struct snd_soc_component *component,
 				 enum snd_soc_bias_level level)
 {
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+
 	switch (level) {
 	case SND_SOC_BIAS_PREPARE:
-		if (SND_SOC_BIAS_STANDBY == snd_soc_component_get_bias_level(component)) {
+		if (SND_SOC_BIAS_STANDBY == snd_soc_dapm_get_bias_level(dapm)) {
 			snd_soc_component_write(component,
 				RT286_SET_AUDIO_POWER, AC_PWRST_D0);
 			snd_soc_component_update_bits(component,
@@ -1083,8 +1085,9 @@ MODULE_DEVICE_TABLE(i2c, rt286_i2c_id);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id rt286_acpi_match[] = {
-	{ "INT343A", 0 },
-	{},
+	{ "10EC0286" },
+	{ "INT343A" },
+	{ }
 };
 MODULE_DEVICE_TABLE(acpi, rt286_acpi_match);
 #endif

@@ -283,6 +283,8 @@ extern struct argp bench_local_storage_create_argp;
 extern struct argp bench_htab_mem_argp;
 extern struct argp bench_trigger_batch_argp;
 extern struct argp bench_crypto_argp;
+extern struct argp bench_sockmap_argp;
+extern struct argp bench_lpm_trie_map_argp;
 
 static const struct argp_child bench_parsers[] = {
 	{ &bench_ringbufs_argp, 0, "Ring buffers benchmark", 0 },
@@ -297,6 +299,8 @@ static const struct argp_child bench_parsers[] = {
 	{ &bench_htab_mem_argp, 0, "hash map memory benchmark", 0 },
 	{ &bench_trigger_batch_argp, 0, "BPF triggering benchmark", 0 },
 	{ &bench_crypto_argp, 0, "bpf crypto benchmark", 0 },
+	{ &bench_sockmap_argp, 0, "bpf sockmap benchmark", 0 },
+	{ &bench_lpm_trie_map_argp, 0, "LPM trie map benchmark", 0 },
 	{},
 };
 
@@ -497,7 +501,7 @@ extern const struct bench bench_rename_rawtp;
 extern const struct bench bench_rename_fentry;
 extern const struct bench bench_rename_fexit;
 
-/* pure counting benchmarks to establish theoretical lmits */
+/* pure counting benchmarks to establish theoretical limits */
 extern const struct bench bench_trig_usermode_count;
 extern const struct bench bench_trig_syscall_count;
 extern const struct bench bench_trig_kernel_count;
@@ -508,6 +512,8 @@ extern const struct bench bench_trig_kretprobe;
 extern const struct bench bench_trig_kprobe_multi;
 extern const struct bench bench_trig_kretprobe_multi;
 extern const struct bench bench_trig_fentry;
+extern const struct bench bench_trig_kprobe_multi_all;
+extern const struct bench bench_trig_kretprobe_multi_all;
 extern const struct bench bench_trig_fexit;
 extern const struct bench bench_trig_fmodret;
 extern const struct bench bench_trig_tp;
@@ -549,6 +555,14 @@ extern const struct bench bench_local_storage_create;
 extern const struct bench bench_htab_mem;
 extern const struct bench bench_crypto_encrypt;
 extern const struct bench bench_crypto_decrypt;
+extern const struct bench bench_sockmap;
+extern const struct bench bench_lpm_trie_noop;
+extern const struct bench bench_lpm_trie_baseline;
+extern const struct bench bench_lpm_trie_lookup;
+extern const struct bench bench_lpm_trie_insert;
+extern const struct bench bench_lpm_trie_update;
+extern const struct bench bench_lpm_trie_delete;
+extern const struct bench bench_lpm_trie_free;
 
 static const struct bench *benchs[] = {
 	&bench_count_global,
@@ -569,6 +583,8 @@ static const struct bench *benchs[] = {
 	&bench_trig_kprobe_multi,
 	&bench_trig_kretprobe_multi,
 	&bench_trig_fentry,
+	&bench_trig_kprobe_multi_all,
+	&bench_trig_kretprobe_multi_all,
 	&bench_trig_fexit,
 	&bench_trig_fmodret,
 	&bench_trig_tp,
@@ -609,6 +625,14 @@ static const struct bench *benchs[] = {
 	&bench_htab_mem,
 	&bench_crypto_encrypt,
 	&bench_crypto_decrypt,
+	&bench_sockmap,
+	&bench_lpm_trie_noop,
+	&bench_lpm_trie_baseline,
+	&bench_lpm_trie_lookup,
+	&bench_lpm_trie_insert,
+	&bench_lpm_trie_update,
+	&bench_lpm_trie_delete,
+	&bench_lpm_trie_free,
 };
 
 static void find_benchmark(void)

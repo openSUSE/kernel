@@ -131,13 +131,16 @@ static int sof_msg_inject_send_message(struct sof_client_dev *cdev)
 		return ret;
 	}
 
-	/* send the message */
-	ret = sof_client_ipc_tx_message(cdev, priv->tx_buffer, priv->rx_buffer,
-					priv->max_msg_size);
-	if (ret)
-		dev_err(dev, "IPC message send failed: %d\n", ret);
+	ret = sof_client_boot_dsp(cdev);
+	if (!ret) {
+		/* send the message */
+		ret = sof_client_ipc_tx_message(cdev, priv->tx_buffer,
+						priv->rx_buffer,
+						priv->max_msg_size);
+		if (ret)
+			dev_err(dev, "IPC message send failed: %d\n", ret);
+	}
 
-	pm_runtime_mark_last_busy(dev);
 	err = pm_runtime_put_autosuspend(dev);
 	if (err < 0)
 		dev_err_ratelimited(dev, "debugfs write failed to idle %d\n", err);

@@ -485,6 +485,11 @@ static struct jpu_ctx *fh_to_ctx(struct v4l2_fh *fh)
 	return container_of(fh, struct jpu_ctx, fh);
 }
 
+static struct jpu_ctx *file_to_ctx(struct file *filp)
+{
+	return fh_to_ctx(file_to_v4l2_fh(filp));
+}
+
 static void jpu_set_tbl(struct jpu *jpu, u32 reg, const unsigned int *tbl,
 			unsigned int len) {
 	unsigned int i;
@@ -1171,8 +1176,6 @@ static const struct vb2_ops jpu_qops = {
 	.buf_finish		= jpu_buf_finish,
 	.start_streaming	= jpu_start_streaming,
 	.stop_streaming		= jpu_stop_streaming,
-	.wait_prepare		= vb2_ops_wait_prepare,
-	.wait_finish		= vb2_ops_wait_finish,
 };
 
 static int jpu_queue_init(void *priv, struct vb2_queue *src_vq,
@@ -1228,8 +1231,7 @@ static int jpu_open(struct file *file)
 
 	v4l2_fh_init(&ctx->fh, vfd);
 	ctx->fh.ctrl_handler = &ctx->ctrl_handler;
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	ctx->jpu = jpu;
 	ctx->encoder = vfd == &jpu->vfd_encoder;
@@ -1274,7 +1276,7 @@ jpu_reset_rollback:
 device_prepare_rollback:
 	mutex_unlock(&jpu->mutex);
 v4l_prepare_rollback:
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 	return ret;
@@ -1283,11 +1285,11 @@ v4l_prepare_rollback:
 static int jpu_release(struct file *file)
 {
 	struct jpu *jpu = video_drvdata(file);
-	struct jpu_ctx *ctx = fh_to_ctx(file->private_data);
+	struct jpu_ctx *ctx = file_to_ctx(file);
 
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 

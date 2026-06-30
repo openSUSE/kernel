@@ -167,7 +167,7 @@ int cs42l43_set_jack(struct snd_soc_component *component,
 		autocontrol |= 0x3 << CS42L43_JACKDET_MODE_SHIFT;
 
 	ret = cs42l43_find_index(priv, "cirrus,tip-fall-db-ms", 500,
-				 NULL, cs42l43_accdet_db_ms,
+				 &priv->tip_fall_db_ms, cs42l43_accdet_db_ms,
 				 ARRAY_SIZE(cs42l43_accdet_db_ms));
 	if (ret < 0)
 		goto error;
@@ -175,7 +175,7 @@ int cs42l43_set_jack(struct snd_soc_component *component,
 	tip_deb |= ret << CS42L43_TIPSENSE_FALLING_DB_TIME_SHIFT;
 
 	ret = cs42l43_find_index(priv, "cirrus,tip-rise-db-ms", 500,
-				 NULL, cs42l43_accdet_db_ms,
+				 &priv->tip_rise_db_ms, cs42l43_accdet_db_ms,
 				 ARRAY_SIZE(cs42l43_accdet_db_ms));
 	if (ret < 0)
 		goto error;
@@ -242,7 +242,6 @@ done:
 error:
 	mutex_unlock(&priv->jack_lock);
 
-	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
 
 	return ret;
@@ -362,14 +361,15 @@ static void cs42l43_stop_button_detect(struct cs42l43_codec *priv)
 	priv->button_detect_running = false;
 }
 
+#define CS42L43_BUTTON_COMB_US 11000
 #define CS42L43_BUTTON_COMB_MAX 512
 #define CS42L43_BUTTON_ROUT 2210
 
-void cs42l43_button_press_work(struct work_struct *work)
+irqreturn_t cs42l43_button_press(int irq, void *data)
 {
-	struct cs42l43_codec *priv = container_of(work, struct cs42l43_codec,
-						  button_press_work.work);
+	struct cs42l43_codec *priv = data;
 	struct cs42l43 *cs42l43 = priv->core;
+	irqreturn_t iret = IRQ_NONE;
 	unsigned int buttons = 0;
 	unsigned int val = 0;
 	int i, ret;
@@ -377,7 +377,7 @@ void cs42l43_button_press_work(struct work_struct *work)
 	ret = pm_runtime_resume_and_get(priv->dev);
 	if (ret) {
 		dev_err(priv->dev, "Failed to resume for button press: %d\n", ret);
-		return;
+		return iret;
 	}
 
 	mutex_lock(&priv->jack_lock);
@@ -386,6 +386,9 @@ void cs42l43_button_press_work(struct work_struct *work)
 		dev_dbg(priv->dev, "Spurious button press IRQ\n");
 		goto error;
 	}
+
+	// Wait for 2 full cycles of comb filter to ensure good reading
+	usleep_range(2 * CS42L43_BUTTON_COMB_US, 2 * CS42L43_BUTTON_COMB_US + 50);
 
 	regmap_read(cs42l43->regmap, CS42L43_DETECT_STATUS_1, &val);
 
@@ -420,34 +423,26 @@ void cs42l43_button_press_work(struct work_struct *work)
 
 	snd_soc_jack_report(priv->jack_hp, buttons, CS42L43_JACK_BUTTONS);
 
+	iret = IRQ_HANDLED;
+
 error:
 	mutex_unlock(&priv->jack_lock);
 
-	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
+
+	return iret;
 }
 
-irqreturn_t cs42l43_button_press(int irq, void *data)
+irqreturn_t cs42l43_button_release(int irq, void *data)
 {
 	struct cs42l43_codec *priv = data;
-
-	// Wait for 2 full cycles of comb filter to ensure good reading
-	queue_delayed_work(system_wq, &priv->button_press_work,
-			   msecs_to_jiffies(20));
-
-	return IRQ_HANDLED;
-}
-
-void cs42l43_button_release_work(struct work_struct *work)
-{
-	struct cs42l43_codec *priv = container_of(work, struct cs42l43_codec,
-						  button_release_work);
+	irqreturn_t iret = IRQ_NONE;
 	int ret;
 
 	ret = pm_runtime_resume_and_get(priv->dev);
 	if (ret) {
 		dev_err(priv->dev, "Failed to resume for button release: %d\n", ret);
-		return;
+		return iret;
 	}
 
 	mutex_lock(&priv->jack_lock);
@@ -456,23 +451,17 @@ void cs42l43_button_release_work(struct work_struct *work)
 		dev_dbg(priv->dev, "Button release IRQ\n");
 
 		snd_soc_jack_report(priv->jack_hp, 0, CS42L43_JACK_BUTTONS);
+
+		iret = IRQ_HANDLED;
 	} else {
 		dev_dbg(priv->dev, "Spurious button release IRQ\n");
 	}
 
 	mutex_unlock(&priv->jack_lock);
 
-	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
-}
 
-irqreturn_t cs42l43_button_release(int irq, void *data)
-{
-	struct cs42l43_codec *priv = data;
-
-	queue_work(system_wq, &priv->button_release_work);
-
-	return IRQ_HANDLED;
+	return iret;
 }
 
 void cs42l43_bias_sense_timeout(struct work_struct *work)
@@ -504,17 +493,32 @@ void cs42l43_bias_sense_timeout(struct work_struct *work)
 
 	mutex_unlock(&priv->jack_lock);
 
-	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
 }
 
-static void cs42l43_start_load_detect(struct cs42l43_codec *priv)
+static const struct reg_sequence cs42l43_3pole_patch[] = {
+	{ 0x4000,	0x00000055 },
+	{ 0x4000,	0x000000AA },
+	{ 0x17420,	0x8500F300 },
+	{ 0x17424,	0x36003E00 },
+	{ 0x4000,	0x00000000 },
+};
+
+static const struct reg_sequence cs42l43_4pole_patch[] = {
+	{ 0x4000,	0x00000055 },
+	{ 0x4000,	0x000000AA },
+	{ 0x17420,	0x7800E600 },
+	{ 0x17424,	0x36003800 },
+	{ 0x4000,	0x00000000 },
+};
+
+static void cs42l43_start_load_detect(struct cs42l43_codec *priv, bool mic)
 {
 	struct cs42l43 *cs42l43 = priv->core;
 
 	dev_dbg(priv->dev, "Start load detect\n");
 
-	snd_soc_dapm_mutex_lock(snd_soc_component_get_dapm(priv->component));
+	snd_soc_dapm_mutex_lock(snd_soc_component_to_dapm(priv->component));
 
 	priv->load_detect_running = true;
 
@@ -531,6 +535,15 @@ static void cs42l43_start_load_detect(struct cs42l43_codec *priv)
 		if (!time_left)
 			dev_err(priv->dev, "Load detect HP power down timed out\n");
 	}
+
+	if (mic)
+		regmap_multi_reg_write_bypassed(cs42l43->regmap,
+						cs42l43_4pole_patch,
+						ARRAY_SIZE(cs42l43_4pole_patch));
+	else
+		regmap_multi_reg_write_bypassed(cs42l43->regmap,
+						cs42l43_3pole_patch,
+						ARRAY_SIZE(cs42l43_3pole_patch));
 
 	regmap_update_bits(cs42l43->regmap, CS42L43_BLOCK_EN3,
 			   CS42L43_ADC1_EN_MASK | CS42L43_ADC2_EN_MASK, 0);
@@ -551,7 +564,7 @@ static void cs42l43_start_load_detect(struct cs42l43_codec *priv)
 			   CS42L43_HPLOAD_DET_EN_MASK,
 			   CS42L43_HPLOAD_DET_EN_MASK);
 
-	snd_soc_dapm_mutex_unlock(snd_soc_component_get_dapm(priv->component));
+	snd_soc_dapm_mutex_unlock(snd_soc_component_to_dapm(priv->component));
 }
 
 static void cs42l43_stop_load_detect(struct cs42l43_codec *priv)
@@ -560,7 +573,7 @@ static void cs42l43_stop_load_detect(struct cs42l43_codec *priv)
 
 	dev_dbg(priv->dev, "Stop load detect\n");
 
-	snd_soc_dapm_mutex_lock(snd_soc_component_get_dapm(priv->component));
+	snd_soc_dapm_mutex_lock(snd_soc_component_to_dapm(priv->component));
 
 	regmap_update_bits(cs42l43->regmap, CS42L43_LOADDETENA,
 			   CS42L43_HPLOAD_DET_EN_MASK, 0);
@@ -599,7 +612,7 @@ static void cs42l43_stop_load_detect(struct cs42l43_codec *priv)
 
 	priv->load_detect_running = false;
 
-	snd_soc_dapm_mutex_unlock(snd_soc_component_get_dapm(priv->component));
+	snd_soc_dapm_mutex_unlock(snd_soc_component_to_dapm(priv->component));
 }
 
 static int cs42l43_run_load_detect(struct cs42l43_codec *priv, bool mic)
@@ -610,7 +623,7 @@ static int cs42l43_run_load_detect(struct cs42l43_codec *priv, bool mic)
 
 	reinit_completion(&priv->load_detect);
 
-	cs42l43_start_load_detect(priv);
+	cs42l43_start_load_detect(priv, mic);
 	time_left = wait_for_completion_timeout(&priv->load_detect,
 						msecs_to_jiffies(CS42L43_LOAD_TIMEOUT_MS));
 	cs42l43_stop_load_detect(priv);
@@ -634,11 +647,11 @@ static int cs42l43_run_load_detect(struct cs42l43_codec *priv, bool mic)
 	}
 
 	switch (val & CS42L43_AMP3_RES_DET_MASK) {
-	case 0x0: // low impedance
-	case 0x1: // high impedance
+	case 0x0: // < 22 Ohm impedance
+	case 0x1: // < 150 Ohm impedance
+	case 0x2: // < 1000 Ohm impedance
 		return CS42L43_JACK_HEADPHONE;
-	case 0x2: // lineout
-	case 0x3: // Open circuit
+	case 0x3: // > 1000 Ohm impedance
 		return CS42L43_JACK_LINEOUT;
 	default:
 		return -EINVAL;
@@ -654,6 +667,10 @@ static int cs42l43_run_type_detect(struct cs42l43_codec *priv)
 
 	reinit_completion(&priv->type_detect);
 
+	regmap_update_bits(cs42l43->regmap, CS42L43_STEREO_MIC_CLAMP_CTRL,
+			   CS42L43_SMIC_HPAMP_CLAMP_DIS_FRC_VAL_MASK,
+			   CS42L43_SMIC_HPAMP_CLAMP_DIS_FRC_VAL_MASK);
+
 	cs42l43_start_hs_bias(priv, true);
 	regmap_update_bits(cs42l43->regmap, CS42L43_HS2,
 			   CS42L43_HSDET_MODE_MASK, 0x3 << CS42L43_HSDET_MODE_SHIFT);
@@ -664,6 +681,9 @@ static int cs42l43_run_type_detect(struct cs42l43_codec *priv)
 	regmap_update_bits(cs42l43->regmap, CS42L43_HS2,
 			   CS42L43_HSDET_MODE_MASK, 0x2 << CS42L43_HSDET_MODE_SHIFT);
 	cs42l43_stop_hs_bias(priv);
+
+	regmap_update_bits(cs42l43->regmap, CS42L43_STEREO_MIC_CLAMP_CTRL,
+			   CS42L43_SMIC_HPAMP_CLAMP_DIS_FRC_VAL_MASK, 0);
 
 	if (!time_left)
 		return -ETIMEDOUT;
@@ -679,6 +699,7 @@ static int cs42l43_run_type_detect(struct cs42l43_codec *priv)
 	switch (type & CS42L43_HSDET_TYPE_STS_MASK) {
 	case 0x0: // CTIA
 	case 0x1: // OMTP
+	case 0x4:
 		return cs42l43_run_load_detect(priv, true);
 	case 0x2: // 3-pole
 		return cs42l43_run_load_detect(priv, false);
@@ -689,7 +710,7 @@ static int cs42l43_run_type_detect(struct cs42l43_codec *priv)
 	}
 }
 
-static void cs42l43_clear_jack(struct cs42l43_codec *priv)
+void cs42l43_clear_jack(struct cs42l43_codec *priv)
 {
 	struct cs42l43 *cs42l43 = priv->core;
 
@@ -702,11 +723,12 @@ static void cs42l43_clear_jack(struct cs42l43_codec *priv)
 			   CS42L43_PGA_WIDESWING_MODE_EN_MASK, 0);
 	regmap_update_bits(cs42l43->regmap, CS42L43_STEREO_MIC_CTRL,
 			   CS42L43_JACK_STEREO_CONFIG_MASK, 0);
+	regmap_update_bits(cs42l43->regmap, CS42L43_STEREO_MIC_CLAMP_CTRL,
+			   CS42L43_SMIC_HPAMP_CLAMP_DIS_FRC_MASK,
+			   CS42L43_SMIC_HPAMP_CLAMP_DIS_FRC_MASK);
 	regmap_update_bits(cs42l43->regmap, CS42L43_HS2,
 			   CS42L43_HSDET_MODE_MASK | CS42L43_HSDET_MANUAL_MODE_MASK,
 			   0x2 << CS42L43_HSDET_MODE_SHIFT);
-
-	snd_soc_jack_report(priv->jack_hp, 0, 0xFFFF);
 }
 
 void cs42l43_tip_sense_work(struct work_struct *work)
@@ -755,6 +777,8 @@ void cs42l43_tip_sense_work(struct work_struct *work)
 
 		cs42l43_clear_jack(priv);
 
+		snd_soc_jack_report(priv->jack_hp, 0, 0xFFFF);
+
 		if (cs42l43->sdw && priv->jack_present) {
 			pm_runtime_put(priv->dev);
 			priv->jack_present = false;
@@ -764,21 +788,25 @@ void cs42l43_tip_sense_work(struct work_struct *work)
 error:
 	mutex_unlock(&priv->jack_lock);
 
-	pm_runtime_mark_last_busy(priv->dev);
+	priv->suspend_jack_debounce = false;
+
 	pm_runtime_put_autosuspend(priv->dev);
 }
 
 irqreturn_t cs42l43_tip_sense(int irq, void *data)
 {
 	struct cs42l43_codec *priv = data;
+	unsigned int db_delay = priv->tip_debounce_ms;
 
 	cancel_delayed_work(&priv->bias_sense_timeout);
 	cancel_delayed_work(&priv->tip_sense_work);
-	cancel_delayed_work(&priv->button_press_work);
-	cancel_work(&priv->button_release_work);
+
+	// Ensure delay after suspend is long enough to avoid false detection
+	if (priv->suspend_jack_debounce)
+		db_delay += priv->tip_fall_db_ms + priv->tip_rise_db_ms;
 
 	queue_delayed_work(system_long_wq, &priv->tip_sense_work,
-			   msecs_to_jiffies(priv->tip_debounce_ms));
+			   msecs_to_jiffies(db_delay));
 
 	return IRQ_HANDLED;
 }
@@ -864,7 +892,7 @@ SOC_ENUM_SINGLE_VIRT_DECL(cs42l43_jack_enum, cs42l43_jack_text);
 
 int cs42l43_jack_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 
 	mutex_lock(&priv->jack_lock);
@@ -876,7 +904,7 @@ int cs42l43_jack_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *u
 
 int cs42l43_jack_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 	struct cs42l43 *cs42l43 = priv->core;
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
@@ -900,6 +928,8 @@ int cs42l43_jack_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *u
 	priv->jack_override = override;
 
 	cs42l43_clear_jack(priv);
+
+	snd_soc_jack_report(priv->jack_hp, 0, 0xFFFF);
 
 	if (!override) {
 		queue_delayed_work(system_long_wq, &priv->tip_sense_work, 0);

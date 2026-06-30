@@ -28,6 +28,8 @@
 
 
 #define AMD_MAX_USEC_TIMEOUT		1000000  /* 1000 ms */
+struct amdgpu_ip_block;
+
 
 /*
  * Chip flags
@@ -337,6 +339,43 @@ enum DC_DEBUG_MASK {
 	 * @DC_FORCE_IPS_ENABLE: If set, force enable all IPS, all the time.
 	 */
 	DC_FORCE_IPS_ENABLE = 0x4000,
+	/**
+	 * @DC_DISABLE_ACPI_EDID: If set, don't attempt to fetch EDID for
+	 * eDP display from ACPI _DDC method.
+	 */
+	DC_DISABLE_ACPI_EDID = 0x8000,
+
+	/**
+	 * @DC_DISABLE_HDMI_CEC: If set, disable HDMI-CEC feature in amdgpu driver.
+	 */
+	DC_DISABLE_HDMI_CEC = 0x10000,
+
+	/**
+	 * @DC_DISABLE_SUBVP_FAMS: If set, disable DCN Sub-Viewport & Firmware Assisted
+	 * Memory Clock Switching (FAMS) feature in amdgpu driver.
+	 */
+	DC_DISABLE_SUBVP_FAMS = 0x20000,
+	/**
+	 * @DC_DISABLE_CUSTOM_BRIGHTNESS_CURVE: If set, disable support for custom brightness curves
+	 */
+	DC_DISABLE_CUSTOM_BRIGHTNESS_CURVE = 0x40000,
+
+	/**
+	 * @DC_HDCP_LC_FORCE_FW_ENABLE: If set, use HDCP Locality Check FW
+	 * path regardless of reported HW capabilities.
+	 */
+	DC_HDCP_LC_FORCE_FW_ENABLE = 0x80000,
+
+	/**
+	 * @DC_HDCP_LC_ENABLE_SW_FALLBACK: If set, upon HDCP Locality Check FW
+	 * path failure, retry using legacy SW path.
+	 */
+	DC_HDCP_LC_ENABLE_SW_FALLBACK = 0x100000,
+
+	/**
+	 * @DC_SKIP_DETECTION_LT: If set, skip detection link training
+	 */
+	DC_SKIP_DETECTION_LT = 0x200000,
 };
 
 enum amd_dpm_forced_level;
@@ -357,6 +396,7 @@ enum amd_dpm_forced_level;
  *                   (such as allocating any required memory)
  * @suspend: handles IP specific hw/sw changes for suspend
  * @resume: handles IP specific hw/sw changes for resume
+ * @complete: handles IP specific changes after resume
  * @is_idle: returns current IP block idle status
  * @wait_for_idle: poll for idle
  * @check_soft_reset: check soft reset the IP block
@@ -377,30 +417,31 @@ enum amd_dpm_forced_level;
  */
 struct amd_ip_funcs {
 	char *name;
-	int (*early_init)(void *handle);
-	int (*late_init)(void *handle);
-	int (*sw_init)(void *handle);
-	int (*sw_fini)(void *handle);
-	int (*early_fini)(void *handle);
-	int (*hw_init)(void *handle);
-	int (*hw_fini)(void *handle);
-	void (*late_fini)(void *handle);
-	int (*prepare_suspend)(void *handle);
-	int (*suspend)(void *handle);
-	int (*resume)(void *handle);
-	bool (*is_idle)(void *handle);
-	int (*wait_for_idle)(void *handle);
-	bool (*check_soft_reset)(void *handle);
-	int (*pre_soft_reset)(void *handle);
-	int (*soft_reset)(void *handle);
-	int (*post_soft_reset)(void *handle);
-	int (*set_clockgating_state)(void *handle,
+	int (*early_init)(struct amdgpu_ip_block *ip_block);
+	int (*late_init)(struct amdgpu_ip_block *ip_block);
+	int (*sw_init)(struct amdgpu_ip_block *ip_block);
+	int (*sw_fini)(struct amdgpu_ip_block *ip_block);
+	int (*early_fini)(struct amdgpu_ip_block *ip_block);
+	int (*hw_init)(struct amdgpu_ip_block *ip_block);
+	int (*hw_fini)(struct amdgpu_ip_block *ip_block);
+	void (*late_fini)(struct amdgpu_ip_block *ip_block);
+	int (*prepare_suspend)(struct amdgpu_ip_block *ip_block);
+	int (*suspend)(struct amdgpu_ip_block *ip_block);
+	int (*resume)(struct amdgpu_ip_block *ip_block);
+	void (*complete)(struct amdgpu_ip_block *ip_block);
+	bool (*is_idle)(struct amdgpu_ip_block *ip_block);
+	int (*wait_for_idle)(struct amdgpu_ip_block *ip_block);
+	bool (*check_soft_reset)(struct amdgpu_ip_block *ip_block);
+	int (*pre_soft_reset)(struct amdgpu_ip_block *ip_block);
+	int (*soft_reset)(struct amdgpu_ip_block *ip_block);
+	int (*post_soft_reset)(struct amdgpu_ip_block *ip_block);
+	int (*set_clockgating_state)(struct amdgpu_ip_block *ip_block,
 				     enum amd_clockgating_state state);
-	int (*set_powergating_state)(void *handle,
+	int (*set_powergating_state)(struct amdgpu_ip_block *ip_block,
 				     enum amd_powergating_state state);
-	void (*get_clockgating_state)(void *handle, u64 *flags);
-	void (*dump_ip_state)(void *handle);
-	void (*print_ip_state)(void *handle, struct drm_printer *p);
+	void (*get_clockgating_state)(struct amdgpu_ip_block *ip_block, u64 *flags);
+	void (*dump_ip_state)(struct amdgpu_ip_block *ip_block);
+	void (*print_ip_state)(struct amdgpu_ip_block *ip_block, struct drm_printer *p);
 };
 
 

@@ -59,6 +59,7 @@ struct snd_hwdep {
 	int used;			/* reference counter */
 	unsigned int dsp_loaded;	/* bit fields of loaded dsp indices */
 	unsigned int exclusive:1;	/* exclusive access mode */
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 extern int snd_hwdep_new(struct snd_card *card, char *id, int device,

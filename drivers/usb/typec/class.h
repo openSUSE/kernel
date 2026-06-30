@@ -15,6 +15,7 @@ struct typec_plug {
 	enum typec_plug_index		index;
 	struct ida			mode_ids;
 	int				num_altmodes;
+	void *suse_kabi_padding;
 };
 
 struct typec_cable {
@@ -24,6 +25,8 @@ struct typec_cable {
 	unsigned int			active:1;
 	u16				pd_revision; /* 0300H = "3.0" */
 	enum usb_pd_svdm_ver		svdm_version;
+
+	void *suse_kabi_padding;
 };
 
 struct typec_partner {
@@ -35,11 +38,15 @@ struct typec_partner {
 	int				num_altmodes;
 	u16				pd_revision; /* 0300H = "3.0" */
 	enum usb_pd_svdm_ver		svdm_version;
+	enum usb_mode			usb_mode;
+	u8				usb_capability;
 
 	struct usb_power_delivery	*pd;
 
 	void (*attach)(struct typec_partner *partner, struct device *dev);
 	void (*deattach)(struct typec_partner *partner, struct device *dev);
+
+	void				*suse_kabi_padding;
 };
 
 struct typec_port {
@@ -55,7 +62,9 @@ struct typec_port {
 	enum typec_role			vconn_role;
 	enum typec_pwr_opmode		pwr_opmode;
 	enum typec_port_type		port_type;
+	enum usb_mode			usb_mode;
 	struct mutex			port_type_lock;
+	struct mutex			partner_link_lock;
 
 	enum typec_orientation		orientation;
 	struct typec_switch		*sw;
@@ -76,6 +85,8 @@ struct typec_port {
 	 */
 	struct device			*usb2_dev;
 	struct device			*usb3_dev;
+
+	void				*suse_kabi_padding;
 };
 
 #define to_typec_port(_dev_) container_of(_dev_, struct typec_port, dev)

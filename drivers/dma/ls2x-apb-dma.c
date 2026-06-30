@@ -31,7 +31,7 @@
 #define LDMA_ASK_VALID		BIT(2)
 #define LDMA_START		BIT(3) /* DMA start operation */
 #define LDMA_STOP		BIT(4) /* DMA stop operation */
-#define LDMA_CONFIG_MASK	GENMASK(4, 0) /* DMA controller config bits mask */
+#define LDMA_CONFIG_MASK	GENMASK_ULL(4, 0) /* DMA controller config bits mask */
 
 /* Bitfields in ndesc_addr field of HW descriptor */
 #define LDMA_DESC_EN		BIT(0) /*1: The next descriptor is valid */
@@ -692,7 +692,7 @@ MODULE_DEVICE_TABLE(of, ls2x_dma_of_match_table);
 
 static struct platform_driver ls2x_dmac_driver = {
 	.probe		= ls2x_dma_probe,
-	.remove_new	= ls2x_dma_remove,
+	.remove		= ls2x_dma_remove,
 	.driver = {
 		.name	= "ls2x-apbdma",
 		.of_match_table	= ls2x_dma_of_match_table,

@@ -1165,7 +1165,7 @@ static void io_apic_print_entries(unsigned int apic, unsigned int nr_entries)
 				 (entry.ir_index_15 << 15) | entry.ir_index_0_14, entry.ir_zero);
 		} else {
 			apic_dbg("%s, %s, D(%02X%02X), M(%1d)\n", buf,
-				 entry.dest_mode_logical ? "logical " : "physic	al",
+				 entry.dest_mode_logical ? "logical " : "physical",
 				 entry.virt_destid_8_14, entry.destid_0_7, entry.delivery_mode);
 		}
 	}
@@ -2308,7 +2308,12 @@ static void resume_ioapic_id(int ioapic_idx)
 	}
 }
 
-static void ioapic_resume(void)
+static int ioapic_suspend(void *data)
+{
+	return save_ioapic_entries();
+}
+
+static void ioapic_resume(void *data)
 {
 	int ioapic_idx;
 
@@ -2318,14 +2323,18 @@ static void ioapic_resume(void)
 	restore_ioapic_entries();
 }
 
-static struct syscore_ops ioapic_syscore_ops = {
-	.suspend	= save_ioapic_entries,
+static const struct syscore_ops ioapic_syscore_ops = {
+	.suspend	= ioapic_suspend,
 	.resume		= ioapic_resume,
+};
+
+static struct syscore ioapic_syscore = {
+	.ops = &ioapic_syscore_ops,
 };
 
 static int __init ioapic_init_ops(void)
 {
-	register_syscore_ops(&ioapic_syscore_ops);
+	register_syscore(&ioapic_syscore);
 
 	return 0;
 }

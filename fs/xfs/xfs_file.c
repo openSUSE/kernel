@@ -527,7 +527,10 @@ xfs_dio_write_end_io(
 	nofs_flag = memalloc_nofs_save();
 
 	if (flags & IOMAP_DIO_COW) {
-		error = xfs_reflink_end_cow(ip, offset, size);
+		if (iocb->ki_flags & IOCB_ATOMIC)
+			error = xfs_reflink_end_atomic_cow(ip, offset, size);
+		else
+			error = xfs_reflink_end_cow(ip, offset, size);
 		if (error)
 			goto out;
 	}
@@ -613,6 +616,72 @@ xfs_file_dio_write_aligned(
 	trace_xfs_file_direct_write(iocb, from);
 	ret = iomap_dio_rw(iocb, from, &xfs_direct_write_iomap_ops,
 			   &xfs_dio_write_ops, 0, NULL, 0);
+out_unlock:
+	if (iolock)
+		xfs_iunlock(ip, iolock);
+	return ret;
+}
+
+/*
+ * Handle block atomic writes
+ *
+ * Two methods of atomic writes are supported:
+ * - REQ_ATOMIC-based, which would typically use some form of HW offload in the
+ *   disk
+ * - COW-based, which uses a COW fork as a staging extent for data updates
+ *   before atomically updating extent mappings for the range being written
+ *
+ */
+static noinline ssize_t
+xfs_file_dio_write_atomic(
+	struct xfs_inode	*ip,
+	struct kiocb		*iocb,
+	struct iov_iter		*from)
+{
+	unsigned int		iolock = XFS_IOLOCK_SHARED;
+	ssize_t			ret, ocount = iov_iter_count(from);
+	const struct iomap_ops	*dops;
+
+	/*
+	 * HW offload should be faster, so try that first if it is already
+	 * known that the write length is not too large.
+	 */
+	if (ocount > xfs_inode_buftarg(ip)->bt_bdev_awu_max)
+		dops = &xfs_atomic_write_cow_iomap_ops;
+	else
+		dops = &xfs_direct_write_iomap_ops;
+
+retry:
+	ret = xfs_ilock_iocb_for_write(iocb, &iolock);
+	if (ret)
+		return ret;
+
+	ret = xfs_file_write_checks(iocb, from, &iolock);
+	if (ret)
+		goto out_unlock;
+
+	/* Demote similar to xfs_file_dio_write_aligned() */
+	if (iolock == XFS_IOLOCK_EXCL) {
+		xfs_ilock_demote(ip, XFS_IOLOCK_EXCL);
+		iolock = XFS_IOLOCK_SHARED;
+	}
+
+	trace_xfs_file_direct_write(iocb, from);
+	ret = iomap_dio_rw(iocb, from, dops, &xfs_dio_write_ops,
+			0, NULL, 0);
+
+	/*
+	 * The retry mechanism is based on the ->iomap_begin method returning
+	 * -ENOPROTOOPT, which would be when the REQ_ATOMIC-based write is not
+	 * possible. The REQ_ATOMIC-based method typically not be possible if
+	 * the write spans multiple extents or the disk blocks are misaligned.
+	 */
+	if (ret == -ENOPROTOOPT && dops == &xfs_direct_write_iomap_ops) {
+		xfs_iunlock(ip, iolock);
+		dops = &xfs_atomic_write_cow_iomap_ops;
+		goto retry;
+	}
+
 out_unlock:
 	if (iolock)
 		xfs_iunlock(ip, iolock);
@@ -723,6 +792,8 @@ xfs_file_dio_write(
 		return -EINVAL;
 	if ((iocb->ki_pos | count) & ip->i_mount->m_blockmask)
 		return xfs_file_dio_write_unaligned(ip, iocb, from);
+	if (iocb->ki_flags & IOCB_ATOMIC)
+		return xfs_file_dio_write_atomic(ip, iocb, from);
 	return xfs_file_dio_write_aligned(ip, iocb, from);
 }
 
@@ -848,6 +919,18 @@ xfs_file_write_iter(
 
 	if (xfs_is_shutdown(ip->i_mount))
 		return -EIO;
+
+	if (iocb->ki_flags & IOCB_ATOMIC) {
+		if (ocount < xfs_get_atomic_write_min(ip))
+			return -EINVAL;
+
+		if (ocount > xfs_get_atomic_write_max(ip))
+			return -EINVAL;
+
+		ret = generic_atomic_write_valid(iocb, from);
+		if (ret)
+			return ret;
+	}
 
 	if (IS_DAX(inode))
 		return xfs_file_dax_write(iocb, from);
@@ -1228,6 +1311,14 @@ out_unlock:
 	xfs_iunlock2_remapping(src, dest);
 	if (ret)
 		trace_xfs_reflink_remap_range_error(dest, ret, _RET_IP_);
+	/*
+	 * If the caller did not set CAN_SHORTEN, then it is not prepared to
+	 * handle partial results -- either the whole remap succeeds, or we
+	 * must say why it did not.  In this case, any error should be returned
+	 * to the caller.
+	 */
+	if (ret && remapped < len && !(remap_flags & REMAP_FILE_CAN_SHORTEN))
+		return ret;
 	return remapped > 0 ? remapped : ret;
 }
 
@@ -1239,6 +1330,8 @@ xfs_file_open(
 	if (xfs_is_shutdown(XFS_M(inode->i_sb)))
 		return -EIO;
 	file->f_mode |= FMODE_NOWAIT | FMODE_CAN_ODIRECT;
+	if (xfs_get_atomic_write_min(XFS_I(inode)) > 0)
+		file->f_mode |= FMODE_CAN_ATOMIC_WRITE;
 	return generic_file_open(inode, file);
 }
 
@@ -1425,6 +1518,8 @@ xfs_dax_read_fault(
 	struct xfs_inode	*ip = XFS_I(file_inode(vmf->vma->vm_file));
 	vm_fault_t		ret;
 
+	trace_xfs_read_fault(ip, order);
+
 	xfs_ilock(ip, XFS_MMAPLOCK_SHARED);
 	ret = xfs_dax_fault_locked(vmf, order, false);
 	xfs_iunlock(ip, XFS_MMAPLOCK_SHARED);
@@ -1432,6 +1527,16 @@ xfs_dax_read_fault(
 	return ret;
 }
 
+/*
+ * Locking for serialisation of IO during page faults. This results in a lock
+ * ordering of:
+ *
+ * mmap_lock (MM)
+ *   sb_start_pagefault(vfs, freeze)
+ *     invalidate_lock (vfs/XFS_MMAPLOCK - truncate serialisation)
+ *       page_lock (MM)
+ *         i_lock (XFS - extent map serialisation)
+ */
 static vm_fault_t
 xfs_write_fault(
 	struct vm_fault		*vmf,
@@ -1441,6 +1546,8 @@ xfs_write_fault(
 	struct xfs_inode	*ip = XFS_I(inode);
 	unsigned int		lock_mode = XFS_MMAPLOCK_SHARED;
 	vm_fault_t		ret;
+
+	trace_xfs_write_fault(ip, order);
 
 	sb_start_pagefault(inode->i_sb);
 	file_update_time(vmf->vma->vm_file);
@@ -1460,38 +1567,12 @@ xfs_write_fault(
 	if (IS_DAX(inode))
 		ret = xfs_dax_fault_locked(vmf, order, true);
 	else
-		ret = iomap_page_mkwrite(vmf, &xfs_page_mkwrite_iomap_ops);
+		ret = iomap_page_mkwrite(vmf, &xfs_buffered_write_iomap_ops,
+				NULL);
 	xfs_iunlock(ip, lock_mode);
 
 	sb_end_pagefault(inode->i_sb);
 	return ret;
-}
-
-/*
- * Locking for serialisation of IO during page faults. This results in a lock
- * ordering of:
- *
- * mmap_lock (MM)
- *   sb_start_pagefault(vfs, freeze)
- *     invalidate_lock (vfs/XFS_MMAPLOCK - truncate serialisation)
- *       page_lock (MM)
- *         i_lock (XFS - extent map serialisation)
- */
-static vm_fault_t
-__xfs_filemap_fault(
-	struct vm_fault		*vmf,
-	unsigned int		order,
-	bool			write_fault)
-{
-	struct inode		*inode = file_inode(vmf->vma->vm_file);
-
-	trace_xfs_filemap_fault(XFS_I(inode), order, write_fault);
-
-	if (write_fault)
-		return xfs_write_fault(vmf, order);
-	if (IS_DAX(inode))
-		return xfs_dax_read_fault(vmf, order);
-	return filemap_fault(vmf);
 }
 
 static inline bool
@@ -1506,10 +1587,17 @@ static vm_fault_t
 xfs_filemap_fault(
 	struct vm_fault		*vmf)
 {
+	struct inode		*inode = file_inode(vmf->vma->vm_file);
+
 	/* DAX can shortcut the normal fault path on write faults! */
-	return __xfs_filemap_fault(vmf, 0,
-			IS_DAX(file_inode(vmf->vma->vm_file)) &&
-			xfs_is_write_fault(vmf));
+	if (IS_DAX(inode)) {
+		if (xfs_is_write_fault(vmf))
+			return xfs_write_fault(vmf, 0);
+		return xfs_dax_read_fault(vmf, 0);
+	}
+
+	trace_xfs_read_fault(XFS_I(inode), 0);
+	return filemap_fault(vmf);
 }
 
 static vm_fault_t
@@ -1521,15 +1609,16 @@ xfs_filemap_huge_fault(
 		return VM_FAULT_FALLBACK;
 
 	/* DAX can shortcut the normal fault path on write faults! */
-	return __xfs_filemap_fault(vmf, order,
-			xfs_is_write_fault(vmf));
+	if (xfs_is_write_fault(vmf))
+		return xfs_write_fault(vmf, order);
+	return xfs_dax_read_fault(vmf, order);
 }
 
 static vm_fault_t
 xfs_filemap_page_mkwrite(
 	struct vm_fault		*vmf)
 {
-	return __xfs_filemap_fault(vmf, 0, true);
+	return xfs_write_fault(vmf, 0);
 }
 
 /*
@@ -1541,8 +1630,7 @@ static vm_fault_t
 xfs_filemap_pfn_mkwrite(
 	struct vm_fault		*vmf)
 {
-
-	return __xfs_filemap_fault(vmf, 0, true);
+	return xfs_write_fault(vmf, 0);
 }
 
 static const struct vm_operations_struct xfs_file_vm_ops = {

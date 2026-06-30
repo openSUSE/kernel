@@ -3,12 +3,14 @@ config STMMAC_ETH
 	tristate "STMicroelectronics Multi-Gigabit Ethernet driver"
 	depends on HAS_IOMEM && HAS_DMA
 	depends on PTP_1588_CLOCK_OPTIONAL
+	depends on ETHTOOL_NETLINK
 	select MII
 	select PCS_XPCS
 	select PAGE_POOL
 	select PHYLINK
 	select CRC32
 	select RESET_CONTROLLER
+	select NET_DEVLINK
 	help
 	  This is the driver for the Ethernet IPs built around a
 	  Synopsys IP Core.

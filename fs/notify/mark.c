@@ -138,8 +138,11 @@ static void fsnotify_get_sb_watched_objects(struct super_block *sb)
 
 static void fsnotify_put_sb_watched_objects(struct super_block *sb)
 {
-	if (atomic_long_dec_and_test(fsnotify_sb_watched_objects(sb)))
-		wake_up_var(fsnotify_sb_watched_objects(sb));
+	atomic_long_t *watched_objects = fsnotify_sb_watched_objects(sb);
+
+	/* the superblock can go away after this decrement */
+	if (atomic_long_dec_and_test(watched_objects))
+		wake_up_var(watched_objects);
 }
 
 static void fsnotify_get_inode_ref(struct inode *inode)
@@ -150,8 +153,11 @@ static void fsnotify_get_inode_ref(struct inode *inode)
 
 static void fsnotify_put_inode_ref(struct inode *inode)
 {
-	fsnotify_put_sb_watched_objects(inode->i_sb);
+	/* read ->i_sb before the inode can go away */
+	struct super_block *sb = inode->i_sb;
+
 	iput(inode);
+	fsnotify_put_sb_watched_objects(sb);
 }
 
 /*
@@ -440,9 +446,6 @@ EXPORT_SYMBOL_GPL(fsnotify_put_mark);
  */
 static bool fsnotify_get_mark_safe(struct fsnotify_mark *mark)
 {
-	if (!mark)
-		return true;
-
 	if (refcount_inc_not_zero(&mark->refcnt)) {
 		spin_lock(&mark->lock);
 		if (mark->flags & FSNOTIFY_MARK_FLAG_ATTACHED) {
@@ -483,15 +486,22 @@ bool fsnotify_prepare_user_wait(struct fsnotify_iter_info *iter_info)
 	int type;
 
 	fsnotify_foreach_iter_type(type) {
+		struct fsnotify_mark *mark = iter_info->marks[type];
+
 		/* This can fail if mark is being removed */
-		if (!fsnotify_get_mark_safe(iter_info->marks[type])) {
-			__release(&fsnotify_mark_srcu);
-			goto fail;
+		while (mark && !fsnotify_get_mark_safe(mark)) {
+			if (mark->group == iter_info->current_group) {
+				__release(&fsnotify_mark_srcu);
+				goto fail;
+			}
+			/* This is a mark in an unrelated group, skip */
+			mark = fsnotify_next_mark(mark);
+			iter_info->marks[type] = mark;
 		}
 	}
 
 	/*
-	 * Now that both marks are pinned by refcount in the inode / vfsmount
+	 * Now that all marks are pinned by refcount in the inode / vfsmount / etc
 	 * lists, we can drop SRCU lock, and safely resume the list iteration
 	 * once userspace returns.
 	 */

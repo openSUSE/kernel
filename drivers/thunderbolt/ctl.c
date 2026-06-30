@@ -148,6 +148,11 @@ static void tb_cfg_request_dequeue(struct tb_cfg_request *req)
 	struct tb_ctl *ctl = req->ctl;
 
 	mutex_lock(&ctl->request_queue_lock);
+	if (!test_bit(TB_CFG_REQUEST_ACTIVE, &req->flags)) {
+		mutex_unlock(&ctl->request_queue_lock);
+		return;
+	}
+
 	list_del(&req->list);
 	clear_bit(TB_CFG_REQUEST_ACTIVE, &req->flags);
 	if (test_bit(TB_CFG_REQUEST_CANCELED, &req->flags))
@@ -309,7 +314,7 @@ static void tb_cfg_print_error(struct tb_ctl *ctl,
 
 static __be32 tb_crc(const void *data, size_t len)
 {
-	return cpu_to_be32(~__crc32c_le(~0, data, len));
+	return cpu_to_be32(~crc32c(~0, data, len));
 }
 
 static void tb_ctl_pkg_free(struct ctl_pkg *pkg)

@@ -20,6 +20,7 @@
 #include <linux/hash.h>
 #include <linux/tpm.h>
 #include <linux/audit.h>
+#include <linux/minmax.h>
 #include <crypto/hash_info.h>
 
 #include "../integrity.h"
@@ -61,6 +62,9 @@ extern int ima_sha1_idx __ro_after_init;
 extern int ima_hash_algo_idx __ro_after_init;
 extern int ima_extra_slots __ro_after_init;
 extern struct ima_algo_desc *ima_algo_array __ro_after_init;
+extern unsigned long ima_unsupported_pcr_banks_mask __ro_after_init;
+
+extern unsigned long ima_extended_pcrs_mask;
 
 extern int ima_appraise;
 extern struct tpm_chip *ima_tpm_chip;
@@ -149,6 +153,9 @@ struct ima_kexec_hdr {
 #define IMA_CHECK_BLACKLIST	0x40000000
 #define IMA_VERITY_REQUIRED	0x80000000
 
+/* Exclude non-action flags which are not rule-specific. */
+#define IMA_NONACTION_RULE_FLAGS	(IMA_NONACTION_FLAGS & ~IMA_NEW_FILE)
+
 #define IMA_DO_MASK		(IMA_MEASURE | IMA_APPRAISE | IMA_AUDIT | \
 				 IMA_HASH | IMA_APPRAISE_SUBMASK)
 #define IMA_DONE_MASK		(IMA_MEASURED | IMA_APPRAISED | IMA_AUDITED | \
@@ -178,7 +185,8 @@ struct ima_kexec_hdr {
 #define IMA_UPDATE_XATTR	1
 #define IMA_CHANGE_ATTR		2
 #define IMA_DIGSIG		3
-#define IMA_MUST_MEASURE	4
+#define IMA_MAY_EMIT_TOMTOU	4
+#define IMA_EMITTED_OPENWRITERS	5
 
 /* IMA integrity metadata associated with an inode */
 struct ima_iint_cache {
@@ -194,6 +202,11 @@ struct ima_iint_cache {
 	enum integrity_status ima_creds_status:4;
 	struct ima_digest_data *ima_hash;
 };
+
+#define IMA_INVALID_PCR(a) (((a) < 0) ||				    \
+	(a) >= (8 * min(sizeof_field(struct ima_iint_cache, measured_pcrs), \
+			sizeof(ima_extended_pcrs_mask))))
+
 
 extern struct lsm_blob_sizes ima_blob_sizes;
 
@@ -278,6 +291,7 @@ unsigned long ima_get_binary_runtime_size(void);
 int ima_init_template(void);
 void ima_init_template_list(void);
 int __init ima_init_digests(void);
+void __init ima_init_reboot_notifier(void);
 int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
 			  void *lsm_data);
 

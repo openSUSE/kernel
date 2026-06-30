@@ -39,6 +39,55 @@ static void siw_cm_llp_error_report(struct sock *s);
 static int siw_cm_upcall(struct siw_cep *cep, enum iw_cm_event_type reason,
 			 int status);
 
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+/*
+ * lockdep can detect false positive circular dependencies
+ * when there are user-space socket API users or in kernel
+ * users switching between a tcp and rdma transport.
+ * Maybe also switching between siw and rxe may cause
+ * problems as per default sockets are only classified
+ * by family and not by ip protocol. And there might
+ * be different locks used between the application
+ * and the low level sockets.
+ *
+ * Problems were seen with ksmbd.ko and cifs.ko,
+ * switching transports, use git blame to find
+ * more details.
+ */
+static struct lock_class_key siw_sk_key[2];
+static struct lock_class_key siw_slock_key[2];
+#endif /* CONFIG_DEBUG_LOCK_ALLOC */
+
+static inline void siw_reclassify_socket(struct socket *sock)
+{
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	struct sock *sk = sock->sk;
+
+	if (WARN_ON_ONCE(!sock_allow_reclassification(sk)))
+		return;
+
+	switch (sk->sk_family) {
+	case AF_INET:
+		sock_lock_init_class_and_name(sk,
+					      "slock-AF_INET-RDMA-SIW",
+					      &siw_slock_key[0],
+					      "sk_lock-AF_INET-RDMA-SIW",
+					      &siw_sk_key[0]);
+		break;
+	case AF_INET6:
+		sock_lock_init_class_and_name(sk,
+					      "slock-AF_INET6-RDMA-SIW",
+					      &siw_slock_key[1],
+					      "sk_lock-AF_INET6-RDMA-SIW",
+					      &siw_sk_key[1]);
+		break;
+	default:
+		WARN_ON_ONCE(1);
+	}
+#endif /* CONFIG_DEBUG_LOCK_ALLOC */
+}
+
 static void siw_sk_assign_cm_upcalls(struct sock *sk)
 {
 	struct siw_cep *cep = sk_to_cep(sk);
@@ -1394,6 +1443,7 @@ int siw_connect(struct iw_cm_id *id, struct iw_cm_conn_param *params)
 	rv = sock_create(v4 ? AF_INET : AF_INET6, SOCK_STREAM, IPPROTO_TCP, &s);
 	if (rv < 0)
 		goto error;
+	siw_reclassify_socket(s);
 
 	/*
 	 * NOTE: For simplification, connect() is called in blocking
@@ -1759,6 +1809,7 @@ int siw_create_listen(struct iw_cm_id *id, int backlog)
 {
 	struct socket *s;
 	struct siw_cep *cep = NULL;
+	struct net_device *ndev = NULL;
 	struct siw_device *sdev = to_siw_dev(id->device);
 	int addr_family = id->local_addr.ss_family;
 	int rv = 0;
@@ -1769,6 +1820,7 @@ int siw_create_listen(struct iw_cm_id *id, int backlog)
 	rv = sock_create(addr_family, SOCK_STREAM, IPPROTO_TCP, &s);
 	if (rv < 0)
 		return rv;
+	siw_reclassify_socket(s);
 
 	/*
 	 * Allow binding local port when still in TIME_WAIT from last close.
@@ -1779,9 +1831,15 @@ int siw_create_listen(struct iw_cm_id *id, int backlog)
 		struct sockaddr_in *laddr = &to_sockaddr_in(id->local_addr);
 
 		/* For wildcard addr, limit binding to current device only */
-		if (ipv4_is_zeronet(laddr->sin_addr.s_addr))
-			s->sk->sk_bound_dev_if = sdev->netdev->ifindex;
-
+		if (ipv4_is_zeronet(laddr->sin_addr.s_addr)) {
+			ndev = ib_device_get_netdev(id->device, SIW_PORT);
+			if (ndev) {
+				s->sk->sk_bound_dev_if = ndev->ifindex;
+			} else {
+				rv = -ENODEV;
+				goto error;
+			}
+		}
 		rv = s->ops->bind(s, (struct sockaddr *)laddr,
 				  sizeof(struct sockaddr_in));
 	} else {
@@ -1797,9 +1855,15 @@ int siw_create_listen(struct iw_cm_id *id, int backlog)
 		}
 
 		/* For wildcard addr, limit binding to current device only */
-		if (ipv6_addr_any(&laddr->sin6_addr))
-			s->sk->sk_bound_dev_if = sdev->netdev->ifindex;
-
+		if (ipv6_addr_any(&laddr->sin6_addr)) {
+			ndev = ib_device_get_netdev(id->device, SIW_PORT);
+			if (ndev) {
+				s->sk->sk_bound_dev_if = ndev->ifindex;
+			} else {
+				rv = -ENODEV;
+				goto error;
+			}
+		}
 		rv = s->ops->bind(s, (struct sockaddr *)laddr,
 				  sizeof(struct sockaddr_in6));
 	}
@@ -1860,6 +1924,7 @@ int siw_create_listen(struct iw_cm_id *id, int backlog)
 	}
 	list_add_tail(&cep->listenq, (struct list_head *)id->provider_data);
 	cep->state = SIW_EPSTATE_LISTENING;
+	dev_put(ndev);
 
 	siw_dbg(id->device, "Listen at laddr %pISp\n", &id->local_addr);
 
@@ -1879,6 +1944,7 @@ error:
 		siw_cep_set_free_and_put(cep);
 	}
 	sock_release(s);
+	dev_put(ndev);
 
 	return rv;
 }

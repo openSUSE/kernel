@@ -252,7 +252,7 @@ void chsc_chp_offline(struct chp_id chpid)
 	struct chp_link link;
 	char dbf_txt[15];
 
-	sprintf(dbf_txt, "chpr%x.%02x", chpid.cssid, chpid.id);
+	scnprintf(dbf_txt, sizeof(dbf_txt), "chpr%x.%02x", chpid.cssid, chpid.id);
 	CIO_TRACE_EVENT(2, dbf_txt);
 
 	if (chp_get_status(chpid) <= 0)
@@ -283,11 +283,11 @@ static void s390_process_res_acc(struct chp_link *link)
 {
 	char dbf_txt[15];
 
-	sprintf(dbf_txt, "accpr%x.%02x", link->chpid.cssid,
-		link->chpid.id);
+	scnprintf(dbf_txt, sizeof(dbf_txt), "accpr%x.%02x", link->chpid.cssid,
+		  link->chpid.id);
 	CIO_TRACE_EVENT( 2, dbf_txt);
 	if (link->fla != 0) {
-		sprintf(dbf_txt, "fla%x", link->fla);
+		scnprintf(dbf_txt, sizeof(dbf_txt), "fla%x", link->fla);
 		CIO_TRACE_EVENT( 2, dbf_txt);
 	}
 	/* Wait until previous actions have settled. */
@@ -376,7 +376,7 @@ struct lir {
 #define PARAMS_LEN	10	/* PARAMS=xx,xxxxxx */
 #define NODEID_LEN	35	/* NODEID=tttttt/mdl,mmm.ppssssssssssss,xxxx */
 
-/* Copy EBCIDC text, convert to ASCII and optionally add delimiter. */
+/* Copy EBCDIC text, convert to ASCII and optionally add delimiter. */
 static char *store_ebcdic(char *dest, const char *src, unsigned long len,
 			  char delim)
 {
@@ -756,7 +756,7 @@ void chsc_chp_online(struct chp_id chpid)
 	struct chp_link link;
 	char dbf_txt[15];
 
-	sprintf(dbf_txt, "cadd%x.%02x", chpid.cssid, chpid.id);
+	scnprintf(dbf_txt, sizeof(dbf_txt), "cadd%x.%02x", chpid.cssid, chpid.id);
 	CIO_TRACE_EVENT(2, dbf_txt);
 
 	if (chp_get_status(chpid) != 0) {
@@ -1092,19 +1092,7 @@ int chsc_get_channel_measurement_chars(struct channel_path *chp)
 		u32 zeroes1;
 		struct chsc_header response;
 		u32 zeroes2;
-		u32 not_valid : 1;
-		u32 shared : 1;
-		u32 extended : 1;
-		u32 : 21;
-		u32 chpid : 8;
-		u32 cmcv : 5;
-		u32 : 7;
-		u32 cmgp : 4;
-		u32 cmgq : 8;
-		u32 cmg : 8;
-		u32 : 16;
-		u32 cmgs : 16;
-		u32 data[NR_MEASUREMENT_CHARS];
+		struct cmg_cmcb cmcb;
 	} *scmc_area;
 
 	chp->shared = -1;
@@ -1135,15 +1123,16 @@ int chsc_get_channel_measurement_chars(struct channel_path *chp)
 			      scmc_area->response.code);
 		goto out;
 	}
-	if (scmc_area->not_valid)
+	chp->cmcb = scmc_area->cmcb;
+	if (scmc_area->cmcb.not_valid)
 		goto out;
 
-	chp->cmg = scmc_area->cmg;
-	chp->shared = scmc_area->shared;
-	chp->extended = scmc_area->extended;
-	chp->speed = scmc_get_speed(scmc_area->cmgs, scmc_area->cmgp);
-	chsc_initialize_cmg_chars(chp, scmc_area->cmcv,
-				  (struct cmg_chars *) &scmc_area->data);
+	chp->cmg = scmc_area->cmcb.cmg;
+	chp->shared = scmc_area->cmcb.shared;
+	chp->extended = scmc_area->cmcb.extended;
+	chp->speed = scmc_get_speed(scmc_area->cmcb.cmgs, scmc_area->cmcb.cmgp);
+	chsc_initialize_cmg_chars(chp, scmc_area->cmcb.cmcv,
+				  (struct cmg_chars *)&scmc_area->cmcb.data);
 out:
 	spin_unlock_irqrestore(&chsc_page_lock, flags);
 	return ret;

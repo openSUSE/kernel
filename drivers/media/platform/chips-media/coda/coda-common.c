@@ -56,6 +56,11 @@
 
 #define fh_to_ctx(__fh)	container_of(__fh, struct coda_ctx, fh)
 
+static inline struct coda_ctx *file_to_ctx(struct file *filp)
+{
+	return fh_to_ctx(file_to_v4l2_fh(filp));
+}
+
 int coda_debug;
 module_param(coda_debug, int, 0644);
 MODULE_PARM_DESC(coda_debug, "Debug level (0-2)");
@@ -2171,8 +2176,6 @@ static const struct vb2_ops coda_qops = {
 	.buf_queue		= coda_buf_queue,
 	.start_streaming	= coda_start_streaming,
 	.stop_streaming		= coda_stop_streaming,
-	.wait_prepare		= vb2_ops_wait_prepare,
-	.wait_finish		= vb2_ops_wait_finish,
 };
 
 static int coda_s_ctrl(struct v4l2_ctrl *ctrl)
@@ -2639,8 +2642,7 @@ static int coda_open(struct file *file)
 	if (ctx->ops->seq_end_work)
 		INIT_WORK(&ctx->seq_end_work, ctx->ops->seq_end_work);
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 	ctx->dev = dev;
 	ctx->idx = idx;
 
@@ -2723,7 +2725,7 @@ err_clk_ahb:
 err_clk_enable:
 	pm_runtime_put_sync(dev->dev);
 err_pm_get:
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 err_coda_name_init:
 	ida_free(&dev->ida, ctx->idx);
@@ -2735,7 +2737,7 @@ err_coda_max:
 static int coda_release(struct file *file)
 {
 	struct coda_dev *dev = video_drvdata(file);
-	struct coda_ctx *ctx = fh_to_ctx(file->private_data);
+	struct coda_ctx *ctx = file_to_ctx(file);
 
 	coda_dbg(1, ctx, "release instance (%p)\n", ctx);
 
@@ -2761,7 +2763,7 @@ static int coda_release(struct file *file)
 	clk_disable_unprepare(dev->clk_ahb);
 	clk_disable_unprepare(dev->clk_per);
 	pm_runtime_put_sync(dev->dev);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	ida_free(&dev->ida, ctx->idx);
 	if (ctx->ops->release)

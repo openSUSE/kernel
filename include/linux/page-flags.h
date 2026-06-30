@@ -572,6 +572,7 @@ FOLIO_FLAG(readahead, FOLIO_HEAD_PAGE)
 #else
 PAGEFLAG_FALSE(HighMem, highmem)
 #endif
+#define PhysHighMem(__p) (PageHighMem(phys_to_page(__p)))
 
 #ifdef CONFIG_SWAP
 static __always_inline bool folio_test_swapcache(const struct folio *folio)

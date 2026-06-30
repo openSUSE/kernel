@@ -176,12 +176,8 @@ struct inet_hashinfo {
 
 static inline struct inet_hashinfo *tcp_or_dccp_get_hashinfo(const struct sock *sk)
 {
-#if IS_ENABLED(CONFIG_IP_DCCP)
-	return sk->sk_prot->h.hashinfo ? :
-		sock_net(sk)->ipv4.tcp_death_row.hashinfo;
-#else
+	/* TODO: rename function */
 	return sock_net(sk)->ipv4.tcp_death_row.hashinfo;
-#endif
 }
 
 static inline struct inet_listen_hashbucket *
@@ -271,6 +267,22 @@ inet_bhashfn_portaddr(const struct inet_hashinfo *hinfo, const struct sock *sk,
 #endif
 		hash = ipv4_portaddr_hash(net, sk->sk_rcv_saddr, port);
 	return &hinfo->bhash2[hash & (hinfo->bhash_size - 1)];
+}
+
+static inline bool inet_use_hash2_on_bind(const struct sock *sk)
+{
+#if IS_ENABLED(CONFIG_IPV6)
+	if (sk->sk_family == AF_INET6) {
+		int addr_type = ipv6_addr_type(&sk->sk_v6_rcv_saddr);
+
+		if (addr_type == IPV6_ADDR_ANY)
+			return false;
+
+		if (addr_type != IPV6_ADDR_MAPPED)
+			return true;
+	}
+#endif
+	return sk->sk_rcv_saddr != htonl(INADDR_ANY);
 }
 
 struct inet_bind_hashbucket *
@@ -492,7 +504,7 @@ static inline struct sock *__inet_lookup_skb(struct inet_hashinfo *hashinfo,
 					     const int sdif,
 					     bool *refcounted)
 {
-	struct net *net = dev_net(skb_dst(skb)->dev);
+	struct net *net = skb_dst_dev_net_rcu(skb);
 	const struct iphdr *iph = ip_hdr(skb);
 	struct sock *sk;
 

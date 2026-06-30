@@ -4,6 +4,16 @@
 
 #include <linux/netdevice.h>
 
+/**
+ * struct netdev_config - queue-related configuration for a netdev
+ * @hds_thresh:		HDS Threshold value.
+ * @hds_config:		HDS value from userspace.
+ */
+struct netdev_config {
+	u32	hds_thresh;
+	u8	hds_config;
+};
+
 /* See the netdev.yaml spec for definition of each statistic */
 struct netdev_queue_stats_rx {
 	u64 bytes;
@@ -91,6 +101,12 @@ struct netdev_stat_ops {
 			       struct netdev_queue_stats_rx *rx,
 			       struct netdev_queue_stats_tx *tx);
 };
+
+void netdev_stat_queue_sum(struct net_device *netdev,
+			   int rx_start, int rx_end,
+			   struct netdev_queue_stats_rx *rx_sum,
+			   int tx_start, int tx_end,
+			   struct netdev_queue_stats_tx *tx_sum);
 
 /**
  * struct netdev_queue_mgmt_ops - netdev ops for queue management
@@ -270,6 +286,17 @@ netdev_txq_completed_mb(struct netdev_queue *dev_queue,
 		txq = netdev_get_tx_queue(dev, idx);			\
 		netif_txq_try_stop(txq, get_desc, start_thrs);		\
 	})
+
+static inline unsigned int netif_xmit_timeout_ms(struct netdev_queue *txq)
+{
+	unsigned long trans_start = READ_ONCE(txq->trans_start);
+
+	if (netif_xmit_stopped(txq) &&
+	    time_after(jiffies, trans_start + txq->dev->watchdog_timeo))
+		return jiffies_to_msecs(jiffies - trans_start);
+
+	return 0;
+}
 
 #define netif_subqueue_maybe_stop(dev, idx, get_desc, stop_thrs, start_thrs) \
 	({								\

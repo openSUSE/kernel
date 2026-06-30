@@ -62,33 +62,13 @@ struct dpu_hw_dsc {
 	struct dpu_hw_dsc_ops ops;
 };
 
-/**
- * dpu_hw_dsc_init() - Initializes the DSC hw driver object.
- * @dev:  Corresponding device for devres management
- * @cfg:  DSC catalog entry for which driver object is required
- * @addr: Mapped register io address of MDP
- * Return: Error code or allocated dpu_hw_dsc context
- */
 struct dpu_hw_dsc *dpu_hw_dsc_init(struct drm_device *dev,
 				   const struct dpu_dsc_cfg *cfg,
 				   void __iomem *addr);
 
-/**
- * dpu_hw_dsc_init_1_2() - initializes the v1.2 DSC hw driver object
- * @dev:  Corresponding device for devres management
- * @cfg:  DSC catalog entry for which driver object is required
- * @addr: Mapped register io address of MDP
- * Returns: Error code or allocated dpu_hw_dsc context
- */
 struct dpu_hw_dsc *dpu_hw_dsc_init_1_2(struct drm_device *dev,
 				       const struct dpu_dsc_cfg *cfg,
 				       void __iomem *addr);
-
-/**
- * dpu_hw_dsc_destroy - destroys dsc driver context
- * @dsc:   Pointer to dsc driver context returned by dpu_hw_dsc_init
- */
-void dpu_hw_dsc_destroy(struct dpu_hw_dsc *dsc);
 
 static inline struct dpu_hw_dsc *to_dpu_hw_dsc(struct dpu_hw_blk *hw)
 {

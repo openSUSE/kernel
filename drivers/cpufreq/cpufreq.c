@@ -109,6 +109,55 @@ void disable_cpufreq(void)
 }
 static DEFINE_MUTEX(cpufreq_governor_mutex);
 
+/* Flag to determine if system should get performance governor or not */
+static bool cpufreq_prefers_performance_gov;
+
+#ifdef CONFIG_ACPI
+static inline void __init cpufreq_compute_performance_preference(void)
+{
+	if (!acpi_disabled && acpi_os_get_root_pointer()) {
+		switch (acpi_gbl_FADT.preferred_profile) {
+		case PM_ENTERPRISE_SERVER:
+		case PM_SOHO_SERVER:
+		case PM_PERFORMANCE_SERVER:
+		case PM_UNSPECIFIED:
+			cpufreq_prefers_performance_gov = true;
+			return;
+		}
+
+		if (acpi_gbl_FADT.preferred_profile >= NR_PM_PROFILES) {
+			cpufreq_prefers_performance_gov = true;
+			return;
+		}
+
+		/* Non-server power management profiles */
+		cpufreq_prefers_performance_gov = false;
+		return;
+	}
+
+	/* Systems without ACPI support; non-server Arm essentially */
+	cpufreq_prefers_performance_gov = false;
+	return;
+}
+#else
+/**
+ * !CONFIG_ACPI means s390 or ppc64le.
+ * On the former, SLES doesn't do frequency scaling as it's virtualized.
+ * On the latter, bare metal ppc64le SLES installations are possible but
+ * uncommon. In any case, giving them the performance governor is the
+ * safest option.
+ */
+static inline void __init cpufreq_compute_performance_preference(void)
+{
+	cpufreq_prefers_performance_gov = true;
+}
+#endif
+
+bool cpufreq_should_get_performance_governor(void) {
+	return cpufreq_prefers_performance_gov;
+}
+EXPORT_SYMBOL_GPL(cpufreq_should_get_performance_governor);
+
 bool have_governor_per_policy(void)
 {
 	return !!(cpufreq_driver->flags & CPUFREQ_HAVE_GOVERNOR_PER_POLICY);
@@ -728,18 +777,26 @@ show_one(cpuinfo_transition_latency, cpuinfo.transition_latency);
 show_one(scaling_min_freq, min);
 show_one(scaling_max_freq, max);
 
-__weak unsigned int arch_freq_get_on_cpu(int cpu)
+__weak int arch_freq_get_on_cpu(int cpu)
 {
-	return 0;
+	return -EOPNOTSUPP;
+}
+
+static inline bool cpufreq_avg_freq_supported(struct cpufreq_policy *policy)
+{
+	return arch_freq_get_on_cpu(policy->cpu) != -EOPNOTSUPP;
 }
 
 static ssize_t show_scaling_cur_freq(struct cpufreq_policy *policy, char *buf)
 {
 	ssize_t ret;
-	unsigned int freq;
+	int freq;
 
-	freq = arch_freq_get_on_cpu(policy->cpu);
-	if (freq)
+	freq = IS_ENABLED(CONFIG_CPUFREQ_ARCH_CUR_FREQ)
+		? arch_freq_get_on_cpu(policy->cpu)
+		: 0;
+
+	if (freq > 0)
 		ret = sysfs_emit(buf, "%u\n", freq);
 	else if (cpufreq_driver->setpolicy && cpufreq_driver->get)
 		ret = sysfs_emit(buf, "%u\n", cpufreq_driver->get(policy->cpu));
@@ -781,6 +838,19 @@ static ssize_t show_cpuinfo_cur_freq(struct cpufreq_policy *policy,
 		return sysfs_emit(buf, "%u\n", cur_freq);
 
 	return sysfs_emit(buf, "<unknown>\n");
+}
+
+/*
+ * show_cpuinfo_avg_freq - average CPU frequency as detected by hardware
+ */
+static ssize_t show_cpuinfo_avg_freq(struct cpufreq_policy *policy,
+				     char *buf)
+{
+	int avg_freq = arch_freq_get_on_cpu(policy->cpu);
+
+	if (avg_freq > 0)
+		return sysfs_emit(buf, "%u\n", avg_freq);
+	return avg_freq != 0 ? avg_freq : -EINVAL;
 }
 
 /*
@@ -945,6 +1015,7 @@ static ssize_t show_bios_limit(struct cpufreq_policy *policy, char *buf)
 }
 
 cpufreq_freq_attr_ro_perm(cpuinfo_cur_freq, 0400);
+cpufreq_freq_attr_ro(cpuinfo_avg_freq);
 cpufreq_freq_attr_ro(cpuinfo_min_freq);
 cpufreq_freq_attr_ro(cpuinfo_max_freq);
 cpufreq_freq_attr_ro(cpuinfo_transition_latency);
@@ -1068,6 +1139,12 @@ static int cpufreq_add_dev_interface(struct cpufreq_policy *policy)
 	}
 	if (cpufreq_driver->get) {
 		ret = sysfs_create_file(&policy->kobj, &cpuinfo_cur_freq.attr);
+		if (ret)
+			return ret;
+	}
+
+	if (cpufreq_avg_freq_supported(policy)) {
+		ret = sysfs_create_file(&policy->kobj, &cpuinfo_avg_freq.attr);
 		if (ret)
 			return ret;
 	}
@@ -1259,6 +1336,8 @@ static struct cpufreq_policy *cpufreq_policy_alloc(unsigned int cpu)
 		goto err_free_real_cpus;
 	}
 
+	init_rwsem(&policy->rwsem);
+
 	freq_constraints_init(&policy->constraints);
 
 	policy->nb_min.notifier_call = cpufreq_notifier_min;
@@ -1281,7 +1360,6 @@ static struct cpufreq_policy *cpufreq_policy_alloc(unsigned int cpu)
 	}
 
 	INIT_LIST_HEAD(&policy->policy_list);
-	init_rwsem(&policy->rwsem);
 	spin_lock_init(&policy->transition_lock);
 	init_waitqueue_head(&policy->transition_wait);
 	INIT_WORK(&policy->update, handle_update);
@@ -2699,10 +2777,12 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	pr_debug("starting governor %s failed\n", policy->governor->name);
 	if (old_gov) {
 		policy->governor = old_gov;
-		if (cpufreq_init_governor(policy))
+		if (cpufreq_init_governor(policy)) {
 			policy->governor = NULL;
-		else
-			cpufreq_start_governor(policy);
+		} else if (cpufreq_start_governor(policy)) {
+			cpufreq_exit_governor(policy);
+			policy->governor = NULL;
+		}
 	}
 
 	return ret;
@@ -2748,6 +2828,12 @@ EXPORT_SYMBOL(cpufreq_update_policy);
  */
 void cpufreq_update_limits(unsigned int cpu)
 {
+	struct cpufreq_policy *policy __free(put_cpufreq_policy);
+
+	policy = cpufreq_cpu_get(cpu);
+	if (!policy)
+		return;
+
 	if (cpufreq_driver->update_limits)
 		cpufreq_driver->update_limits(cpu);
 	else
@@ -2929,15 +3015,6 @@ int cpufreq_register_driver(struct cpufreq_driver *driver_data)
 	cpufreq_driver = driver_data;
 	write_unlock_irqrestore(&cpufreq_driver_lock, flags);
 
-	/*
-	 * Mark support for the scheduler's frequency invariance engine for
-	 * drivers that implement target(), target_index() or fast_switch().
-	 */
-	if (!cpufreq_driver->setpolicy) {
-		static_branch_enable_cpuslocked(&cpufreq_freq_invariance);
-		pr_debug("supports frequency invariance");
-	}
-
 	if (driver_data->setpolicy)
 		driver_data->flags |= CPUFREQ_CONST_LOOPS;
 
@@ -2945,6 +3022,15 @@ int cpufreq_register_driver(struct cpufreq_driver *driver_data)
 		ret = create_boost_sysfs_file();
 		if (ret)
 			goto err_null_driver;
+	}
+
+	/*
+	 * Mark support for the scheduler's frequency invariance engine for
+	 * drivers that implement target(), target_index() or fast_switch().
+	 */
+	if (!cpufreq_driver->setpolicy) {
+		static_branch_enable_cpuslocked(&cpufreq_freq_invariance);
+		pr_debug("cpufreq: supports frequency invariance\n");
 	}
 
 	ret = subsys_interface_register(&cpufreq_interface);
@@ -2974,6 +3060,8 @@ int cpufreq_register_driver(struct cpufreq_driver *driver_data)
 err_if_unreg:
 	subsys_interface_unregister(&cpufreq_interface);
 err_boost_unreg:
+	if (!cpufreq_driver->setpolicy)
+		static_branch_disable_cpuslocked(&cpufreq_freq_invariance);
 	remove_boost_sysfs_file();
 err_null_driver:
 	write_lock_irqsave(&cpufreq_driver_lock, flags);
@@ -3020,11 +3108,17 @@ EXPORT_SYMBOL_GPL(cpufreq_unregister_driver);
 
 static int __init cpufreq_core_init(void)
 {
-	struct cpufreq_governor *gov = cpufreq_default_governor();
+	struct cpufreq_governor *gov;
 	struct device *dev_root;
 
 	if (cpufreq_disabled())
 		return -ENODEV;
+
+	cpufreq_compute_performance_preference();
+	if (cpufreq_prefers_performance_gov)
+		gov = cpufreq_get_performance_governor();
+	else
+		gov = cpufreq_default_governor();
 
 	dev_root = bus_get_dev_root(&cpu_subsys);
 	if (dev_root) {

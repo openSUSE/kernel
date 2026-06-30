@@ -735,7 +735,7 @@ static void *get_vaddr(struct drm_gem_object *obj, unsigned madv)
 
 	msm_gem_assert_locked(obj);
 
-	if (obj->import_attach)
+	if (drm_gem_is_imported(obj))
 		return ERR_PTR(-ENODEV);
 
 	pages = msm_gem_get_pages_locked(obj, madv);
@@ -963,7 +963,8 @@ void msm_gem_describe(struct drm_gem_object *obj, struct seq_file *m,
 	uint64_t off = drm_vma_node_start(&obj->vma_node);
 	const char *madv;
 
-	msm_gem_lock(obj);
+	if (!msm_gem_trylock(obj))
+		return;
 
 	stats->all.count++;
 	stats->all.size += obj->size;
@@ -1074,7 +1075,7 @@ static void msm_gem_free_object(struct drm_gem_object *obj)
 
 	put_iova_spaces(obj, true);
 
-	if (obj->import_attach) {
+	if (drm_gem_is_imported(obj)) {
 		GEM_WARN_ON(msm_obj->vaddr);
 
 		/* Don't drop the pages for imported dmabuf, as they are not

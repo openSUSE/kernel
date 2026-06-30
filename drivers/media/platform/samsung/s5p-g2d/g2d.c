@@ -25,7 +25,10 @@
 #include "g2d.h"
 #include "g2d-regs.h"
 
-#define fh2ctx(__fh) container_of(__fh, struct g2d_ctx, fh)
+static inline struct g2d_ctx *file2ctx(struct file *filp)
+{
+	return container_of(file_to_v4l2_fh(filp), struct g2d_ctx, fh);
+}
 
 static struct g2d_fmt formats[] = {
 	{
@@ -133,8 +136,6 @@ static const struct vb2_ops g2d_qops = {
 	.queue_setup	= g2d_queue_setup,
 	.buf_prepare	= g2d_buf_prepare,
 	.buf_queue	= g2d_buf_queue,
-	.wait_prepare	= vb2_ops_wait_prepare,
-	.wait_finish	= vb2_ops_wait_finish,
 };
 
 static int queue_init(void *priv, struct vb2_queue *src_vq,
@@ -256,8 +257,7 @@ static int g2d_open(struct file *file)
 		return ret;
 	}
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	g2d_setup_ctrls(ctx);
 
@@ -274,13 +274,13 @@ static int g2d_open(struct file *file)
 static int g2d_release(struct file *file)
 {
 	struct g2d_dev *dev = video_drvdata(file);
-	struct g2d_ctx *ctx = fh2ctx(file->private_data);
+	struct g2d_ctx *ctx = file2ctx(file);
 
 	mutex_lock(&dev->mutex);
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 	mutex_unlock(&dev->mutex);
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 	v4l2_info(&dev->v4l2_dev, "instance closed\n");

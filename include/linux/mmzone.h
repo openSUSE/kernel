@@ -129,15 +129,22 @@ enum numa_stat_item {
 	NUMA_INTERLEAVE_HIT,	/* interleaver preferred this zone */
 	NUMA_LOCAL,		/* allocation from local node */
 	NUMA_OTHER,		/* allocation from other node */
+	SUSE_KABI_NUMA_STAT_PADDING1,
+#ifndef __GENKSYMS__
+	NR_VM_NUMA_EVENT_ITEMS_USED = SUSE_KABI_NUMA_STAT_PADDING1,
+#endif
+	SUSE_KABI_NUMA_STAT_PADDING2,
 	NR_VM_NUMA_EVENT_ITEMS
 };
 #else
 #define NR_VM_NUMA_EVENT_ITEMS 0
+#define NR_VM_NUMA_EVENT_ITEMS_USED 0
 #endif
 
 enum zone_stat_item {
 	/* First 128 byte cacheline (assuming 64 bit words) */
 	NR_FREE_PAGES,
+	NR_FREE_PAGES_BLOCKS,
 	NR_ZONE_LRU_BASE, /* Used only for compaction and reclaim retry */
 	NR_ZONE_INACTIVE_ANON = NR_ZONE_LRU_BASE,
 	NR_ZONE_ACTIVE_ANON,
@@ -147,7 +154,6 @@ enum zone_stat_item {
 	NR_ZONE_WRITE_PENDING,	/* Count of dirty, writeback and unstable pages */
 	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
 	/* Second 128 byte cacheline */
-	NR_BOUNCE,
 #if IS_ENABLED(CONFIG_ZSMALLOC)
 	NR_ZSPAGES,		/* allocated in zsmalloc */
 #endif
@@ -155,6 +161,11 @@ enum zone_stat_item {
 #ifdef CONFIG_UNACCEPTED_MEMORY
 	NR_UNACCEPTED,
 #endif
+	SUSE_KABI_ZONE_STAT_PADDING1,
+#ifndef __GENKSYMS__
+	NR_VM_ZONE_STAT_ITEMS_USED = SUSE_KABI_ZONE_STAT_PADDING1,
+#endif
+	SUSE_KABI_ZONE_STAT_PADDING2,
 	NR_VM_ZONE_STAT_ITEMS };
 
 enum node_stat_item {
@@ -214,12 +225,34 @@ enum node_stat_item {
 #endif
 #ifdef CONFIG_NUMA_BALANCING
 	PGPROMOTE_SUCCESS,	/* promote successfully */
-	PGPROMOTE_CANDIDATE,	/* candidate pages to promote */
+	/**
+	 * Candidate pages for promotion based on hint fault latency.  This
+	 * counter is used to control the promotion rate and adjust the hot
+	 * threshold.
+	 */
+	PGPROMOTE_CANDIDATE,
+	/**
+	 * Not rate-limited (NRL) candidate pages for those can be promoted
+	 * without considering hot threshold because of enough free pages in
+	 * fast-tier node.  These promotions bypass the regular hotness checks
+	 * and do NOT influence the promotion rate-limiter or
+	 * threshold-adjustment logic.
+	 * This is for statistics/monitoring purposes.
+	 */
+	PGPROMOTE_CANDIDATE_NRL,
 #endif
 	/* PGDEMOTE_*: pages demoted */
 	PGDEMOTE_KSWAPD,
 	PGDEMOTE_DIRECT,
 	PGDEMOTE_KHUGEPAGED,
+	SUSE_KABI_NODE_STAT_PADDING1,
+#ifndef __GENKSYMS__
+	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING1,
+#endif
+	SUSE_KABI_NODE_STAT_PADDING2,
+	SUSE_KABI_NODE_STAT_PADDING3,
+	SUSE_KABI_NODE_STAT_PADDING4,
+	SUSE_KABI_NODE_STAT_PADDING5,
 	NR_VM_NODE_STAT_ITEMS
 };
 
@@ -990,6 +1023,7 @@ struct zone {
 	/* Zone statistics */
 	atomic_long_t		vm_stat[NR_VM_ZONE_STAT_ITEMS];
 	atomic_long_t		vm_numa_event[NR_VM_NUMA_EVENT_ITEMS];
+	void *suse_kabi_padding;
 } ____cacheline_internodealigned_in_smp;
 
 enum pgdat_flags {
@@ -1134,6 +1168,12 @@ static inline bool is_zone_device_page(const struct page *page)
 	return page_zonenum(page) == ZONE_DEVICE;
 }
 
+static inline struct dev_pagemap *page_pgmap(const struct page *page)
+{
+	VM_WARN_ON_ONCE_PAGE(!is_zone_device_page(page), page);
+	return page_folio(page)->pgmap;
+}
+
 /*
  * Consecutive zone device pages should not be merged into the same sgl
  * or bvec segment with other types of pages or if they belong to different
@@ -1149,7 +1189,7 @@ static inline bool zone_device_pages_have_same_pgmap(const struct page *a,
 		return false;
 	if (!is_zone_device_page(a))
 		return true;
-	return a->pgmap == b->pgmap;
+	return page_pgmap(a) == page_pgmap(b);
 }
 
 extern void memmap_init_zone_device(struct zone *, unsigned long,
@@ -1163,6 +1203,10 @@ static inline bool zone_device_pages_have_same_pgmap(const struct page *a,
 						     const struct page *b)
 {
 	return true;
+}
+static inline struct dev_pagemap *page_pgmap(const struct page *page)
+{
+	return NULL;
 }
 #endif
 
@@ -1435,6 +1479,7 @@ typedef struct pglist_data {
 #ifdef CONFIG_MEMORY_FAILURE
 	struct memory_failure_stats mf_stats;
 #endif
+	void *suse_kabi_padding;
 } pg_data_t;
 
 #define node_present_pages(nid)	(NODE_DATA(nid)->node_present_pages)
@@ -1459,8 +1504,6 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 bool zone_watermark_ok(struct zone *z, unsigned int order,
 		unsigned long mark, int highest_zoneidx,
 		unsigned int alloc_flags);
-bool zone_watermark_ok_safe(struct zone *z, unsigned int order,
-		unsigned long mark, int highest_zoneidx);
 /*
  * Memory initialization context, use to differentiate memory added by
  * the platform statically or via memory hotplug interface.

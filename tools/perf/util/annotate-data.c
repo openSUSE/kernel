@@ -4,7 +4,7 @@
  *
  * Written by Namhyung Kim <namhyung@kernel.org>
  */
-
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -58,6 +58,10 @@ void pr_debug_type_name(Dwarf_Die *die, enum type_state_kind kind)
 	case TSR_KIND_CONST:
 		pr_info(" constant\n");
 		return;
+	case TSR_KIND_PERCPU_POINTER:
+		pr_info(" percpu pointer");
+		/* it also prints the type info */
+		break;
 	case TSR_KIND_POINTER:
 		pr_info(" pointer");
 		/* it also prints the type info */
@@ -314,6 +318,40 @@ static void delete_members(struct annotated_member *member)
 	}
 }
 
+static int fill_member_name(char *buf, size_t sz, struct annotated_member *m,
+			    int offset, bool first)
+{
+	struct annotated_member *child;
+
+	if (list_empty(&m->children))
+		return 0;
+
+	list_for_each_entry(child, &m->children, node) {
+		int len;
+
+		if (offset < child->offset || offset >= child->offset + child->size)
+			continue;
+
+		/* It can have anonymous struct/union members */
+		if (child->var_name) {
+			len = scnprintf(buf, sz, "%s%s",
+					first ? "" : ".", child->var_name);
+			first = false;
+		} else {
+			len = 0;
+		}
+
+		return fill_member_name(buf + len, sz - len, child, offset, first) + len;
+	}
+	return 0;
+}
+
+int annotated_data_type__get_member_name(struct annotated_data_type *adt,
+					 char *buf, size_t sz, int member_offset)
+{
+	return fill_member_name(buf, sz, &adt->self, member_offset, /*first=*/true);
+}
+
 static struct annotated_data_type *dso__findnew_data_type(struct dso *dso,
 							  Dwarf_Die *type_die)
 {
@@ -539,25 +577,35 @@ struct type_state_stack *find_stack_state(struct type_state *state,
 }
 
 void set_stack_state(struct type_state_stack *stack, int offset, u8 kind,
-			    Dwarf_Die *type_die)
+			    Dwarf_Die *type_die, int ptr_offset)
 {
 	int tag;
 	Dwarf_Word size;
 
-	if (dwarf_aggregate_size(type_die, &size) < 0)
+	if (kind == TSR_KIND_POINTER) {
+		/* TODO: arch-dependent pointer size */
+		size = sizeof(void *);
+	}
+	else if (dwarf_aggregate_size(type_die, &size) < 0)
 		size = 0;
-
-	tag = dwarf_tag(type_die);
 
 	stack->type = *type_die;
 	stack->size = size;
 	stack->offset = offset;
+	stack->ptr_offset = ptr_offset;
 	stack->kind = kind;
+
+	if (kind == TSR_KIND_POINTER) {
+		stack->compound = false;
+		return;
+	}
+
+	tag = dwarf_tag(type_die);
 
 	switch (tag) {
 	case DW_TAG_structure_type:
 	case DW_TAG_union_type:
-		stack->compound = (kind != TSR_KIND_POINTER);
+		stack->compound = (kind != TSR_KIND_PERCPU_POINTER);
 		break;
 	default:
 		stack->compound = false;
@@ -567,18 +615,19 @@ void set_stack_state(struct type_state_stack *stack, int offset, u8 kind,
 
 struct type_state_stack *findnew_stack_state(struct type_state *state,
 						    int offset, u8 kind,
-						    Dwarf_Die *type_die)
+						    Dwarf_Die *type_die,
+						    int ptr_offset)
 {
 	struct type_state_stack *stack = find_stack_state(state, offset);
 
 	if (stack) {
-		set_stack_state(stack, offset, kind, type_die);
+		set_stack_state(stack, offset, kind, type_die, ptr_offset);
 		return stack;
 	}
 
 	stack = malloc(sizeof(*stack));
 	if (stack) {
-		set_stack_state(stack, offset, kind, type_die);
+		set_stack_state(stack, offset, kind, type_die, ptr_offset);
 		list_add(&stack->list, &state->stack_vars);
 	}
 	return stack;
@@ -830,9 +879,14 @@ static void update_var_state(struct type_state *state, struct data_loc_info *dlo
 		if (!dwarf_offdie(dloc->di->dbg, var->die_off, &mem_die))
 			continue;
 
-		if (var->reg == DWARF_REG_FB || var->reg == fbreg) {
+		if (var->reg == DWARF_REG_FB || var->reg == fbreg || var->reg == state->stack_reg) {
 			int offset = var->offset;
 			struct type_state_stack *stack;
+
+			/* If the reg location holds the pointer value, dereference the type */
+			if (!var->is_reg_var_addr && is_pointer_type(&mem_die) &&
+				__die_get_real_type(&mem_die, &mem_die) == NULL)
+				continue;
 
 			if (var->reg != DWARF_REG_FB)
 				offset -= fb_offset;
@@ -843,29 +897,55 @@ static void update_var_state(struct type_state *state, struct data_loc_info *dlo
 				continue;
 
 			findnew_stack_state(state, offset, TSR_KIND_TYPE,
-					    &mem_die);
+					    &mem_die, /*ptr_offset=*/0);
 
-			pr_debug_dtp("var [%"PRIx64"] -%#x(stack)",
-				     insn_offset, -offset);
+			if (var->reg == state->stack_reg) {
+				pr_debug_dtp("var [%"PRIx64"] %#x(reg%d)",
+					     insn_offset, offset, state->stack_reg);
+			} else {
+				pr_debug_dtp("var [%"PRIx64"] -%#x(stack)",
+					     insn_offset, -offset);
+			}
 			pr_debug_type_name(&mem_die, TSR_KIND_TYPE);
-		} else if (has_reg_type(state, var->reg) && var->offset == 0) {
+		} else if (has_reg_type(state, var->reg)) {
 			struct type_state_reg *reg;
 			Dwarf_Die orig_type;
 
 			reg = &state->regs[var->reg];
 
 			if (reg->ok && reg->kind == TSR_KIND_TYPE &&
-			    !is_better_type(&reg->type, &mem_die))
+			   (!is_better_type(&reg->type, &mem_die) || var->is_reg_var_addr))
 				continue;
 
-			orig_type = reg->type;
+			/* Handle address registers with TSR_KIND_POINTER */
+			if (var->is_reg_var_addr) {
+				if (reg->ok && reg->kind == TSR_KIND_POINTER &&
+				    !is_better_type(&reg->type, &mem_die))
+					continue;
 
+				reg->offset = -var->offset;
+				reg->type = mem_die;
+				reg->kind = TSR_KIND_POINTER;
+				reg->ok = true;
+
+				pr_debug_dtp("var [%"PRIx64"] reg%d addr offset %x",
+					     insn_offset, var->reg, var->offset);
+				pr_debug_type_name(&mem_die, TSR_KIND_POINTER);
+				continue;
+			}
+
+			orig_type = reg->type;
+			/*
+			 * var->offset + reg value is the beginning of the struct
+			 * reg->offset is the offset the reg points
+			 */
+			reg->offset = -var->offset;
 			reg->type = mem_die;
 			reg->kind = TSR_KIND_TYPE;
 			reg->ok = true;
 
-			pr_debug_dtp("var [%"PRIx64"] reg%d",
-				     insn_offset, var->reg);
+			pr_debug_dtp("var [%"PRIx64"] reg%d offset %x",
+				     insn_offset, var->reg, var->offset);
 			pr_debug_type_name(&mem_die, TSR_KIND_TYPE);
 
 			/*
@@ -1053,7 +1133,7 @@ again:
 		if (__die_get_real_type(&state->regs[reg].type, type_die) == NULL)
 			return PERF_TMR_NO_POINTER;
 
-		dloc->type_offset = dloc->op->offset;
+		dloc->type_offset = dloc->op->offset + state->regs[reg].offset;
 
 		if (dwarf_tag(type_die) == DW_TAG_typedef)
 			die_get_real_type(type_die, &sized_type);
@@ -1069,6 +1149,30 @@ again:
 	}
 
 	if (state->regs[reg].kind == TSR_KIND_POINTER) {
+		struct strbuf sb;
+
+		strbuf_init(&sb, 32);
+		die_get_typename_from_type(&state->regs[reg].type, &sb);
+		pr_debug_dtp("(ptr->%s)", sb.buf);
+		strbuf_release(&sb);
+
+		/*
+		 * Register holds a pointer (address) to the target variable.
+		 * The type is the type of the variable it points to.
+		 */
+		*type_die = state->regs[reg].type;
+
+		dloc->type_offset = dloc->op->offset + state->regs[reg].offset;
+
+		/* Get the size of the actual type */
+		if (dwarf_aggregate_size(type_die, &size) < 0 ||
+		    (unsigned)dloc->type_offset >= size)
+			return PERF_TMR_BAD_OFFSET;
+
+		return PERF_TMR_OK;
+	}
+
+	if (state->regs[reg].kind == TSR_KIND_PERCPU_POINTER) {
 		pr_debug_dtp("percpu ptr");
 
 		/*
@@ -1127,10 +1231,10 @@ again:
 	}
 
 check_non_register:
-	if (reg == dloc->fbreg) {
+	if (reg == dloc->fbreg || reg == state->stack_reg) {
 		struct type_state_stack *stack;
 
-		pr_debug_dtp("fbreg");
+		pr_debug_dtp("%s", reg == dloc->fbreg ? "fbreg" : "stack");
 
 		stack = find_stack_state(state, dloc->type_offset);
 		if (stack == NULL) {

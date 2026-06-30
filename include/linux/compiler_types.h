@@ -324,6 +324,18 @@ struct ftrace_likely_data {
 #endif
 
 /*
+ * Optional: only supported since gcc >= 15
+ * Optional: not supported by Clang
+ *
+ * gcc: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=117178
+ */
+#ifdef CONFIG_CC_HAS_MULTIDIMENSIONAL_NONSTRING
+# define __nonstring_array		__attribute__((__nonstring__))
+#else
+# define __nonstring_array
+#endif
+
+/*
  * Apply __counted_by() when the Endianness matches to increase test coverage.
  */
 #ifdef __LITTLE_ENDIAN
@@ -393,6 +405,12 @@ struct ftrace_likely_data {
 
 #ifndef __nocfi
 # define __nocfi
+#endif
+
+#if defined(CONFIG_ARCH_USES_CFI_GENERIC_LLVM_PASS)
+# define __nocfi_generic	__nocfi
+#else
+# define __nocfi_generic
 #endif
 
 /*
@@ -477,6 +495,25 @@ struct ftrace_likely_data {
 			 __scalar_type_to_expr_cases(int),		\
 			 __scalar_type_to_expr_cases(long),		\
 			 __scalar_type_to_expr_cases(long long),	\
+			 default: (x)))
+
+/*
+ * __signed_scalar_typeof(x) - Declare a signed scalar type, leaving
+ *			       non-scalar types unchanged.
+ */
+
+#define __scalar_type_to_signed_cases(type)				\
+		unsigned type:	(signed type)0,				\
+		signed type:	(signed type)0
+
+#define __signed_scalar_typeof(x) typeof(				\
+		_Generic((x),						\
+			 char:	(signed char)0,				\
+			 __scalar_type_to_signed_cases(char),		\
+			 __scalar_type_to_signed_cases(short),		\
+			 __scalar_type_to_signed_cases(int),		\
+			 __scalar_type_to_signed_cases(long),		\
+			 __scalar_type_to_signed_cases(long long),	\
 			 default: (x)))
 
 /* Is this type a native word size -- useful for atomic operations */

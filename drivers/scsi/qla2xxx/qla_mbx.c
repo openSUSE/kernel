@@ -43,6 +43,7 @@ static struct rom_cmd {
 } rom_cmds[] = {
 	{ MBC_LOAD_RAM },
 	{ MBC_EXECUTE_FIRMWARE },
+	{ MBC_LOAD_FLASH_FIRMWARE },
 	{ MBC_READ_RAM_WORD },
 	{ MBC_MAILBOX_REGISTER_TEST },
 	{ MBC_VERIFY_CHECKSUM },
@@ -253,6 +254,7 @@ qla2x00_mailbox_command(scsi_qla_host_t *vha, mbx_cmd_t *mcp)
 	/* Issue set host interrupt command to send cmd out. */
 	ha->flags.mbox_int = 0;
 	clear_bit(MBX_INTERRUPT, &ha->mbx_cmd_flags);
+	reinit_completion(&ha->mbx_intr_comp);
 
 	/* Unlock mbx registers and wait for interrupt */
 	ql_dbg(ql_dbg_mbx, vha, 0x100f,
@@ -279,6 +281,7 @@ qla2x00_mailbox_command(scsi_qla_host_t *vha, mbx_cmd_t *mcp)
 			    "cmd=%x Timeout.\n", command);
 			spin_lock_irqsave(&ha->hardware_lock, flags);
 			clear_bit(MBX_INTR_WAIT, &ha->mbx_cmd_flags);
+			reinit_completion(&ha->mbx_intr_comp);
 			spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 			if (chip_reset != ha->chip_reset) {
@@ -821,6 +824,53 @@ done:
 
 	return rval;
 }
+
+/*
+ * qla2x00_load_flash_firmware
+ *	Load firmware from flash.
+ *
+ * Input:
+ *	vha = adapter block pointer.
+ *
+ * Returns:
+ *	qla28xx local function return status code.
+ *
+ * Context:
+ *	Kernel context.
+ */
+int
+qla28xx_load_flash_firmware(scsi_qla_host_t *vha)
+{
+	struct qla_hw_data *ha = vha->hw;
+	int rval = QLA_COMMAND_ERROR;
+	mbx_cmd_t mc;
+	mbx_cmd_t *mcp = &mc;
+
+	if (!IS_QLA28XX(ha))
+		return rval;
+
+	ql_dbg(ql_dbg_mbx + ql_dbg_verbose, vha, 0x11a6,
+	       "Entered %s.\n", __func__);
+
+	mcp->mb[0] = MBC_LOAD_FLASH_FIRMWARE;
+	mcp->out_mb = MBX_2 | MBX_1 | MBX_0;
+	mcp->in_mb = MBX_0;
+	mcp->tov = MBX_TOV_SECONDS;
+	mcp->flags = 0;
+	rval = qla2x00_mailbox_command(vha, mcp);
+
+	if (rval != QLA_SUCCESS) {
+		ql_dbg(ql_log_info, vha, 0x11a7,
+		       "Failed=%x cmd error=%x img error=%x.\n",
+		       rval, mcp->mb[1], mcp->mb[2]);
+	} else {
+		ql_dbg(ql_log_info, vha, 0x11a8,
+		       "Done %s.\n", __func__);
+	}
+
+	return rval;
+}
+
 
 /*
  * qla_get_exlogin_status
@@ -2147,7 +2197,7 @@ qla24xx_get_port_database(scsi_qla_host_t *vha, u16 nport_handle,
 
 	pdb_dma = dma_map_single(&vha->hw->pdev->dev, pdb,
 	    sizeof(*pdb), DMA_FROM_DEVICE);
-	if (!pdb_dma) {
+	if (dma_mapping_error(&vha->hw->pdev->dev, pdb_dma)) {
 		ql_log(ql_log_warn, vha, 0x1116, "Failed to map dma buffer.\n");
 		return QLA_MEMORY_ALLOC_FAILED;
 	}
@@ -6597,6 +6647,54 @@ done:
 	return rval;
 }
 
+int qla24xx_print_fc_port_id(struct scsi_qla_host *vha, struct seq_file *s, u16 loop_id)
+{
+	int rval = QLA_FUNCTION_FAILED;
+	dma_addr_t pd_dma;
+	struct port_database_24xx *pd;
+	struct qla_hw_data *ha = vha->hw;
+	mbx_cmd_t mc;
+
+	if (!vha->hw->flags.fw_started)
+		goto done;
+
+	pd = dma_pool_zalloc(ha->s_dma_pool, GFP_KERNEL, &pd_dma);
+	if (pd == NULL) {
+		ql_log(ql_log_warn, vha, 0xd047,
+		    "Failed to allocate port database structure.\n");
+		goto done;
+	}
+
+	memset(&mc, 0, sizeof(mc));
+	mc.mb[0] = MBC_GET_PORT_DATABASE;
+	mc.mb[1] = loop_id;
+	mc.mb[2] = MSW(pd_dma);
+	mc.mb[3] = LSW(pd_dma);
+	mc.mb[6] = MSW(MSD(pd_dma));
+	mc.mb[7] = LSW(MSD(pd_dma));
+	mc.mb[9] = vha->vp_idx;
+
+	rval = qla24xx_send_mb_cmd(vha, &mc);
+	if (rval != QLA_SUCCESS) {
+		ql_dbg(ql_dbg_mbx, vha, 0x1193, "%s: fail\n", __func__);
+		goto done_free_sp;
+	}
+
+	ql_dbg(ql_dbg_mbx, vha, 0x1197, "%s: %8phC done\n",
+	    __func__, pd->port_name);
+
+	seq_printf(s, "%8phC  %02x%02x%02x  %d\n",
+		   pd->port_name, pd->port_id[0],
+		   pd->port_id[1], pd->port_id[2],
+		   loop_id);
+
+done_free_sp:
+	if (pd)
+		dma_pool_free(ha->s_dma_pool, pd, pd_dma);
+done:
+	return rval;
+}
+
 /*
  * qla24xx_gpdb_wait
  * NOTE: Do not call this routine from DPC thread
@@ -7103,6 +7201,46 @@ int qla_mailbox_passthru(scsi_qla_host_t *vha,
 		       __func__);
 		/* passing all 32 register's contents */
 		memcpy(mbx_out, &mcp->mb, 32 * sizeof(uint16_t));
+	}
+
+	return rval;
+}
+
+int qla_mpipt_validate_fw(scsi_qla_host_t *vha, u16 img_idx, uint16_t *state)
+{
+	struct qla_hw_data *ha = vha->hw;
+	mbx_cmd_t mc;
+	mbx_cmd_t *mcp = &mc;
+	int rval;
+
+	if (!IS_QLA28XX(ha)) {
+		ql_dbg(ql_dbg_mbx, vha, 0xffff, "%s %d\n", __func__, __LINE__);
+		return QLA_FUNCTION_FAILED;
+	}
+
+	if (img_idx > 1) {
+		ql_log(ql_log_info, vha, 0xffff,
+				"%s %d Invalid flash image index [%d]\n",
+				__func__, __LINE__, img_idx);
+		return QLA_INVALID_COMMAND;
+	}
+
+	memset(&mc, 0, sizeof(mc));
+	mcp->mb[0] = MBC_MPI_PASSTHROUGH;
+	mcp->mb[1] = MPIPT_SUBCMD_VALIDATE_FW;
+	mcp->mb[2] = img_idx;
+	mcp->out_mb = MBX_1|MBX_0;
+	mcp->in_mb = MBX_2|MBX_1|MBX_0;
+
+	/* send mb via iocb */
+	rval = qla24xx_send_mb_cmd(vha, &mc);
+	if (rval) {
+		ql_log(ql_log_info, vha, 0xffff, "%s:Failed %x (mb=%x,%x)\n",
+				__func__, rval, mcp->mb[0], mcp->mb[1]);
+		*state = mcp->mb[1];
+	} else {
+		ql_log(ql_log_info, vha, 0xffff, "%s: mb=%x,%x,%x\n", __func__,
+				mcp->mb[0], mcp->mb[1], mcp->mb[2]);
 	}
 
 	return rval;

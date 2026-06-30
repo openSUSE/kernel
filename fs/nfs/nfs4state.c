@@ -750,6 +750,23 @@ out:
 	return state;
 }
 
+struct inode *
+nfs4_get_inode_by_stateid(nfs4_stateid *stateid, struct nfs4_state_owner *owner)
+{
+	struct nfs4_state *state;
+	struct inode *inode = NULL;
+
+	spin_lock(&owner->so_lock);
+	list_for_each_entry(state, &owner->so_states, open_states)
+		if (nfs4_stateid_match_other(stateid, &state->open_stateid)) {
+			inode = state->inode;
+			ihold(inode);
+			break;
+		}
+	spin_unlock(&owner->so_lock);
+	return inode;
+}
+
 void nfs4_put_open_state(struct nfs4_state *state)
 {
 	struct inode *inode = state->inode;
@@ -2740,7 +2757,18 @@ out_error:
 	pr_warn_ratelimited("NFS: state manager%s%s failed on NFSv4 server %s"
 			" with error %d\n", section_sep, section,
 			clp->cl_hostname, -status);
-	ssleep(1);
+	switch (status) {
+	case -ENETDOWN:
+	case -ENETUNREACH:
+		nfs_mark_client_ready(clp, -EIO);
+		break;
+	case -EINVAL:
+		nfs_mark_client_ready(clp, status);
+		break;
+	default:
+		ssleep(1);
+		break;
+	}
 out_drain:
 	memalloc_nofs_restore(memflags);
 	nfs4_end_drain_session(clp);

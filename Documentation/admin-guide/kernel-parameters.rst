@@ -159,6 +159,7 @@ is applicable::
 	SCSI	Appropriate SCSI support is enabled.
 			A lot of drivers have their options described inside
 			the Documentation/scsi/ sub-directory.
+        SDW     SoundWire support is enabled.
 	SECURITY Different security models are enabled.
 	SELINUX SELinux support is enabled.
 	SERIAL	Serial support is enabled.
@@ -170,6 +171,7 @@ is applicable::
 	TPM	TPM drivers are enabled.
 	UMS	USB Mass Storage support is enabled.
 	USB	USB support is enabled.
+	NVME    NVMe support is enabled
 	USBHID	USB Human Interface Device support is enabled.
 	V4L	Video For Linux support is enabled.
 	VGA	The VGA console has been enabled.

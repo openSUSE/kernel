@@ -7,6 +7,7 @@
  */
 
 #include <crypto/hash_info.h>
+#include <crypto/utils.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/parser.h>
@@ -40,6 +41,9 @@ static struct sdesc *init_sdesc(struct crypto_shash *alg)
 	struct sdesc *sdesc;
 	int size;
 
+	if (!alg)
+		return ERR_PTR(-ENOENT);
+
 	size = sizeof(struct shash_desc) + crypto_shash_descsize(alg);
 	sdesc = kmalloc(size, GFP_KERNEL);
 	if (!sdesc)
@@ -64,6 +68,74 @@ static int TSS_sha1(const unsigned char *data, unsigned int datalen,
 	kfree_sensitive(sdesc);
 	return ret;
 }
+
+/* implementation specific TPM constants */
+#define TPM_SIZE_OFFSET			2
+#define TPM_RETURN_OFFSET		6
+#define TPM_DATA_OFFSET			10
+
+#define LOAD32(buffer, offset)	(ntohl(*(uint32_t *)&buffer[offset]))
+#define LOAD32N(buffer, offset)	(*(uint32_t *)&buffer[offset])
+#define LOAD16(buffer, offset)	(ntohs(*(uint16_t *)&buffer[offset]))
+
+struct osapsess {
+	uint32_t handle;
+	unsigned char secret[SHA1_DIGEST_SIZE];
+	unsigned char enonce[TPM_NONCE_SIZE];
+};
+
+/* discrete values, but have to store in uint16_t for TPM use */
+enum {
+	SEAL_keytype = 1,
+	SRK_keytype = 4
+};
+
+#define TPM_DEBUG 0
+
+#if TPM_DEBUG
+static inline void dump_options(struct trusted_key_options *o)
+{
+	pr_info("sealing key type %d\n", o->keytype);
+	pr_info("sealing key handle %0X\n", o->keyhandle);
+	pr_info("pcrlock %d\n", o->pcrlock);
+	pr_info("pcrinfo %d\n", o->pcrinfo_len);
+	print_hex_dump(KERN_INFO, "pcrinfo ", DUMP_PREFIX_NONE,
+		       16, 1, o->pcrinfo, o->pcrinfo_len, 0);
+}
+
+static inline void dump_sess(struct osapsess *s)
+{
+	print_hex_dump(KERN_INFO, "trusted-key: handle ", DUMP_PREFIX_NONE,
+		       16, 1, &s->handle, 4, 0);
+	pr_info("secret:\n");
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_NONE,
+		       16, 1, &s->secret, SHA1_DIGEST_SIZE, 0);
+	pr_info("trusted-key: enonce:\n");
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_NONE,
+		       16, 1, &s->enonce, SHA1_DIGEST_SIZE, 0);
+}
+
+static inline void dump_tpm_buf(unsigned char *buf)
+{
+	int len;
+
+	pr_info("\ntpm buffer\n");
+	len = LOAD32(buf, TPM_SIZE_OFFSET);
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_NONE, 16, 1, buf, len, 0);
+}
+#else
+static inline void dump_options(struct trusted_key_options *o)
+{
+}
+
+static inline void dump_sess(struct osapsess *s)
+{
+}
+
+static inline void dump_tpm_buf(unsigned char *buf)
+{
+}
+#endif
 
 static int TSS_rawhmac(unsigned char *digest, const unsigned char *key,
 		       unsigned int keylen, ...)
@@ -112,7 +184,7 @@ out:
 /*
  * calculate authorization info fields to send to TPM
  */
-int TSS_authhmac(unsigned char *digest, const unsigned char *key,
+static int TSS_authhmac(unsigned char *digest, const unsigned char *key,
 			unsigned int keylen, unsigned char *h1,
 			unsigned char *h2, unsigned int h3, ...)
 {
@@ -162,12 +234,11 @@ out:
 	kfree_sensitive(sdesc);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(TSS_authhmac);
 
 /*
  * verify the AUTH1_COMMAND (Seal) result from TPM
  */
-int TSS_checkhmac1(unsigned char *buffer,
+static int TSS_checkhmac1(unsigned char *buffer,
 			  const uint32_t command,
 			  const unsigned char *ononce,
 			  const unsigned char *key,
@@ -241,13 +312,12 @@ int TSS_checkhmac1(unsigned char *buffer,
 	if (ret < 0)
 		goto out;
 
-	if (memcmp(testhmac, authdata, SHA1_DIGEST_SIZE))
+	if (crypto_memneq(testhmac, authdata, SHA1_DIGEST_SIZE))
 		ret = -EINVAL;
 out:
 	kfree_sensitive(sdesc);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(TSS_checkhmac1);
 
 /*
  * verify the AUTH2_COMMAND (unseal) result from TPM
@@ -334,7 +404,7 @@ static int TSS_checkhmac2(unsigned char *buffer,
 			  TPM_NONCE_SIZE, ononce, 1, continueflag1, 0, 0);
 	if (ret < 0)
 		goto out;
-	if (memcmp(testhmac1, authdata1, SHA1_DIGEST_SIZE)) {
+	if (crypto_memneq(testhmac1, authdata1, SHA1_DIGEST_SIZE)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -343,7 +413,7 @@ static int TSS_checkhmac2(unsigned char *buffer,
 			  TPM_NONCE_SIZE, ononce, 1, continueflag2, 0, 0);
 	if (ret < 0)
 		goto out;
-	if (memcmp(testhmac2, authdata2, SHA1_DIGEST_SIZE))
+	if (crypto_memneq(testhmac2, authdata2, SHA1_DIGEST_SIZE))
 		ret = -EINVAL;
 out:
 	kfree_sensitive(sdesc);
@@ -354,7 +424,7 @@ out:
  * For key specific tpm requests, we will generate and send our
  * own TPM command packets using the drivers send function.
  */
-int trusted_tpm_send(unsigned char *cmd, size_t buflen)
+static int trusted_tpm_send(unsigned char *cmd, size_t buflen)
 {
 	struct tpm_buf buf;
 	int rc;
@@ -380,7 +450,6 @@ int trusted_tpm_send(unsigned char *cmd, size_t buflen)
 	tpm_put_ops(chip);
 	return rc;
 }
-EXPORT_SYMBOL_GPL(trusted_tpm_send);
 
 /*
  * Lock a trusted key, by extending a selected PCR.
@@ -434,7 +503,7 @@ static int osap(struct tpm_buf *tb, struct osapsess *s,
 /*
  * Create an object independent authorisation protocol (oiap) session
  */
-int oiap(struct tpm_buf *tb, uint32_t *handle, unsigned char *nonce)
+static int oiap(struct tpm_buf *tb, uint32_t *handle, unsigned char *nonce)
 {
 	int ret;
 
@@ -451,7 +520,6 @@ int oiap(struct tpm_buf *tb, uint32_t *handle, unsigned char *nonce)
 	       TPM_NONCE_SIZE);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(oiap);
 
 struct tpm_digests {
 	unsigned char encauth[SHA1_DIGEST_SIZE];
@@ -1005,7 +1073,30 @@ static int __init trusted_shash_alloc(void)
 	if (IS_ERR(hmacalg)) {
 		pr_info("could not allocate crypto %s\n",
 			hmac_alg);
-		return PTR_ERR(hmacalg);
+		ret = PTR_ERR(hmacalg);
+		/*
+		 * SHA1 instantiation fails with ENOENT in FIPS mode.
+		 * However, it's needed only for TPM1. Don't fail the
+		 * module initialization on TPM2 if SHA1 support is
+		 * missing.
+		 */
+		if (ret == -ENOENT) {
+			hmacalg = NULL;
+			/*
+			 * chip is always non-NULL here, but be extra-cautious.
+			 */
+			if (chip && tpm_is_tpm2(chip) == 0) {
+				/* TPM1 is unusable without SHA1. */
+				ret = -ENODEV;
+			} else {
+				/*
+				 * SHA1 is not needed for TPM2, ignore
+				 * the instantiation failure.
+				 */
+				ret = 0;
+			}
+		}
+		return ret;
 	}
 
 	hashalg = crypto_alloc_shash(hash_alg, 0, 0);
@@ -1013,6 +1104,16 @@ static int __init trusted_shash_alloc(void)
 		pr_info("could not allocate crypto %s\n",
 			hash_alg);
 		ret = PTR_ERR(hashalg);
+		/*
+		 * See above regarding SHA1 instantiation failures in FIPS mode.
+		 */
+		if (ret == -ENOENT) {
+			hashalg = NULL;
+			if (chip && tpm_is_tpm2(chip) == 0)
+				ret = -ENODEV;
+			else
+				ret = 0;
+		}
 		goto hashalg_fail;
 	}
 
@@ -1020,6 +1121,7 @@ static int __init trusted_shash_alloc(void)
 
 hashalg_fail:
 	crypto_free_shash(hmacalg);
+	hmacalg = NULL;
 	return ret;
 }
 

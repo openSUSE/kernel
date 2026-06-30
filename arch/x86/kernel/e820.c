@@ -16,6 +16,7 @@
 #include <linux/firmware-map.h>
 #include <linux/sort.h>
 #include <linux/memory_hotplug.h>
+#include <linux/kvm_types.h>
 
 #include <asm/e820/api.h>
 #include <asm/setup.h>
@@ -95,7 +96,7 @@ bool e820__mapped_raw_any(u64 start, u64 end, enum e820_type type)
 {
 	return _e820__mapped_any(e820_table_firmware, start, end, type);
 }
-EXPORT_SYMBOL_GPL(e820__mapped_raw_any);
+EXPORT_SYMBOL_FOR_KVM(e820__mapped_raw_any);
 
 bool e820__mapped_any(u64 start, u64 end, enum e820_type type)
 {
@@ -754,22 +755,21 @@ void __init e820__memory_setup_extended(u64 phys_addr, u32 data_len)
 void __init e820__register_nosave_regions(unsigned long limit_pfn)
 {
 	int i;
-	unsigned long pfn = 0;
+	u64 last_addr = 0;
 
 	for (i = 0; i < e820_table->nr_entries; i++) {
 		struct e820_entry *entry = &e820_table->entries[i];
 
-		if (pfn < PFN_UP(entry->addr))
-			register_nosave_region(pfn, PFN_UP(entry->addr));
-
-		pfn = PFN_DOWN(entry->addr + entry->size);
-
 		if (entry->type != E820_TYPE_RAM && entry->type != E820_TYPE_RESERVED_KERN)
-			register_nosave_region(PFN_UP(entry->addr), pfn);
+			continue;
 
-		if (pfn >= limit_pfn)
-			break;
+		if (last_addr < entry->addr)
+			register_nosave_region(PFN_DOWN(last_addr), PFN_UP(entry->addr));
+
+		last_addr = entry->addr + entry->size;
 	}
+
+	register_nosave_region(PFN_DOWN(last_addr), limit_pfn);
 }
 
 #ifdef CONFIG_ACPI
@@ -1213,11 +1213,18 @@ void __init e820__reserve_resources_late(void)
 	int i;
 	struct resource *res;
 
-	res = e820_res;
-	for (i = 0; i < e820_table->nr_entries; i++) {
-		if (!res->parent && res->end)
+	for (i = 0, res = e820_res; i < e820_table->nr_entries; i++, res++) {
+		/* skip added or uninitialized resources */
+		if (res->parent || !res->end)
+			continue;
+
+		/* set aside soft-reserved resources for driver consideration */
+		if (res->desc == IORES_DESC_SOFT_RESERVED) {
+			insert_resource_expand_to_fit(&soft_reserve_resource, res);
+		} else {
+			/* publish the rest immediately */
 			insert_resource_expand_to_fit(&iomem_resource, res);
-		res++;
+		}
 	}
 
 	/*

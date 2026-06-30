@@ -137,7 +137,7 @@ static ssize_t current_uuid_show(struct device *dev,
 	struct int3400_thermal_priv *priv = dev_get_drvdata(dev);
 	int i, length = 0;
 
-	if (priv->current_uuid_index > 0)
+	if (priv->current_uuid_index >= 0)
 		return sprintf(buf, "%s\n",
 			       int3400_thermal_uuids[priv->current_uuid_index]);
 
@@ -700,6 +700,9 @@ static const struct acpi_device_id int3400_thermal_match[] = {
 	{"INTC1042", 0},
 	{"INTC1068", 0},
 	{"INTC10A0", 0},
+	{"INTC10D4", 0},
+	{"INTC10FC", 0},
+	{"INTC10F3", 0},
 	{}
 };
 

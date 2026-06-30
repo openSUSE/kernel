@@ -1827,7 +1827,7 @@ static const struct dev_pm_ops stm32_dma3_pm_ops = {
 
 static struct platform_driver stm32_dma3_driver = {
 	.probe = stm32_dma3_probe,
-	.remove_new = stm32_dma3_remove,
+	.remove = stm32_dma3_remove,
 	.driver = {
 		.name = "stm32-dma3",
 		.of_match_table = stm32_dma3_of_match,
@@ -1835,12 +1835,7 @@ static struct platform_driver stm32_dma3_driver = {
 	},
 };
 
-static int __init stm32_dma3_init(void)
-{
-	return platform_driver_register(&stm32_dma3_driver);
-}
-
-subsys_initcall(stm32_dma3_init);
+module_platform_driver(stm32_dma3_driver);
 
 MODULE_DESCRIPTION("STM32 DMA3 controller driver");
 MODULE_AUTHOR("Amelie Delaunay <amelie.delaunay@foss.st.com>");

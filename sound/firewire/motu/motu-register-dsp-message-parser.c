@@ -150,10 +150,9 @@ void snd_motu_register_dsp_message_parser_parse(const struct amdtp_stream *s,
 	struct msg_parser *parser = motu->message_parser;
 	bool meter_pos_quirk = parser->meter_pos_quirk;
 	unsigned int pos = parser->push_pos;
-	unsigned long flags;
 	int i;
 
-	spin_lock_irqsave(&parser->lock, flags);
+	guard(spinlock_irqsave)(&parser->lock);
 
 	for (i = 0; i < count; ++i) {
 		__be32 *buffer = desc->ctx_payload;
@@ -363,35 +362,31 @@ void snd_motu_register_dsp_message_parser_parse(const struct amdtp_stream *s,
 
 	if (pos != parser->push_pos)
 		wake_up(&motu->hwdep_wait);
-
-	spin_unlock_irqrestore(&parser->lock, flags);
 }
 
 void snd_motu_register_dsp_message_parser_copy_meter(struct snd_motu *motu,
 						struct snd_firewire_motu_register_dsp_meter *meter)
 {
 	struct msg_parser *parser = motu->message_parser;
-	unsigned long flags;
 
-	spin_lock_irqsave(&parser->lock, flags);
+	guard(spinlock_irqsave)(&parser->lock);
 	memcpy(meter, &parser->meter, sizeof(*meter));
-	spin_unlock_irqrestore(&parser->lock, flags);
 }
 
 void snd_motu_register_dsp_message_parser_copy_parameter(struct snd_motu *motu,
 					struct snd_firewire_motu_register_dsp_parameter *param)
 {
 	struct msg_parser *parser = motu->message_parser;
-	unsigned long flags;
 
-	spin_lock_irqsave(&parser->lock, flags);
+	guard(spinlock_irqsave)(&parser->lock);
 	memcpy(param, &parser->param, sizeof(*param));
-	spin_unlock_irqrestore(&parser->lock, flags);
 }
 
 unsigned int snd_motu_register_dsp_message_parser_count_event(struct snd_motu *motu)
 {
 	struct msg_parser *parser = motu->message_parser;
+
+	guard(spinlock_irqsave)(&parser->lock);
 
 	if (parser->pull_pos > parser->push_pos)
 		return EVENT_QUEUE_SIZE - parser->pull_pos + parser->push_pos;
@@ -402,22 +397,20 @@ unsigned int snd_motu_register_dsp_message_parser_count_event(struct snd_motu *m
 bool snd_motu_register_dsp_message_parser_copy_event(struct snd_motu *motu, u32 *event)
 {
 	struct msg_parser *parser = motu->message_parser;
-	unsigned int pos = parser->pull_pos;
-	unsigned long flags;
+	unsigned int pos;
 
-	if (pos == parser->push_pos)
+	guard(spinlock_irqsave)(&parser->lock);
+
+	if (parser->pull_pos == parser->push_pos)
 		return false;
 
-	spin_lock_irqsave(&parser->lock, flags);
-
+	pos = parser->pull_pos;
 	*event = parser->event_queue[pos];
 
 	++pos;
 	if (pos >= EVENT_QUEUE_SIZE)
 		pos = 0;
 	parser->pull_pos = pos;
-
-	spin_unlock_irqrestore(&parser->lock, flags);
 
 	return true;
 }

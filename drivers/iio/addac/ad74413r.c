@@ -6,6 +6,7 @@
 
 #include <linux/unaligned.h>
 #include <linux/bitfield.h>
+#include <linux/cleanup.h>
 #include <linux/crc8.h>
 #include <linux/device.h>
 #include <linux/err.h>
@@ -822,6 +823,8 @@ static int _ad74413r_get_single_adc_result(struct ad74413r_state *st,
 	unsigned int uval;
 	int ret;
 
+	guard(mutex)(&st->lock);
+
 	reinit_completion(&st->adc_data_completion);
 
 	ret = ad74413r_set_adc_channel_enable(st, channel, true);
@@ -863,16 +866,11 @@ static int ad74413r_get_single_adc_result(struct iio_dev *indio_dev,
 	struct ad74413r_state *st = iio_priv(indio_dev);
 	int ret;
 
-	ret = iio_device_claim_direct_mode(indio_dev);
-	if (ret)
-		return ret;
+	if (!iio_device_claim_direct(indio_dev))
+		return -EBUSY;
 
-	mutex_lock(&st->lock);
 	ret = _ad74413r_get_single_adc_result(st, channel, val);
-	mutex_unlock(&st->lock);
-
-	iio_device_release_direct_mode(indio_dev);
-
+	iio_device_release_direct(indio_dev);
 	return ret;
 }
 
@@ -895,7 +893,7 @@ static int ad74413r_update_scan_mode(struct iio_dev *indio_dev,
 	unsigned int channel;
 	int ret = -EINVAL;
 
-	mutex_lock(&st->lock);
+	guard(mutex)(&st->lock);
 
 	spi_message_init(&st->adc_samples_msg);
 	st->adc_active_channels = 0;
@@ -903,11 +901,11 @@ static int ad74413r_update_scan_mode(struct iio_dev *indio_dev,
 	for_each_clear_bit(channel, active_scan_mask, AD74413R_CHANNEL_MAX) {
 		ret = ad74413r_set_adc_channel_enable(st, channel, false);
 		if (ret)
-			goto out;
+			return ret;
 	}
 
 	if (*active_scan_mask == 0)
-		goto out;
+		return ret;
 
 	/*
 	 * The read select register is used to select which register's value
@@ -925,7 +923,7 @@ static int ad74413r_update_scan_mode(struct iio_dev *indio_dev,
 	for_each_set_bit(channel, active_scan_mask, AD74413R_CHANNEL_MAX) {
 		ret = ad74413r_set_adc_channel_enable(st, channel, true);
 		if (ret)
-			goto out;
+			return ret;
 
 		st->adc_active_channels++;
 
@@ -956,11 +954,7 @@ static int ad74413r_update_scan_mode(struct iio_dev *indio_dev,
 	xfer->cs_change = 0;
 
 	spi_message_add_tail(xfer, &st->adc_samples_msg);
-
-out:
-	mutex_unlock(&st->lock);
-
-	return ret;
+	return 0;
 }
 
 static int ad74413r_buffer_postenable(struct iio_dev *indio_dev)
@@ -1369,7 +1363,10 @@ static int ad74413r_probe(struct spi_device *spi)
 	if (!st->chip_info)
 		return -EINVAL;
 
-	mutex_init(&st->lock);
+	ret = devm_mutex_init(st->dev, &st->lock);
+	if (ret)
+		return ret;
+
 	init_completion(&st->adc_data_completion);
 
 	st->regmap = devm_regmap_init(st->dev, NULL, st,

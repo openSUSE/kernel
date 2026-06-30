@@ -57,9 +57,12 @@ static inline void bvec_set_page(struct bio_vec *bv, struct page *page,
  * @offset:	offset into the folio
  */
 static inline void bvec_set_folio(struct bio_vec *bv, struct folio *folio,
-		unsigned int len, unsigned int offset)
+		size_t len, size_t offset)
 {
-	bvec_set_page(bv, &folio->page, len, offset);
+	unsigned long nr = offset / PAGE_SIZE;
+
+	WARN_ON_ONCE(len > UINT_MAX);
+	bvec_set_page(bv, folio_page(folio, nr), len, offset % PAGE_SIZE);
 }
 
 /**
@@ -286,12 +289,7 @@ static inline void *bvec_virt(struct bio_vec *bvec)
  */
 static inline phys_addr_t bvec_phys(const struct bio_vec *bvec)
 {
-	/*
-	 * Note this open codes page_to_phys because page_to_phys is defined in
-	 * <asm/io.h>, which we don't want to pull in here.  If it ever moves to
-	 * a sensible place we should start using it.
-	 */
-	return PFN_PHYS(page_to_pfn(bvec->bv_page)) + bvec->bv_offset;
+	return page_to_phys(bvec->bv_page) + bvec->bv_offset;
 }
 
 #endif /* __LINUX_BVEC_H */

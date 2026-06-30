@@ -35,6 +35,7 @@
 #include <asm/trace/irq_vectors.h>
 #include <asm/kexec.h>
 #include <asm/reboot.h>
+#include <asm/virt.h>
 
 /*
  *	Some notes on x86 processor bugs affecting SMP operation:
@@ -124,7 +125,7 @@ static int smp_stop_nmi_callback(unsigned int val, struct pt_regs *regs)
 	if (raw_smp_processor_id() == atomic_read(&stopping_cpu))
 		return NMI_HANDLED;
 
-	cpu_emergency_disable_virtualization();
+	x86_virt_emergency_disable_virtualization_cpu();
 	stop_this_cpu(NULL);
 
 	return NMI_HANDLED;
@@ -136,7 +137,7 @@ static int smp_stop_nmi_callback(unsigned int val, struct pt_regs *regs)
 DEFINE_IDTENTRY_SYSVEC(sysvec_reboot)
 {
 	apic_eoi();
-	cpu_emergency_disable_virtualization();
+	x86_virt_emergency_disable_virtualization_cpu();
 	stop_this_cpu(NULL);
 }
 
@@ -299,3 +300,27 @@ struct smp_ops smp_ops = {
 	.send_call_func_single_ipi = native_send_call_func_single_ipi,
 };
 EXPORT_SYMBOL_GPL(smp_ops);
+
+int arch_cpu_rescan_dead_smt_siblings(void)
+{
+	enum cpuhp_smt_control old = cpu_smt_control;
+	int ret;
+
+	/*
+	 * If SMT has been disabled and SMT siblings are in HLT, bring them back
+	 * online and offline them again so that they end up in MWAIT proper.
+	 *
+	 * Called with hotplug enabled.
+	 */
+	if (old != CPU_SMT_DISABLED && old != CPU_SMT_FORCE_DISABLED)
+		return 0;
+
+	ret = cpuhp_smt_enable();
+	if (ret)
+		return ret;
+
+	ret = cpuhp_smt_disable(old);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(arch_cpu_rescan_dead_smt_siblings);

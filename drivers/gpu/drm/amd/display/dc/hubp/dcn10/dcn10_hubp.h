@@ -666,10 +666,29 @@ struct dcn_mi_mask {
 	DCN_HUBP_REG_FIELD_LIST(uint32_t);
 };
 
+struct dcn_fl_regs_st {
+	uint32_t lut_enable;
+	uint32_t lut_done;
+	uint32_t lut_addr_mode;
+	uint32_t lut_width;
+	uint32_t lut_tmz;
+	uint32_t lut_crossbar_sel_r;
+	uint32_t lut_crossbar_sel_g;
+	uint32_t lut_crossbar_sel_b;
+	uint32_t lut_addr_hi;
+	uint32_t lut_addr_lo;
+	uint32_t refcyc_3dlut_group;
+	uint32_t lut_fl_bias;
+	uint32_t lut_fl_scale;
+	uint32_t lut_fl_mode;
+	uint32_t lut_fl_format;
+};
+
 struct dcn_hubp_state {
 	struct _vcs_dpi_display_dlg_regs_st dlg_attr;
 	struct _vcs_dpi_display_ttu_regs_st ttu_attr;
 	struct _vcs_dpi_display_rq_regs_st rq_regs;
+	struct dcn_fl_regs_st fl_regs;
 	uint32_t pixel_format;
 	uint32_t inuse_addr_hi;
 	uint32_t inuse_addr_lo;
@@ -706,7 +725,7 @@ struct dcn10_hubp {
 void hubp1_program_surface_config(
 	struct hubp *hubp,
 	enum surface_pixel_format format,
-	union dc_tiling_info *tiling_info,
+	struct dc_tiling_info *tiling_info,
 	struct plane_size *plane_size,
 	enum dc_rotation_angle rotation,
 	struct dc_plane_dcc_param *dcc,
@@ -739,12 +758,14 @@ void hubp1_program_rotation(
 
 void hubp1_program_tiling(
 	struct hubp *hubp,
-	const union dc_tiling_info *info,
+	const struct dc_tiling_info *info,
 	const enum surface_pixel_format pixel_format);
 
 void hubp1_dcc_control(struct hubp *hubp,
 		bool enable,
 		enum hubp_ind_block_size independent_64b_blks);
+
+void hubp_reset(struct hubp *hubp);
 
 bool hubp1_program_surface_flip_and_addr(
 	struct hubp *hubp,
@@ -793,5 +814,7 @@ bool hubp1_in_blank(struct hubp *hubp);
 void hubp1_soft_reset(struct hubp *hubp, bool reset);
 
 void hubp1_set_flip_int(struct hubp *hubp);
+
+void hubp1_clear_tiling(struct hubp *hubp);
 
 #endif

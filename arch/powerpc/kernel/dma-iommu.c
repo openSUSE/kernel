@@ -14,7 +14,7 @@
 #define can_map_direct(dev, addr) \
 	((dev)->bus_dma_limit >= phys_to_dma((dev), (addr)))
 
-bool arch_dma_map_page_direct(struct device *dev, phys_addr_t addr)
+bool arch_dma_map_phys_direct(struct device *dev, phys_addr_t addr)
 {
 	if (likely(!dev->bus_dma_limit))
 		return false;
@@ -24,7 +24,7 @@ bool arch_dma_map_page_direct(struct device *dev, phys_addr_t addr)
 
 #define is_direct_handle(dev, h) ((h) >= (dev)->archdata.dma_offset)
 
-bool arch_dma_unmap_page_direct(struct device *dev, dma_addr_t dma_handle)
+bool arch_dma_unmap_phys_direct(struct device *dev, dma_addr_t dma_handle)
 {
 	if (likely(!dev->bus_dma_limit))
 		return false;
@@ -64,6 +64,21 @@ bool arch_dma_unmap_sg_direct(struct device *dev, struct scatterlist *sg,
 	}
 
 	return true;
+}
+bool arch_dma_alloc_direct(struct device *dev)
+{
+	if (dev->dma_ops_bypass && dev->bus_dma_limit)
+		return true;
+
+	return false;
+}
+
+bool arch_dma_free_direct(struct device *dev, dma_addr_t dma_handle)
+{
+	if (!dev->dma_ops_bypass || !dev->bus_dma_limit)
+		return false;
+
+	return is_direct_handle(dev, dma_handle);
 }
 #endif /* CONFIG_ARCH_HAS_DMA_MAP_DIRECT */
 
@@ -148,17 +163,12 @@ int dma_iommu_dma_supported(struct device *dev, u64 mask)
 
 	if (dev_is_pci(dev) && dma_iommu_bypass_supported(dev, mask)) {
 		/*
-		 * dma_iommu_bypass_supported() sets dma_max when there is
-		 * 1:1 mapping but it is somehow limited.
-		 * ibm,pmemory is one example.
+		 * fixed ops will be used for RAM. This is limited by
+		 * bus_dma_limit which is set when RAM is pre-mapped.
 		 */
-		dev->dma_ops_bypass = dev->bus_dma_limit == 0;
-		if (!dev->dma_ops_bypass)
-			dev_warn(dev,
-				 "iommu: 64-bit OK but direct DMA is limited by %llx\n",
-				 dev->bus_dma_limit);
-		else
-			dev_dbg(dev, "iommu: 64-bit OK, using fixed ops\n");
+		dev->dma_ops_bypass = true;
+		dev_info(dev, "iommu: 64-bit OK but direct DMA is limited by %llx\n",
+			 dev->bus_dma_limit);
 		return 1;
 	}
 
