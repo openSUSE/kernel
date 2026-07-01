@@ -215,10 +215,11 @@ static struct iommu_dev_data *search_dev_data(struct amd_iommu *iommu, u16 devid
 	return NULL;
 }
 
-static int clone_alias(struct pci_dev *pdev, u16 alias, void *data)
+static int clone_alias(struct pci_dev *pdev_origin, u16 alias, void *data)
 {
 	struct amd_iommu *iommu;
 	struct dev_table_entry *dev_table;
+	struct pci_dev *pdev = data;
 	u16 devid = pci_dev_id(pdev);
 
 	if (devid == alias)
