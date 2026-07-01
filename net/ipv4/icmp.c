@@ -637,6 +637,12 @@ static void icmp_socket_deliver(struct sk_buff *skb, u32 info)
 	const struct net_protocol *ipprot;
 	int protocol = iph->protocol;
 
+	/* Checkin full IP header plus 8 bytes of protocol to
+	 * avoid additional coding at protocol handlers.
+	 */
+	if (!pskb_may_pull(skb, iph->ihl * 4 + 8))
+		return;
+
 	raw_icmp_error(skb, protocol, info);
 
 	rcu_read_lock();
@@ -735,12 +741,6 @@ static void icmp_unreach(struct sk_buff *skb)
 			       skb->dev->name);
 		goto out;
 	}
-
-	/* Checkin full IP header plus 8 bytes of protocol to
-	 * avoid additional coding at protocol handlers.
-	 */
-	if (!pskb_may_pull(skb, iph->ihl * 4 + 8))
-		goto out;
 
 	icmp_socket_deliver(skb, info);
 
