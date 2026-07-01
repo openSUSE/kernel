@@ -210,45 +210,47 @@ int pci_ats_page_aligned(struct pci_dev *pdev)
  * CXL.cache, devices need to get the Host Physical Address (HPA) from the Host
  * by means of an ATS request on CXL.io.
  *
- * In other world, CXL.cache devices cannot access physical memory without ATS.
+ * In other words, CXL.cache devices cannot access host physical memory without
+ * ATS.
+ *
+ * Check Cache_Capable instead of Cache_Enable because CXL.cache may be enabled
+ * after the caller uses this to make its ATS decision.
  */
-static bool pci_cxl_ats_always_on(struct pci_dev *pdev)
+static bool pci_cxl_ats_required(struct pci_dev *pdev)
 {
 	int offset;
 	u16 cap;
 
 	offset = pci_find_dvsec_capability(pdev, PCI_VENDOR_ID_CXL,
-					   CXL_DVSEC_PCIE_DEVICE);
+					   PCI_DVSEC_CXL_DEVICE);
 	if (!offset)
 		return false;
 
-	pci_read_config_word(pdev, offset + CXL_DVSEC_CAP_OFFSET, &cap);
-	if (cap & CXL_DVSEC_CACHE_CAPABLE)
-		return true;
+	if (pci_read_config_word(pdev, offset + PCI_DVSEC_CXL_CAP, &cap))
+		return false;
 
-	return false;
+	return cap & PCI_DVSEC_CXL_CACHE_CAPABLE;
 }
 
 /**
- * pci_ats_always_on - Whether the PCI device requires ATS to be always enabled
+ * pci_ats_required - Whether the PCI device requires ATS
  * @pdev: the PCI device
  *
- * Returns true, if the PCI device requires non-PASID ATS function on an IOMMU
- * bypassed configuration.
+ * Returns true, if the PCI device requires ATS for basic functional operation.
  */
-bool pci_ats_always_on(struct pci_dev *pdev)
+bool pci_ats_required(struct pci_dev *pdev)
 {
-	if (pci_ats_disabled() || !pci_ats_supported(pdev))
+	if (!pci_ats_supported(pdev))
 		return false;
 
 	/* A VF inherits its PF's requirement for ATS function */
 	if (pdev->is_virtfn)
 		pdev = pci_physfn(pdev);
 
-	return pci_cxl_ats_always_on(pdev) ||
+	return pci_cxl_ats_required(pdev) ||
 	       pci_dev_specific_ats_always_on(pdev);
 }
-EXPORT_SYMBOL_GPL(pci_ats_always_on);
+EXPORT_SYMBOL_GPL(pci_ats_required);
 
 #ifdef CONFIG_PCI_PRI
 void pci_pri_init(struct pci_dev *pdev)

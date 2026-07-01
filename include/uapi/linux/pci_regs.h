@@ -1234,6 +1234,7 @@
 /* CXL r4.0, 8.1.3: PCIe DVSEC for CXL Device */
 #define PCI_DVSEC_CXL_DEVICE				0
 #define  PCI_DVSEC_CXL_CAP				0xA
+#define   PCI_DVSEC_CXL_CACHE_CAPABLE			_BITUL(0)
 #define   PCI_DVSEC_CXL_MEM_CAPABLE			_BITUL(2)
 #define   PCI_DVSEC_CXL_HDM_COUNT			__GENMASK(5, 4)
 #define  PCI_DVSEC_CXL_CTRL				0xC
@@ -1248,11 +1249,6 @@
 #define   PCI_DVSEC_CXL_MEM_BASE_LOW			__GENMASK(31, 28)
 
 #define CXL_DVSEC_RANGE_MAX				2
-
-/* CXL r2.0 8.1.3: PCIe DVSEC for CXL Device */
-#define CXL_DVSEC_PCIE_DEVICE				0
-#define  CXL_DVSEC_CAP_OFFSET				0xA
-#define   CXL_DVSEC_CACHE_CAPABLE			_BITUL(0)
 
 /* CXL r4.0, 8.1.4: Non-CXL Function Map DVSEC */
 #define PCI_DVSEC_CXL_FUNCTION_MAP			2
