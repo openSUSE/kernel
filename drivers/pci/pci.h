@@ -837,9 +837,9 @@ static inline int pci_dev_specific_reset(struct pci_dev *dev, bool probe)
 #endif
 
 #if defined(CONFIG_PCI_QUIRKS) && defined(CONFIG_PCI_ATS)
-bool pci_dev_specific_ats_always_on(struct pci_dev *dev);
+bool pci_dev_specific_ats_required(struct pci_dev *dev);
 #else
-static inline bool pci_dev_specific_ats_always_on(struct pci_dev *dev)
+static inline bool pci_dev_specific_ats_required(struct pci_dev *dev)
 {
 	return false;
 }
