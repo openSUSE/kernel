@@ -404,7 +404,7 @@ struct cpufreq_driver {
 	unsigned int	(*get)(unsigned int cpu);
 
 	/* Called to update policy limits on firmware notifications. */
-	void		(*update_limits)(unsigned int cpu);
+	void		(*update_limits)(struct cpufreq_policy *policy);
 
 	/* optional */
 	int		(*bios_limit)(int cpu, unsigned int *limit);
