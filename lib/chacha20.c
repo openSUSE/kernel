@@ -75,5 +75,7 @@ extern void chacha20_block(u32 *state, void *stream)
 		out[i] = cpu_to_le32(x[i] + state[i]);
 
 	state[12]++;
+
+	memzero_explicit(x, sizeof(x));
 }
 EXPORT_SYMBOL(chacha20_block);
