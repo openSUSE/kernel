@@ -217,6 +217,7 @@ struct fb_deferred_io {
 	unsigned long delay;
 	bool sort_pagereflist; /* sort pagelist by offset */
 	int open_count; /* number of opened files; protected by fb_info lock */
+	struct mutex lock; /* unused; use fbdefio_state->lock instead */
 	struct list_head pagereflist; /* list of pagerefs for touched pages */
 	struct address_space *mapping; /* page cache object for fb device */
 	/* callback */
@@ -491,7 +492,6 @@ struct fb_info {
 	unsigned long npagerefs;
 	struct fb_deferred_io_pageref *pagerefs;
 	struct fb_deferred_io *fbdefio;
-	struct fb_deferred_io_state *fbdefio_state;
 #endif
 
 	const struct fb_ops *fbops;
