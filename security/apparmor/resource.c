@@ -13,6 +13,7 @@
  */
 
 #include <linux/audit.h>
+#include <linux/posix-timers.h>
 
 #include "include/audit.h"
 #include "include/context.h"
@@ -147,5 +148,10 @@ void __aa_transition_rlimits(struct aa_profile *old, struct aa_profile *new)
 				     new->rlimits.limits[i].rlim_max);
 		/* soft limit should not exceed hard limit */
 		rlim->rlim_cur = min(rlim->rlim_cur, rlim->rlim_max);
+		if (i == RLIMIT_CPU &&
+		    rlim->rlim_cur != RLIM_INFINITY &&
+		    IS_ENABLED(CONFIG_POSIX_TIMERS))
+			(void) update_rlimit_cpu(current->group_leader,
+					rlim->rlim_cur);
 	}
 }
