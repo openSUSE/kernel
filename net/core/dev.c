@@ -3589,10 +3589,15 @@ static netdev_features_t gso_features_check(const struct sk_buff *skb,
 	 * IPv4 header has the potential to be fragmented.
 	 */
 	if (skb_shinfo(skb)->gso_type & SKB_GSO_TCPV4) {
-		struct iphdr *iph = skb->encapsulation ?
-				    inner_ip_hdr(skb) : ip_hdr(skb);
+		const struct iphdr *iph;
+		struct iphdr _iph;
+		int nhoff = skb->encapsulation ?
+			    skb_inner_network_offset(skb) :
+			    skb_network_offset(skb);
 
-		if (!(iph->frag_off & htons(IP_DF)))
+		iph = skb_header_pointer(skb, nhoff, sizeof(_iph), &_iph);
+
+		if (!iph || !(iph->frag_off & htons(IP_DF)))
 			features &= ~NETIF_F_TSO_MANGLEID;
 	}
 
@@ -12090,3 +12095,14 @@ out:
 }
 
 subsys_initcall(net_dev_init);
+
+int parse_header_kabi_helper(const struct sk_buff *skb, unsigned char *haddr)
+{
+	struct net_device *dev = skb->dev;
+
+	if (dev->header_ops->parse2)
+		return dev->header_ops->parse2(skb, dev, haddr);
+
+	return 0;
+}
+EXPORT_SYMBOL(parse_header_kabi_helper);

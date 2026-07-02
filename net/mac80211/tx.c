@@ -2404,10 +2404,20 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 				rcu_dereference(tmp_sdata->vif.bss_conf.chanctx_conf);
 	}
 
+	if (!chanctx_conf) {
+		struct ieee80211_chanctx *ctx;
+		bool first = true;
+
+		list_for_each_entry_rcu(ctx, &local->chanctx_list, list) {
+			if (!first)
+				goto fail_rcu;
+			chanctx_conf = &ctx->conf;
+			first = false;
+		}
+	}
+
 	if (chanctx_conf)
 		chandef = &chanctx_conf->def;
-	else if (local->emulate_chanctx)
-		chandef = &local->hw.conf.chandef;
 	else
 		goto fail_rcu;
 

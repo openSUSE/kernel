@@ -2260,17 +2260,17 @@ static int criu_restore_devices(struct kfd_process *p,
 			ret = -EINVAL;
 			goto exit;
 		}
+
+		if (pdd->drm_file) {
+			ret = -EINVAL;
+			goto exit;
+		}
 		pdd->user_gpu_id = device_buckets[i].user_gpu_id;
 
 		drm_file = fget(device_buckets[i].drm_fd);
 		if (!drm_file) {
 			pr_err("Invalid render node file descriptor sent from plugin (%d)\n",
 				device_buckets[i].drm_fd);
-			ret = -EINVAL;
-			goto exit;
-		}
-
-		if (pdd->drm_file) {
 			ret = -EINVAL;
 			goto exit;
 		}
@@ -2321,6 +2321,9 @@ static int criu_restore_memory_of_gpu(struct kfd_process_device *pdd,
 	int ret;
 	const bool criu_resume = true;
 	u64 offset;
+
+	if (bo_priv->idr_handle > INT_MAX)
+		return -EINVAL;
 
 	if (bo_bucket->alloc_flags & KFD_IOC_ALLOC_MEM_FLAGS_DOORBELL) {
 		if (bo_bucket->size !=

@@ -3105,34 +3105,104 @@ SYSCALL_DEFINE3(init_module, void __user *, umod,
 	return load_module(&info, uargs, 0);
 }
 
-SYSCALL_DEFINE3(finit_module, int, fd, const char __user *, uargs, int, flags)
+struct idempotent {
+	const void *cookie;
+	struct hlist_node entry;
+	struct completion complete;
+	int ret;
+};
+
+#define IDEM_HASH_BITS 8
+static struct hlist_head idem_hash[1 << IDEM_HASH_BITS];
+static DEFINE_SPINLOCK(idem_lock);
+
+static bool idempotent(struct idempotent *u, const void *cookie)
+{
+	int hash = hash_ptr(cookie, IDEM_HASH_BITS);
+	struct hlist_head *head = idem_hash + hash;
+	struct idempotent *existing;
+	bool first;
+
+	u->ret = -EINTR;
+	u->cookie = cookie;
+	init_completion(&u->complete);
+
+	spin_lock(&idem_lock);
+	first = true;
+	hlist_for_each_entry(existing, head, entry) {
+		if (existing->cookie != cookie)
+			continue;
+		first = false;
+		break;
+	}
+	hlist_add_head(&u->entry, idem_hash + hash);
+	spin_unlock(&idem_lock);
+
+	return !first;
+}
+
+/*
+ * We were the first one with 'cookie' on the list, and we ended
+ * up completing the operation. We now need to walk the list,
+ * remove everybody - which includes ourselves - fill in the return
+ * value, and then complete the operation.
+ */
+static int idempotent_complete(struct idempotent *u, int ret)
+{
+	const void *cookie = u->cookie;
+	int hash = hash_ptr(cookie, IDEM_HASH_BITS);
+	struct hlist_head *head = idem_hash + hash;
+	struct hlist_node *next;
+	struct idempotent *pos;
+
+	spin_lock(&idem_lock);
+	hlist_for_each_entry_safe(pos, next, head, entry) {
+		if (pos->cookie != cookie)
+			continue;
+		hlist_del_init(&pos->entry);
+		pos->ret = ret;
+		complete(&pos->complete);
+	}
+	spin_unlock(&idem_lock);
+	return ret;
+}
+
+/*
+ * Wait for the idempotent worker.
+ *
+ * If we get interrupted, we need to remove ourselves from the
+ * the idempotent list, and the completion may still come in.
+ *
+ * The 'idem_lock' protects against the race, and 'idem.ret' was
+ * initialized to -EINTR and is thus always the right return
+ * value even if the idempotent work then completes between
+ * the wait_for_completion and the cleanup.
+ */
+static int idempotent_wait_for_completion(struct idempotent *u)
+{
+	if (wait_for_completion_interruptible(&u->complete)) {
+		spin_lock(&idem_lock);
+		if (!hlist_unhashed(&u->entry))
+			hlist_del(&u->entry);
+		spin_unlock(&idem_lock);
+	}
+	return u->ret;
+}
+
+static int init_module_from_file(struct file *f, const char __user * uargs, int flags)
 {
 	struct load_info info = { };
 	void *buf = NULL;
 	int len;
-	int err;
 
-	err = may_init_module();
-	if (err)
-		return err;
-
-	pr_debug("finit_module: fd=%d, uargs=%p, flags=%i\n", fd, uargs, flags);
-
-	if (flags & ~(MODULE_INIT_IGNORE_MODVERSIONS
-		      |MODULE_INIT_IGNORE_VERMAGIC
-		      |MODULE_INIT_COMPRESSED_FILE))
-		return -EINVAL;
-
-	len = kernel_read_file_from_fd(fd, 0, &buf, INT_MAX, NULL,
-				       READING_MODULE);
+	len = kernel_read_file(f, 0, &buf, INT_MAX, NULL, READING_MODULE);
 	if (len < 0) {
 		mod_stat_inc(&failed_kreads);
-		mod_stat_add_long(len, &invalid_kread_bytes);
 		return len;
 	}
 
 	if (flags & MODULE_INIT_COMPRESSED_FILE) {
-		err = module_decompress(&info, buf, len);
+		int err = module_decompress(&info, buf, len);
 		vfree(buf); /* compressed data is no longer needed */
 		if (err) {
 			mod_stat_inc(&failed_decompress);
@@ -3145,6 +3215,47 @@ SYSCALL_DEFINE3(finit_module, int, fd, const char __user *, uargs, int, flags)
 	}
 
 	return load_module(&info, uargs, flags);
+}
+
+static int idempotent_init_module(struct file *f, const char __user * uargs, int flags)
+{
+	struct idempotent idem;
+
+	if (!f || !(f->f_mode & FMODE_READ))
+		return -EBADF;
+
+	/* Are we the winners of the race and get to do this? */
+	if (!idempotent(&idem, file_inode(f))) {
+		int ret = init_module_from_file(f, uargs, flags);
+		return idempotent_complete(&idem, ret);
+	}
+
+	/*
+	 * Somebody else won the race and is loading the module.
+	 */
+	return idempotent_wait_for_completion(&idem);
+}
+
+SYSCALL_DEFINE3(finit_module, int, fd, const char __user *, uargs, int, flags)
+{
+	int err;
+	struct fd f;
+
+	err = may_init_module();
+	if (err)
+		return err;
+
+	pr_debug("finit_module: fd=%d, uargs=%p, flags=%i\n", fd, uargs, flags);
+
+	if (flags & ~(MODULE_INIT_IGNORE_MODVERSIONS
+		      |MODULE_INIT_IGNORE_VERMAGIC
+		      |MODULE_INIT_COMPRESSED_FILE))
+		return -EINVAL;
+
+	f = fdget(fd);
+	err = idempotent_init_module(f.file, uargs, flags);
+	fdput(f);
+	return err;
 }
 
 /* Keep in sync with MODULE_FLAGS_BUF_SIZE !!! */

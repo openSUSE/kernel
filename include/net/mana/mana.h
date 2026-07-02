@@ -60,8 +60,11 @@ enum TRI_STATE {
 
 #define MAX_PORTS_IN_MANA_DEV 256
 
+/* Maximum number of packets per coalesced CQE */
+#define MANA_RXCOMP_OOB_NUM_PPI 4
+
 /* Update this count whenever the respective structures are changed */
-#define MANA_STATS_RX_COUNT 5
+#define MANA_STATS_RX_COUNT (6 + MANA_RXCOMP_OOB_NUM_PPI - 1)
 #define MANA_STATS_TX_COUNT 11
 
 #define MANA_RX_FRAG_ALIGNMENT 64
@@ -72,6 +75,8 @@ struct mana_stats_rx {
 	u64 xdp_drop;
 	u64 xdp_tx;
 	u64 xdp_redirect;
+	u64 pkt_len0_err;
+	u64 coalesced_cqe[MANA_RXCOMP_OOB_NUM_PPI - 1];
 	struct u64_stats_sync syncp;
 };
 
@@ -226,8 +231,6 @@ struct mana_rxcomp_perpkt_info {
 	u32 pkt_hash;
 }; /* HW DATA */
 
-#define MANA_RXCOMP_OOB_NUM_PPI 4
-
 /* Receive completion OOB */
 struct mana_rxcomp_oob {
 	struct mana_cqe_header cqe_hdr;
@@ -377,7 +380,6 @@ struct mana_ethtool_stats {
 	u64 tx_cqe_err;
 	u64 tx_cqe_unknown_type;
 	u64 tx_linear_pkt_cnt;
-	u64 rx_coalesced_err;
 	u64 rx_cqe_unknown_type;
 };
 
@@ -477,8 +479,6 @@ struct mana_context {
 	u8 bm_hostmode;
 
 	struct mana_ethtool_hc_stats hc_stats;
-	struct mana_eq *eqs;
-	struct dentry *mana_eqs_debugfs;
 	struct workqueue_struct *per_port_queue_reset_wq;
 	/* Workqueue for querying hardware stats */
 	struct delayed_work gf_stats_work;
@@ -497,6 +497,9 @@ struct mana_port_context {
 	struct work_struct queue_reset_work;
 
 	u8 mac_addr[ETH_ALEN];
+
+	struct mana_eq *eqs;
+	struct dentry *mana_eqs_debugfs;
 
 	enum TRI_STATE rss_state;
 
@@ -544,10 +547,19 @@ struct mana_port_context {
 	struct mutex vport_mutex;
 	int vport_use_count;
 
+	/* Set by mana_set_channels() under vport_mutex to block RDMA
+	 * from grabbing the vport during the detach/attach window.
+	 * Checked by mana_cfg_vport() when called from the RDMA path.
+	 */
+	bool channel_changing;
+
 	u16 port_idx;
 
 	bool port_is_up;
 	bool port_st_save; /* Saved port state */
+
+	u8 cqe_coalescing_enable;
+	u32 cqe_coalescing_timeout_ns;
 
 	struct mana_ethtool_stats eth_stats;
 
@@ -869,6 +881,10 @@ struct mana_cfg_rx_steer_req_v2 {
 
 struct mana_cfg_rx_steer_resp {
 	struct gdma_resp_hdr hdr;
+
+	/* V2 */
+	u32 cqe_coalescing_timeout_ns;
+	u32 reserved1;
 }; /* HW DATA */
 
 /* Register HW vPort */
@@ -989,8 +1005,10 @@ void mana_destroy_wq_obj(struct mana_port_context *apc, u32 wq_type,
 			 mana_handle_t wq_obj);
 
 int mana_cfg_vport(struct mana_port_context *apc, u32 protection_dom_id,
-		   u32 doorbell_pg_id);
+		   u32 doorbell_pg_id, bool check_channel_changing);
 void mana_uncfg_vport(struct mana_port_context *apc);
+int mana_create_eq(struct mana_port_context *apc);
+void mana_destroy_eq(struct mana_port_context *apc);
 
 struct net_device *mana_get_primary_netdev(struct mana_context *ac,
 					   u32 port_index,
