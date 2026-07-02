@@ -17,13 +17,14 @@
 notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 {
 	long ret;
+	unsigned long r0_initial = r0;
 	syscall_fn f;
 
 	add_random_kstack_offset();
 	r0 = syscall_enter_from_user_mode(regs, r0);
 
 	/* Seccomp or ptrace may have set return value, skip syscall */
-	if (unlikely(r0 == -1L))
+	if (unlikely(r0 == -1L) && (r0_initial != -1L))
 		return syscall_get_error(current, regs);
 
 	if (unlikely(r0 >= NR_syscalls)) {

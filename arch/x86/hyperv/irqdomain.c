@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-
 /*
  * Irqdomain for Linux to run as the root partition on Microsoft Hypervisor.
  *
@@ -13,8 +12,8 @@
 #include <linux/export.h>
 #include <asm/mshyperv.h>
 
-static int hv_map_interrupt(union hv_device_id device_id, bool level,
-		int cpu, int vector, struct hv_interrupt_entry *entry)
+static int hv_map_interrupt(union hv_device_id hv_devid, bool level,
+		int cpu, int vector, struct hv_interrupt_entry *ret_entry)
 {
 	struct hv_input_map_device_interrupt *input;
 	struct hv_output_map_device_interrupt *output;
@@ -31,7 +30,7 @@ static int hv_map_interrupt(union hv_device_id device_id, bool level,
 	intr_desc = &input->interrupt_descriptor;
 	memset(input, 0, sizeof(*input));
 	input->partition_id = hv_current_partition_id;
-	input->device_id = device_id.as_uint64;
+	input->device_id = hv_devid.as_uint64;
 	intr_desc->interrupt_type = HV_X64_INTERRUPT_TYPE_FIXED;
 	intr_desc->vector_count = 1;
 	intr_desc->target.vector = vector;
@@ -43,7 +42,7 @@ static int hv_map_interrupt(union hv_device_id device_id, bool level,
 
 	intr_desc->target.vp_set.valid_bank_mask = 0;
 	intr_desc->target.vp_set.format = HV_GENERIC_SET_SPARSE_4K;
-	nr_bank = cpumask_to_vpset(&(intr_desc->target.vp_set), cpumask_of(cpu));
+	nr_bank = cpumask_to_vpset(&intr_desc->target.vp_set, cpumask_of(cpu));
 	if (nr_bank < 0) {
 		local_irq_restore(flags);
 		pr_err("%s: unable to generate VP set\n", __func__);
@@ -60,7 +59,7 @@ static int hv_map_interrupt(union hv_device_id device_id, bool level,
 
 	status = hv_do_rep_hypercall(HVCALL_MAP_DEVICE_INTERRUPT, 0, var_size,
 			input, output);
-	*entry = output->interrupt_entry;
+	*ret_entry = output->interrupt_entry;
 
 	local_irq_restore(flags);
 
@@ -70,21 +69,19 @@ static int hv_map_interrupt(union hv_device_id device_id, bool level,
 	return hv_result_to_errno(status);
 }
 
-static int hv_unmap_interrupt(u64 id, struct hv_interrupt_entry *old_entry)
+static int hv_unmap_interrupt(u64 id, struct hv_interrupt_entry *irq_entry)
 {
 	unsigned long flags;
 	struct hv_input_unmap_device_interrupt *input;
-	struct hv_interrupt_entry *intr_entry;
 	u64 status;
 
 	local_irq_save(flags);
 	input = *this_cpu_ptr(hyperv_pcpu_input_arg);
 
 	memset(input, 0, sizeof(*input));
-	intr_entry = &input->interrupt_entry;
 	input->partition_id = hv_current_partition_id;
 	input->device_id = id;
-	*intr_entry = *old_entry;
+	input->interrupt_entry = *irq_entry;
 
 	status = hv_do_hypercall(HVCALL_UNMAP_DEVICE_INTERRUPT, input, NULL);
 	local_irq_restore(flags);
@@ -114,67 +111,71 @@ static int get_rid_cb(struct pci_dev *pdev, u16 alias, void *data)
 	return 0;
 }
 
-static union hv_device_id hv_build_pci_dev_id(struct pci_dev *dev)
+static union hv_device_id hv_build_devid_type_pci(struct pci_dev *pdev)
 {
-	union hv_device_id dev_id;
+	int pos;
+	union hv_device_id hv_devid;
 	struct rid_data data = {
 		.bridge = NULL,
-		.rid = PCI_DEVID(dev->bus->number, dev->devfn)
+		.rid = PCI_DEVID(pdev->bus->number, pdev->devfn)
 	};
 
-	pci_for_each_dma_alias(dev, get_rid_cb, &data);
+	pci_for_each_dma_alias(pdev, get_rid_cb, &data);
 
-	dev_id.as_uint64 = 0;
-	dev_id.device_type = HV_DEVICE_TYPE_PCI;
-	dev_id.pci.segment = pci_domain_nr(dev->bus);
+	hv_devid.as_uint64 = 0;
+	hv_devid.device_type = HV_DEVICE_TYPE_PCI;
+	hv_devid.pci.segment = pci_domain_nr(pdev->bus);
 
-	dev_id.pci.bdf.bus = PCI_BUS_NUM(data.rid);
-	dev_id.pci.bdf.device = PCI_SLOT(data.rid);
-	dev_id.pci.bdf.function = PCI_FUNC(data.rid);
-	dev_id.pci.source_shadow = HV_SOURCE_SHADOW_NONE;
+	hv_devid.pci.bdf.bus = PCI_BUS_NUM(data.rid);
+	hv_devid.pci.bdf.device = PCI_SLOT(data.rid);
+	hv_devid.pci.bdf.function = PCI_FUNC(data.rid);
+	hv_devid.pci.source_shadow = HV_SOURCE_SHADOW_NONE;
 
-	if (data.bridge) {
-		int pos;
+	if (data.bridge == NULL)
+		goto out;
 
-		/*
-		 * Microsoft Hypervisor requires a bus range when the bridge is
-		 * running in PCI-X mode.
-		 *
-		 * To distinguish conventional vs PCI-X bridge, we can check
-		 * the bridge's PCI-X Secondary Status Register, Secondary Bus
-		 * Mode and Frequency bits. See PCI Express to PCI/PCI-X Bridge
-		 * Specification Revision 1.0 5.2.2.1.3.
-		 *
-		 * Value zero means it is in conventional mode, otherwise it is
-		 * in PCI-X mode.
-		 */
+	/*
+	 * Microsoft Hypervisor requires a bus range when the bridge is
+	 * running in PCI-X mode.
+	 *
+	 * To distinguish conventional vs PCI-X bridge, we can check
+	 * the bridge's PCI-X Secondary Status Register, Secondary Bus
+	 * Mode and Frequency bits. See PCI Express to PCI/PCI-X Bridge
+	 * Specification Revision 1.0 5.2.2.1.3.
+	 *
+	 * Value zero means it is in conventional mode, otherwise it is
+	 * in PCI-X mode.
+	 */
 
-		pos = pci_find_capability(data.bridge, PCI_CAP_ID_PCIX);
-		if (pos) {
-			u16 status;
+	pos = pci_find_capability(data.bridge, PCI_CAP_ID_PCIX);
+	if (pos) {
+		u16 status;
 
-			pci_read_config_word(data.bridge, pos +
-					PCI_X_BRIDGE_SSTATUS, &status);
+		pci_read_config_word(data.bridge, pos + PCI_X_BRIDGE_SSTATUS,
+				     &status);
 
-			if (status & PCI_X_SSTATUS_FREQ) {
-				/* Non-zero, PCI-X mode */
-				u8 sec_bus, sub_bus;
+		if (status & PCI_X_SSTATUS_FREQ) {
+			/* Non-zero, PCI-X mode */
+			u8 sec_bus, sub_bus;
 
-				dev_id.pci.source_shadow = HV_SOURCE_SHADOW_BRIDGE_BUS_RANGE;
+			hv_devid.pci.source_shadow =
+					     HV_SOURCE_SHADOW_BRIDGE_BUS_RANGE;
 
-				pci_read_config_byte(data.bridge, PCI_SECONDARY_BUS, &sec_bus);
-				dev_id.pci.shadow_bus_range.secondary_bus = sec_bus;
-				pci_read_config_byte(data.bridge, PCI_SUBORDINATE_BUS, &sub_bus);
-				dev_id.pci.shadow_bus_range.subordinate_bus = sub_bus;
-			}
+			pci_read_config_byte(data.bridge, PCI_SECONDARY_BUS,
+					     &sec_bus);
+			hv_devid.pci.shadow_bus_range.secondary_bus = sec_bus;
+			pci_read_config_byte(data.bridge, PCI_SUBORDINATE_BUS,
+					     &sub_bus);
+			hv_devid.pci.shadow_bus_range.subordinate_bus = sub_bus;
 		}
 	}
 
-	return dev_id;
+out:
+	return hv_devid;
 }
 
-/**
- * hv_map_msi_interrupt() - "Map" the MSI IRQ in the hypervisor.
+/*
+ * hv_map_msi_interrupt() - Map the MSI IRQ in the hypervisor.
  * @data:      Describes the IRQ
  * @out_entry: Hypervisor (MSI) interrupt entry (can be NULL)
  *
@@ -187,22 +188,23 @@ int hv_map_msi_interrupt(struct irq_data *data,
 {
 	struct irq_cfg *cfg = irqd_cfg(data);
 	struct hv_interrupt_entry dummy;
-	union hv_device_id device_id;
+	union hv_device_id hv_devid;
 	struct msi_desc *msidesc;
-	struct pci_dev *dev;
+	struct pci_dev *pdev;
 	int cpu;
 
 	msidesc = irq_data_get_msi_desc(data);
-	dev = msi_desc_to_pci_dev(msidesc);
-	device_id = hv_build_pci_dev_id(dev);
+	pdev = msi_desc_to_pci_dev(msidesc);
+	hv_devid = hv_build_devid_type_pci(pdev);
 	cpu = cpumask_first(irq_data_get_effective_affinity_mask(data));
 
-	return hv_map_interrupt(device_id, false, cpu, cfg->vector,
+	return hv_map_interrupt(hv_devid, false, cpu, cfg->vector,
 				out_entry ? out_entry : &dummy);
 }
 EXPORT_SYMBOL_GPL(hv_map_msi_interrupt);
 
-static inline void entry_to_msi_msg(struct hv_interrupt_entry *entry, struct msi_msg *msg)
+static void entry_to_msi_msg(struct hv_interrupt_entry *entry,
+			     struct msi_msg *msg)
 {
 	/* High address is always 0 */
 	msg->address_hi = 0;
@@ -210,17 +212,19 @@ static inline void entry_to_msi_msg(struct hv_interrupt_entry *entry, struct msi
 	msg->data = entry->msi_entry.data.as_uint32;
 }
 
-static int hv_unmap_msi_interrupt(struct pci_dev *dev, struct hv_interrupt_entry *old_entry);
+static int hv_unmap_msi_interrupt(struct pci_dev *pdev,
+				  struct hv_interrupt_entry *irq_entry);
+
 static void hv_irq_compose_msi_msg(struct irq_data *data, struct msi_msg *msg)
 {
 	struct hv_interrupt_entry *stored_entry;
 	struct irq_cfg *cfg = irqd_cfg(data);
 	struct msi_desc *msidesc;
-	struct pci_dev *dev;
+	struct pci_dev *pdev;
 	int ret;
 
 	msidesc = irq_data_get_msi_desc(data);
-	dev = msi_desc_to_pci_dev(msidesc);
+	pdev = msi_desc_to_pci_dev(msidesc);
 
 	if (!cfg) {
 		pr_debug("%s: cfg is NULL", __func__);
@@ -239,7 +243,7 @@ static void hv_irq_compose_msi_msg(struct irq_data *data, struct msi_msg *msg)
 		stored_entry = data->chip_data;
 		data->chip_data = NULL;
 
-		ret = hv_unmap_msi_interrupt(dev, stored_entry);
+		ret = hv_unmap_msi_interrupt(pdev, stored_entry);
 
 		kfree(stored_entry);
 
@@ -248,10 +252,8 @@ static void hv_irq_compose_msi_msg(struct irq_data *data, struct msi_msg *msg)
 	}
 
 	stored_entry = kzalloc(sizeof(*stored_entry), GFP_ATOMIC);
-	if (!stored_entry) {
-		pr_debug("%s: failed to allocate chip data\n", __func__);
+	if (!stored_entry)
 		return;
-	}
 
 	ret = hv_map_msi_interrupt(data, stored_entry);
 	if (ret) {
@@ -261,18 +263,21 @@ static void hv_irq_compose_msi_msg(struct irq_data *data, struct msi_msg *msg)
 
 	data->chip_data = stored_entry;
 	entry_to_msi_msg(data->chip_data, msg);
-
-	return;
 }
 
-static int hv_unmap_msi_interrupt(struct pci_dev *dev, struct hv_interrupt_entry *old_entry)
+static int hv_unmap_msi_interrupt(struct pci_dev *pdev,
+				  struct hv_interrupt_entry *irq_entry)
 {
-	return hv_unmap_interrupt(hv_build_pci_dev_id(dev).as_uint64, old_entry);
+	union hv_device_id hv_devid;
+
+	hv_devid = hv_build_devid_type_pci(pdev);
+	return hv_unmap_interrupt(hv_devid.as_uint64, irq_entry);
 }
 
-static void hv_teardown_msi_irq(struct pci_dev *dev, struct irq_data *irqd)
+/* NB: during map, hv_interrupt_entry is saved via data->chip_data */
+static void hv_teardown_msi_irq(struct pci_dev *pdev, struct irq_data *irqd)
 {
-	struct hv_interrupt_entry old_entry;
+	struct hv_interrupt_entry irq_entry;
 	struct msi_msg msg;
 
 	if (!irqd->chip_data) {
@@ -280,13 +285,13 @@ static void hv_teardown_msi_irq(struct pci_dev *dev, struct irq_data *irqd)
 		return;
 	}
 
-	old_entry = *(struct hv_interrupt_entry *)irqd->chip_data;
-	entry_to_msi_msg(&old_entry, &msg);
+	irq_entry = *(struct hv_interrupt_entry *)irqd->chip_data;
+	entry_to_msi_msg(&irq_entry, &msg);
 
 	kfree(irqd->chip_data);
 	irqd->chip_data = NULL;
 
-	(void)hv_unmap_msi_interrupt(dev, &old_entry);
+	(void)hv_unmap_msi_interrupt(pdev, &irq_entry);
 }
 
 static void hv_msi_free_irq(struct irq_domain *domain,
