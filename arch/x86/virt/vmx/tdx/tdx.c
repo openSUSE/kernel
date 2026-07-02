@@ -1236,10 +1236,8 @@ static __init int tdx_enable(void)
 	enum cpuhp_state state;
 	int ret;
 
-	if (!cpu_feature_enabled(X86_FEATURE_TDX_HOST_PLATFORM)) {
-		pr_err("TDX not supported by the host platform\n");
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_HOST_PLATFORM))
 		return -ENODEV;
-	}
 
 	if (!cpu_feature_enabled(X86_FEATURE_XSAVE)) {
 		pr_err("XSAVE is required for TDX\n");
