@@ -1725,7 +1725,7 @@ static void l2cap_conn_del(struct hci_conn *hcon, int err)
 	BT_DBG("hcon %p conn %p, err %d", hcon, conn, err);
 
 	cancel_delayed_work_sync(&conn->info_timer);
-	cancel_delayed_work_sync(&conn->id_addr_update_work);
+	cancel_work_sync(&conn->id_addr_update_work);
 
 	mutex_lock(&conn->lock);
 
