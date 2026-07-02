@@ -868,7 +868,11 @@ static int wait_on_sem(volatile u64 *sem)
 {
 	int i = 0;
 
-	while (*sem == 0 && i < LOOP_TIMEOUT) {
+	/*
+	 * cmd_sem holds a monotonically non-decreasing completion sequence
+	 * number.
+	 */
+	while (READ_ONCE(*sem) == 0 && i < LOOP_TIMEOUT) {
 		udelay(1);
 		i += 1;
 	}
@@ -1128,13 +1132,12 @@ static int iommu_completion_wait(struct amd_iommu *iommu)
 	iommu->cmd_sem = 0;
 
 	ret = __iommu_queue_command_sync(iommu, &cmd, false);
+	spin_unlock_irqrestore(&iommu->lock, flags);
+
 	if (ret)
-		goto out_unlock;
+		return ret;
 
 	ret = wait_on_sem(&iommu->cmd_sem);
-
-out_unlock:
-	spin_unlock_irqrestore(&iommu->lock, flags);
 
 	return ret;
 }
