@@ -56,8 +56,12 @@ struct pt_regs
 	unsigned long dsisr;		/* on 4xx/Book-E used for ESR */
 	unsigned long result;		/* Result of a system call */
 	unsigned long exit_flags;	/* System call exit flags */
+#ifndef __GENKSYMS__
 	unsigned long entry_flags;	/* System call entry flags */
 	unsigned long __pt_regs_pad[2];	/* Maintain 16 byte interrupt stack alignment */
+#else
+	unsigned long __pt_regs_pad[3];	/* Maintain 16 byte interrupt stack alignment */
+#endif
 };
 
 #endif /* __ASSEMBLER__ */

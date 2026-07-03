@@ -54,9 +54,13 @@ struct pt_regs
 			};
 			unsigned long result;
 			unsigned long exit_flags;
+#ifndef __GENKSYMS__
 			unsigned long entry_flags;
 			/* Maintain 16 byte interrupt stack alignment */
 			unsigned long __pt_regs_pad[2];
+#else
+			unsigned long __pt_regs_pad[3];
+#endif
 		};
 	};
 #if defined(CONFIG_PPC64) || defined(CONFIG_PPC_KUAP)
