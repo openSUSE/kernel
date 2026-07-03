@@ -68,6 +68,7 @@
 #include <asm/cpu_has_feature.h>
 #include <asm/kasan.h>
 #include <asm/mce.h>
+#include <linux/kmsg_dump.h>
 #include <asm/secure_boot.h>
 
 #include "setup.h"
@@ -743,6 +744,13 @@ static int ppc_panic_fadump_handler(struct notifier_block *this,
 	 * want interrupts to be hard disabled.
 	 */
 	hard_irq_disable();
+
+	/*
+	 * Invoke kmsg_dump (e.g., pstore) before crash_fadump() as fadump
+	 * runs before panic()'s kmsg_dump_desc() call.
+	 */
+	if (should_fadump_crash())
+		kmsg_dump(KMSG_DUMP_PANIC);
 
 	/*
 	 * If firmware-assisted dump has been registered then trigger
