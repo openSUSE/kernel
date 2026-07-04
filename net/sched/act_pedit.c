@@ -140,6 +140,12 @@ static int tcf_pedit(struct sk_buff *skb, struct tc_action *a,
 	if (p->tcfp_nkeys > 0) {
 		struct tc_pedit_key *tkey = p->tcfp_keys;
 
+		/* Linearize so we are sure pedit is operating on a private copy */
+		if (skb_shinfo(skb)->nr_frags > 0) {
+			if (__skb_linearize(skb))
+				goto bad;
+		}
+
 		for (i = p->tcfp_nkeys; i > 0; i--, tkey++) {
 			u32 *ptr, _data;
 			int offset = tkey->off;
