@@ -117,6 +117,7 @@ struct bt_sock {
 	bdaddr_t    src;
 	bdaddr_t    dst;
 	struct list_head accept_q;
+	spinlock_t accept_q_lock; /* protects accept_q */
 	struct sock *parent;
 	u32 defer_setup;
 };
