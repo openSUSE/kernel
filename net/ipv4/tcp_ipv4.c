@@ -360,11 +360,6 @@ void tcp_v4_err(struct sk_buff *icmp_skb, u32 info)
 	int err;
 	struct net *net = dev_net(icmp_skb->dev);
 
-	if (icmp_skb->len < (iph->ihl << 2) + 8) {
-		ICMP_INC_STATS_BH(net, ICMP_MIB_INERRORS);
-		return;
-	}
-
 	sk = inet_lookup(net, &tcp_hashinfo, iph->daddr, th->dest,
 			iph->saddr, th->source, inet_iif(icmp_skb));
 	if (!sk) {
@@ -1416,10 +1411,17 @@ EXPORT_SYMBOL(tcp_v4_conn_request);
 /*
  * The three way handshake has completed - we got a valid synack -
  * now create the new socket.
+ *
+ * Function patched for bsc#1264610 provided under a different name, the
+ * unpatched one is just a wrapper calling it with null opt_child_init
+ * (i.e. preserving the original behaviour). This version is only called
+ * directly from tcp_v6_syn_recv_sock().
  */
-struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
-				  struct request_sock *req,
-				  struct dst_entry *dst)
+struct sock *tcp_v4_syn_recv_sock_bsc1264610(struct sock *sk, struct sk_buff *skb,
+					     struct request_sock *req,
+					     struct dst_entry *dst,
+					     void (*opt_child_init)(struct sock *newsk,
+								    const struct sock *sk))
 {
 	struct inet_request_sock *ireq;
 	struct inet_sock *newinet;
@@ -1464,7 +1466,12 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	}
 	sk_setup_caps(newsk, dst);
 
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	if (opt_child_init)
+		opt_child_init(newsk, sk);
+#endif
 	tcp_mtup_init(newsk);
+
 	tcp_sync_mss(newsk, dst_mtu(dst));
 	newtp->advmss = dst_metric_advmss(dst);
 	if (tcp_sk(sk)->rx_opt.user_mss &&
@@ -1509,6 +1516,14 @@ put_and_exit:
 	bh_unlock_sock(newsk);
 	sock_put(newsk);
 	goto exit;
+}
+EXPORT_SYMBOL(tcp_v4_syn_recv_sock_bsc1264610);
+
+struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+				  struct request_sock *req,
+				  struct dst_entry *dst)
+{
+	return tcp_v4_syn_recv_sock_bsc1264610(sk, skb, req, dst, NULL);
 }
 EXPORT_SYMBOL(tcp_v4_syn_recv_sock);
 

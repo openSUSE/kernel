@@ -1355,6 +1355,39 @@ drop:
 	return 0; /* don't send reset */
 }
 
+/* Called from tcp_v4_syn_recv_sock() for v6_mapped children. */
+static void tcp_v6_mapped_child_init(struct sock *newsk, const struct sock *sk)
+{
+	struct inet_sock *newinet = inet_sk(newsk);
+	struct ipv6_pinfo *newnp;
+
+	newinet->pinet6 = newnp = &((struct tcp6_sock *)newsk)->inet6;
+
+	memcpy(newnp, inet6_sk(sk), sizeof(struct ipv6_pinfo));
+
+	ipv6_addr_set_v4mapped(newinet->inet_daddr, &newnp->daddr);
+
+	ipv6_addr_set_v4mapped(newinet->inet_saddr, &newnp->saddr);
+
+	ipv6_addr_copy(&newnp->rcv_saddr, &newnp->saddr);
+
+	inet_csk(newsk)->icsk_af_ops = &ipv6_mapped;
+	newsk->sk_backlog_rcv = tcp_v4_do_rcv;
+#ifdef CONFIG_TCP_MD5SIG
+	tcp_sk(newsk)->af_specific = &tcp_sock_ipv6_mapped_specific;
+#endif
+
+	newnp->ipv6_mc_list = NULL;
+	newnp->ipv6_ac_list = NULL;
+	newnp->ipv6_fl_list = NULL;
+	newnp->pktoptions  = NULL;
+	newnp->opt	   = NULL;
+
+	/* tcp_v4_syn_recv_sock_bsc1264610() has initialized newinet->mc_{index,ttl} */
+	newnp->mcast_oif   = newinet->mc_index;
+	newnp->mcast_hops  = newinet->mc_ttl;
+}
+
 static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 					  struct request_sock *req,
 					  struct dst_entry *dst)
@@ -1371,60 +1404,9 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 #endif
 	struct flowi6 fl6;
 
-	if (skb->protocol == htons(ETH_P_IP)) {
-		/*
-		 *	v6 mapped
-		 */
-
-		newsk = tcp_v4_syn_recv_sock(sk, skb, req, dst);
-
-		if (newsk == NULL)
-			return NULL;
-
-		newtcp6sk = (struct tcp6_sock *)newsk;
-		inet_sk(newsk)->pinet6 = &newtcp6sk->inet6;
-
-		newinet = inet_sk(newsk);
-		newnp = inet6_sk(newsk);
-		newtp = tcp_sk(newsk);
-
-		memcpy(newnp, np, sizeof(struct ipv6_pinfo));
-
-		ipv6_addr_set_v4mapped(newinet->inet_daddr, &newnp->daddr);
-
-		ipv6_addr_set_v4mapped(newinet->inet_saddr, &newnp->saddr);
-
-		ipv6_addr_copy(&newnp->rcv_saddr, &newnp->saddr);
-
-		inet_csk(newsk)->icsk_af_ops = &ipv6_mapped;
-		newsk->sk_backlog_rcv = tcp_v4_do_rcv;
-#ifdef CONFIG_TCP_MD5SIG
-		newtp->af_specific = &tcp_sock_ipv6_mapped_specific;
-#endif
-
-		newnp->ipv6_mc_list = NULL;
-		newnp->ipv6_ac_list = NULL;
-		newnp->ipv6_fl_list = NULL;
-		newnp->pktoptions  = NULL;
-		newnp->opt	   = NULL;
-		newnp->mcast_oif   = inet6_iif(skb);
-		newnp->mcast_hops  = ipv6_hdr(skb)->hop_limit;
-
-		/*
-		 * No need to charge this sock to the relevant IPv6 refcnt debug socks count
-		 * here, tcp_create_openreq_child now does this for us, see the comment in
-		 * that function for the gory details. -acme
-		 */
-
-		/* It is tricky place. Until this moment IPv4 tcp
-		   worked with IPv6 icsk.icsk_af_ops.
-		   Sync it now.
-		 */
-		tcp_sync_mss(newsk, inet_csk(newsk)->icsk_pmtu_cookie);
-
-		return newsk;
-	}
-
+	if (skb->protocol == htons(ETH_P_IP))
+		return tcp_v4_syn_recv_sock_bsc1264610(sk, skb, req, dst,
+						       tcp_v6_mapped_child_init);
 	treq = inet6_rsk(req);
 
 	if (sk_acceptq_is_full(sk))
