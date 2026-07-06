@@ -6395,6 +6395,12 @@ static int nl80211_calculate_ap_params(struct cfg80211_ap_settings *params)
 	const struct element *rates;
 	const struct element *cap;
 
+	if (!!params->he_cap != !!params->he_oper)
+		return -EINVAL;
+
+	if (!!params->eht_cap != !!params->eht_oper)
+		return -EINVAL;
+
 	rates = cfg80211_find_elem(WLAN_EID_SUPP_RATES, ies, ies_len);
 	nl80211_check_ap_rate_selectors(params, rates);
 
