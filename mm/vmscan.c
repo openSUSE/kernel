@@ -356,6 +356,8 @@ static int prealloc_memcg_shrinker(struct shrinker *shrinker)
 
 	if (mem_cgroup_disabled())
 		return -ENOSYS;
+	if (!memcg_kmem_online() && !(shrinker->flags & SHRINKER_NONSLAB))
+		return -ENOSYS;
 
 	down_write(&shrinker_rwsem);
 	/* This may call shrinker, so it must use down_read_trylock() */
