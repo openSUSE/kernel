@@ -2976,7 +2976,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 			struct kvm_mmu_page *parent_sp;
 			LIST_HEAD(invalid_list);
 
-			if (child && child->gfn == base_gfn)
+			if (child && child->gfn == base_gfn && child->role.direct == true)
 				continue;
 
 			parent_sp = sptep_to_sp(it.sptep);
