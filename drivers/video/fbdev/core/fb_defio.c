@@ -24,30 +24,6 @@
 #include <linux/rmap.h>
 #include <linux/pagemap.h>
 
-struct fb_deferred_io_state;
-
-/*
- * Read/write fbdevio state. We don't use struct fb_deferred_io.lock
- * any longer. So recycle the memory to store the new state field to
- * avoid breaking kABI. Store the pointer value, not the actual field
- * data.
- */
-
-static struct fb_deferred_io_state *rd_fbdefio_state(const struct fb_deferred_io *fbdefio)
-{
-	struct fb_deferred_io_state *fbdefio_state;
-
-	memcpy(&fbdefio_state, &fbdefio->lock, sizeof(fbdefio_state));
-
-	return fbdefio_state;
-}
-
-static void wr_fbdefio_state(struct fb_deferred_io *fbdefio, 
-			     struct fb_deferred_io_state *fbdefio_state)
-{
-	memcpy(&fbdefio->lock, &fbdefio_state, sizeof(fbdefio_state));
-}
-
 /*
  * struct fb_deferred_io_state
  */
@@ -357,18 +333,15 @@ static const struct address_space_operations fb_deferred_io_aops = {
 
 int fb_deferred_io_mmap(struct fb_info *info, struct vm_area_struct *vma)
 {
-	struct fb_deferred_io *fbdefio = info->fbdefio;
-	struct fb_deferred_io_state *fbdefio_state = rd_fbdefio_state(fbdefio);
-
 	vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
 
 	vma->vm_ops = &fb_deferred_io_vm_ops;
 	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	if (!(info->flags & FBINFO_VIRTFB))
 		vm_flags_set(vma, VM_IO);
-	vma->vm_private_data = fbdefio_state;
+	vma->vm_private_data = info->fbdefio_state;
 
-	fb_deferred_io_state_get(fbdefio_state); /* released in vma->vm_ops->close() */
+	fb_deferred_io_state_get(info->fbdefio_state); /* released in vma->vm_ops->close() */
 
 	return 0;
 }
@@ -380,7 +353,7 @@ static void fb_deferred_io_work(struct work_struct *work)
 	struct fb_info *info = container_of(work, struct fb_info, deferred_work.work);
 	struct fb_deferred_io_pageref *pageref, *next;
 	struct fb_deferred_io *fbdefio = info->fbdefio;
-	struct fb_deferred_io_state *fbdefio_state = rd_fbdefio_state(fbdefio);
+	struct fb_deferred_io_state *fbdefio_state = info->fbdefio_state;
 
 	/* here we wrprotect the page's mappings, then do all deferred IO. */
 	mutex_lock(&fbdefio_state->lock);
@@ -438,7 +411,7 @@ int fb_deferred_io_init(struct fb_info *info)
 	info->npagerefs = npagerefs;
 	info->pagerefs = pagerefs;
 
-	wr_fbdefio_state(fbdefio, fbdefio_state);
+	info->fbdefio_state = fbdefio_state;
 
 	return 0;
 
@@ -477,11 +450,11 @@ EXPORT_SYMBOL_GPL(fb_deferred_io_release);
 void fb_deferred_io_cleanup(struct fb_info *info)
 {
 	struct fb_deferred_io *fbdefio = info->fbdefio;
-	struct fb_deferred_io_state *fbdefio_state = rd_fbdefio_state(fbdefio);
+	struct fb_deferred_io_state *fbdefio_state = info->fbdefio_state;
 
 	fb_deferred_io_lastclose(info);
 
-	wr_fbdefio_state(fbdefio, NULL);
+	info->fbdefio_state = NULL;
 
 	mutex_lock(&fbdefio_state->lock);
 	fbdefio_state->info = NULL;
