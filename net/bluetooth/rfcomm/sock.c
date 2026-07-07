@@ -138,7 +138,7 @@ static struct sock *__rfcomm_get_sock_by_addr(u8 channel, bdaddr_t *src)
 }
 
 /* Find socket with channel and source bdaddr.
- * Returns closest match.
+ * Returns closest match with an extra reference held.
  */
 static struct sock *rfcomm_get_sock_by_channel(int state, u8 channel, bdaddr_t *src)
 {
@@ -153,14 +153,24 @@ static struct sock *rfcomm_get_sock_by_channel(int state, u8 channel, bdaddr_t *
 
 		if (rfcomm_pi(sk)->channel == channel) {
 			/* Exact match. */
-			if (!bacmp(&bt_sk(sk)->src, src))
+			if (!bacmp(&bt_sk(sk)->src, src)) {
+				sock_hold(sk);
 				break;
+			}
 
 			/* Closest match */
-			if (!bacmp(&bt_sk(sk)->src, BDADDR_ANY))
+			if (!bacmp(&bt_sk(sk)->src, BDADDR_ANY)) {
+				if (sk1)
+					sock_put(sk1);
+
 				sk1 = sk;
+				sock_hold(sk1);
+			}
 		}
 	}
+
+	if (node && sk1)
+		sock_put(sk1);
 
 	read_unlock(&rfcomm_sk_list.lock);
 
@@ -928,6 +938,7 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 {
 	struct sock *sk, *parent;
 	bdaddr_t src, dst;
+	int defer_setup = 0;
 	int result = 0;
 
 	BT_DBG("session %p channel %d", s, channel);
@@ -940,6 +951,11 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 		return 0;
 
 	bh_lock_sock(parent);
+
+	if (parent->sk_state != BT_LISTEN)
+		goto done;
+
+	defer_setup = bt_sk(parent)->defer_setup;
 
 	/* Check for backlog size */
 	if (sk_acceptq_is_full(parent)) {
@@ -966,8 +982,10 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 done:
 	bh_unlock_sock(parent);
 
-	if (bt_sk(parent)->defer_setup)
+	if (defer_setup)
 		parent->sk_state_change(parent);
+
+	sock_put(parent);
 
 	return result;
 }
