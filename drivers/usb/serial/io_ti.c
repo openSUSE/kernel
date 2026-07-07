@@ -814,6 +814,13 @@ static int get_manuf_info(struct edgeport_serial *serial, __u8 *buffer)
 	}
 
 	/* Read the descriptor data */
+	if (le16_to_cpu(rom_desc->Size) != sizeof(struct edge_ti_manuf_descriptor)) {
+		dev_err(&serial->serial->dev->dev,
+			"unexpected Edge descriptor length: %u\n",
+			le16_to_cpu(rom_desc->Size));
+		status = -EINVAL;
+		goto exit;
+	}
 	status = read_rom(serial, start_address+sizeof(struct ti_i2c_desc),
 						rom_desc->Size, buffer);
 	if (status)
