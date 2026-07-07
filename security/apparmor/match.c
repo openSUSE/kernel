@@ -257,7 +257,7 @@ struct aa_dfa *aa_dfa_unpack(void *blob, size_t size, int flags)
 	if (size < hsize)
 		goto fail;
 
-	dfa->flags = get_unaligned_be32(data + 12);
+	dfa->flags = get_unaligned_be16(data + 12);
 	data += hsize;
 	size -= hsize;
 
