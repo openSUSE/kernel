@@ -324,6 +324,12 @@ static int tcf_pedit_act(struct sk_buff *skb, const struct tc_action *a,
 			TCA_PEDIT_KEY_EX_HDR_TYPE_NETWORK;
 		enum pedit_cmd cmd = TCA_PEDIT_KEY_EX_CMD_SET;
 
+		/* Linearize so we are sure pedit is operating on a private copy */
+		if (skb_has_shared_frag(skb)) {
+			if (__skb_linearize(skb))
+				goto bad;
+		}
+
 		for (i = p->tcfp_nkeys; i > 0; i--, tkey++) {
 			u32 *ptr, hdata;
 			int offset = tkey->off;
