@@ -666,7 +666,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, gpa_t addr,
 			struct kvm_mmu_page *parent_sp;
 			LIST_HEAD(invalid_list);
 
-			if (!child || child->gfn != gw->table_gfn[it.level - 2]) {
+			if (!child || child->gfn != gw->table_gfn[it.level - 2] || child->role.direct != false) {
 				parent_sp = sptep_to_sp(it.sptep);
 				WARN_ON_ONCE(parent_sp->role.level == PG_LEVEL_4K);
 
@@ -742,7 +742,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, gpa_t addr,
 			struct kvm_mmu_page *parent_sp;
 			LIST_HEAD(invalid_list);
 
-			if (!child || child->gfn != base_gfn) {
+			if (!child || child->gfn != base_gfn || child->role.direct != true) {
 				parent_sp = sptep_to_sp(it.sptep);
 				WARN_ON_ONCE(parent_sp->role.level == PG_LEVEL_4K);
 
