@@ -42,7 +42,7 @@ static inline unsigned long arch_calc_vm_flag_bits(struct file *file,
 	 * filesystem supporting MTE (RAM-based).
 	 */
 	if (system_supports_mte() &&
-	    ((flags & MAP_ANONYMOUS) || shmem_file(file)))
+	    ((flags & MAP_ANONYMOUS | MAP_HUGETLB) || shmem_file(file)))
 		return VM_MTE_ALLOWED;
 
 	return 0;
