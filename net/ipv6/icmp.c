@@ -676,6 +676,9 @@ int ip6_err_gen_icmpv6_unreach(struct sk_buff *skb, int nhs, int type,
 	if (!skb2)
 		return 1;
 
+	/* Remove debris left by IPv4 stack. */
+	memset(IP6CB(skb2), 0, sizeof(*IP6CB(skb2)));
+
 	skb_dst_drop(skb2);
 	skb_pull(skb2, nhs);
 	skb_reset_network_header(skb2);
@@ -848,6 +851,9 @@ void icmpv6_notify(struct sk_buff *skb, u8 type, u8 code, __be32 info)
 
 	/* Checkin header including 8 bytes of inner protocol header. */
 	if (!pskb_may_pull(skb, inner_offset+8))
+		goto out;
+
+	if (nexthdr == IPPROTO_RAW)
 		goto out;
 
 	/* BUGGG_FUTURE: we should try to parse exthdrs in this packet.
