@@ -1559,6 +1559,7 @@ unmap_bar:
 	 * adapter-MTU file and apc->mana_pci_debugfs folder.
 	 */
 	debugfs_remove_recursive(gc->mana_pci_debugfs);
+	gc->mana_pci_debugfs = NULL;
 	pci_iounmap(pdev, bar0_va);
 free_gc:
 	pci_set_drvdata(pdev, NULL);
@@ -1581,6 +1582,8 @@ static void mana_gd_remove(struct pci_dev *pdev)
 	mana_gd_cleanup(pdev);
 
 	debugfs_remove_recursive(gc->mana_pci_debugfs);
+
+	gc->mana_pci_debugfs = NULL;
 
 	pci_iounmap(pdev, gc->bar0_va);
 
@@ -1636,6 +1639,8 @@ static void mana_gd_shutdown(struct pci_dev *pdev)
 
 	debugfs_remove_recursive(gc->mana_pci_debugfs);
 
+	gc->mana_pci_debugfs = NULL;
+
 	pci_disable_device(pdev);
 }
 
@@ -1662,8 +1667,10 @@ static int __init mana_driver_init(void)
 	mana_debugfs_root = debugfs_create_dir("mana", NULL);
 
 	err = pci_register_driver(&mana_driver);
-	if (err)
+	if (err) {
 		debugfs_remove(mana_debugfs_root);
+		mana_debugfs_root = NULL;
+	}
 
 	return err;
 }
@@ -1673,6 +1680,8 @@ static void __exit mana_driver_exit(void)
 	pci_unregister_driver(&mana_driver);
 
 	debugfs_remove(mana_debugfs_root);
+
+	mana_debugfs_root = NULL;
 }
 
 module_init(mana_driver_init);
