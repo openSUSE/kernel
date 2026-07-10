@@ -418,6 +418,7 @@ struct gdma_context {
 	u32			test_event_eq_id;
 
 	bool			is_pf;
+	bool			is_pf2;
 
 	phys_addr_t		bar0_pa;
 	void __iomem		*bar0_va;
@@ -571,6 +572,7 @@ struct gdma_eqe {
 #define GDMA_SRIOV_REG_CFG_BASE_OFF	0x108
 
 #define MANA_PF_DEVICE_ID 0x00B9
+#define MANA_PF2_DEVICE_ID 0x00C1
 #define MANA_VF_DEVICE_ID 0x00BA
 
 struct gdma_posted_wqe_info {
