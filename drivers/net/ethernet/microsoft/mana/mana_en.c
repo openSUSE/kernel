@@ -773,6 +773,9 @@ static int mana_send_request(struct mana_context *ac, void *in_buf,
 	err = mana_gd_send_request(gc, in_len, in_buf, out_len,
 				   out_buf);
 	if (err || resp->status) {
+		if (err == -EOPNOTSUPP)
+			return err;
+
 		if (req->req.msg_type != MANA_QUERY_PHY_STAT)
 			dev_err(dev, "Failed to send mana message: %d, 0x%x\n",
 				err, resp->status);
