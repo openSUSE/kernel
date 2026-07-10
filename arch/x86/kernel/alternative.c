@@ -2588,8 +2588,8 @@ static void dump_pte(void *paddr)
 		return;
 	}
 
-	pr_err("%s: PTE value: 0x%lx, flags: 0x%lx\n",
-	       __func__, pte_val(pte), pte_flags(pte));
+	pr_err("%s: PTE value: 0x%llx, flags: 0x%llx\n",
+	       __func__, (u64)pte_val(pte), (u64)pte_flags(pte));
 }
 
 static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t len)
