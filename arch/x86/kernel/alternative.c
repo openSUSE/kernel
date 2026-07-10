@@ -2544,6 +2544,54 @@ static void text_poke_memset(void *dst, const void *src, size_t len)
 
 typedef void text_poke_f(void *dst, const void *src, size_t len);
 
+static void dump_pte(void *paddr)
+{
+	unsigned long addr = (unsigned long)paddr;
+
+	if (core_kernel_text(addr))
+		return;
+
+	pgd_t *pgd = pgd_offset_k(addr);
+	if (pgd_none(*pgd)) {
+		pr_err("%s: PGD is none\n", __func__);
+		return;
+	}
+
+	p4d_t *p4d = p4d_offset(pgd, addr);
+	if (p4d_none(*p4d)) {
+		pr_err("%s: P4D is none\n", __func__);
+		return;
+	}
+	if (p4d_leaf(*p4d))
+		return;
+
+	pud_t *pud = pud_offset(p4d, addr);
+	if (pud_none(*pud)) {
+		pr_err("%s: PUD is none\n", __func__);
+		return;
+	}
+	if (pud_leaf(*pud))
+		return;
+
+	pmd_t *pmd = pmd_offset(pud, addr);
+	if (pmd_none(*pmd)) {
+		pr_err("%s: PMD is none\n", __func__);
+		return;
+	}
+	if (pmd_leaf(*pmd))
+		return;
+
+	pte_t *ptep = pte_offset_kernel(pmd, addr);
+        pte_t pte = ptep_get(ptep);
+	if (!pte_present(pte)) {
+		pr_err("%s: PTE is non-present\n", __func__);
+		return;
+	}
+
+	pr_err("%s: PTE value: 0x%lx, flags: 0x%lx\n",
+	       __func__, pte_val(pte), pte_flags(pte));
+}
+
 static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t len)
 {
 	bool cross_page_boundary = offset_in_page(addr) + len > PAGE_SIZE;
@@ -2580,6 +2628,7 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 		       core_kernel_text((unsigned long)addr),
 		       pages[0], pages[1]);
 		print_hex_dump(KERN_ERR, "op: ", DUMP_PREFIX_NONE, 16, 1, src, len, true);
+		dump_pte(addr);
 		BUG();
 	}
 
