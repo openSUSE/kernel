@@ -302,6 +302,7 @@ struct gdma_queue {
 
 	u32 head;
 	u32 tail;
+	struct list_head entry;
 
 	/* Extra fields specific to EQ/CQ. */
 	union {
@@ -337,6 +338,7 @@ struct gdma_queue_spec {
 			void *context;
 
 			unsigned long log2_throttle_limit;
+			unsigned int msix_index;
 		} eq;
 
 		struct {
@@ -353,7 +355,9 @@ struct gdma_queue_spec {
 
 struct gdma_irq_context {
 	void (*handler)(void *arg);
-	void *arg;
+	/* Protect the eq_list */
+	spinlock_t lock;
+	struct list_head eq_list;
 	char name[MANA_IRQ_NAME_SZ];
 };
 
@@ -365,7 +369,6 @@ struct gdma_context {
 	unsigned int		max_num_queues;
 	unsigned int		max_num_msix;
 	unsigned int		num_msix_usable;
-	struct gdma_resource	msix_resource;
 	struct gdma_irq_context	*irq_contexts;
 
 	/* L2 MTU */
