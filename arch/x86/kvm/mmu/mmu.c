@@ -862,9 +862,9 @@ void track_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp,
 		return;
 
 	++kvm->stat.nx_lpage_splits;
-	++kvm->arch.possible_nx_huge_pages[mmu_type].nr_pages;
+	++kvm->arch.possible_nx_huge_pages[mmu_type]->nr_pages;
 	list_add_tail(&sp->possible_nx_huge_page_link,
-		      &kvm->arch.possible_nx_huge_pages[mmu_type].pages);
+		      &kvm->arch.possible_nx_huge_pages[mmu_type]->pages);
 }
 
 static void account_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp,
@@ -899,7 +899,7 @@ void untrack_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp,
 		return;
 
 	--kvm->stat.nx_lpage_splits;
-	--kvm->arch.possible_nx_huge_pages[mmu_type].nr_pages;
+	--kvm->arch.possible_nx_huge_pages[mmu_type]->nr_pages;
 	list_del_init(&sp->possible_nx_huge_page_link);
 }
 
@@ -6352,14 +6352,19 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 	return unlikely(!list_empty_careful(&kvm->arch.zapped_obsolete_pages));
 }
 
-void kvm_mmu_init_vm(struct kvm *kvm)
+int kvm_mmu_init_vm(struct kvm *kvm)
 {
-	int i;
+	int i, j;
 
 	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
 	INIT_LIST_HEAD(&kvm->arch.zapped_obsolete_pages);
-	for (i = 0; i < KVM_NR_MMU_TYPES; ++i)
-		INIT_LIST_HEAD(&kvm->arch.possible_nx_huge_pages[i].pages);
+	for (i = 0; i < KVM_NR_MMU_TYPES; ++i) {
+		kvm->arch.possible_nx_huge_pages[i] =
+			kzalloc(sizeof(struct kvm_possible_nx_huge_pages), GFP_KERNEL);
+		if (!kvm->arch.possible_nx_huge_pages[i])
+			goto out;
+		INIT_LIST_HEAD(&kvm->arch.possible_nx_huge_pages[i]->pages);
+	}
 	spin_lock_init(&kvm->arch.mmu_unsync_pages_lock);
 
 	if (tdp_mmu_enabled)
@@ -6372,6 +6377,13 @@ void kvm_mmu_init_vm(struct kvm *kvm)
 
 	kvm->arch.split_desc_cache.kmem_cache = pte_list_desc_cache;
 	kvm->arch.split_desc_cache.gfp_zero = __GFP_ZERO;
+
+	return 0;
+
+out:
+	for (j = 0; j < i; ++j)
+		kfree(kvm->arch.possible_nx_huge_pages[j]);
+	return -ENOMEM;
 }
 
 static void mmu_free_vm_memory_caches(struct kvm *kvm)
@@ -6383,10 +6395,15 @@ static void mmu_free_vm_memory_caches(struct kvm *kvm)
 
 void kvm_mmu_uninit_vm(struct kvm *kvm)
 {
+	int i;
+
 	if (tdp_mmu_enabled)
 		kvm_mmu_uninit_tdp_mmu(kvm);
 
 	mmu_free_vm_memory_caches(kvm);
+
+	for (i = 0; i < KVM_NR_MMU_TYPES; ++i)
+		kfree(kvm->arch.possible_nx_huge_pages[i]);
 }
 
 static bool kvm_rmap_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
@@ -7200,7 +7217,7 @@ static int set_nx_huge_pages_recovery_param(const char *val, const struct kernel
 static unsigned long nx_huge_pages_to_zap(struct kvm *kvm,
 					  enum kvm_mmu_type mmu_type)
 {
-	unsigned long pages = READ_ONCE(kvm->arch.possible_nx_huge_pages[mmu_type].nr_pages);
+	unsigned long pages = READ_ONCE(kvm->arch.possible_nx_huge_pages[mmu_type]->nr_pages);
 	unsigned int ratio = READ_ONCE(nx_huge_pages_recovery_ratio);
 
 	return ratio ? DIV_ROUND_UP(pages, ratio) : 0;
@@ -7248,7 +7265,7 @@ static void kvm_recover_nx_huge_pages(struct kvm *kvm,
 	bool flush = false;
 	int rcu_idx;
 
-	nx_huge_pages = &kvm->arch.possible_nx_huge_pages[mmu_type].pages;
+	nx_huge_pages = &kvm->arch.possible_nx_huge_pages[mmu_type]->pages;
 
 	rcu_idx = srcu_read_lock(&kvm->srcu);
 	if (is_tdp_mmu)
