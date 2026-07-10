@@ -78,24 +78,26 @@ static int mana_ib_netdev_event(struct notifier_block *this,
 	struct gdma_context *gc = dev->gdma_dev->gdma_context;
 	struct mana_context *mc = gc->mana.driver_data;
 	struct net_device *ndev;
+	int i;
 
 	/* Only process events from our parent device */
-	if (event_dev != mc->ports[0])
-		return NOTIFY_DONE;
-
-	switch (event) {
-	case NETDEV_CHANGEUPPER:
-		ndev = mana_get_primary_netdev_rcu(mc, 0);
-		/*
-		 * RDMA core will setup GID based on updated netdev.
-		 * It's not possible to race with the core as rtnl lock is being
-		 * held.
-		 */
-		ib_device_set_netdev(&dev->ib_dev, ndev, 1);
-		return NOTIFY_OK;
-	default:
-		return NOTIFY_DONE;
-	}
+	for (i = 0; i < dev->ib_dev.phys_port_cnt; i++)
+		if (event_dev == mc->ports[i]) {
+			switch (event) {
+			case NETDEV_CHANGEUPPER:
+				ndev = mana_get_primary_netdev_rcu(mc, i);
+				/*
+				 * RDMA core will setup GID based on updated netdev.
+				 * It's not possible to race with the core as rtnl lock is being
+				 * held.
+				 */
+				ib_device_set_netdev(&dev->ib_dev, ndev, i + 1);
+				return NOTIFY_OK;
+			default:
+				return NOTIFY_DONE;
+			}
+		}
+	return NOTIFY_DONE;
 }
 
 static int mana_ib_probe(struct auxiliary_device *adev,
@@ -108,7 +110,7 @@ static int mana_ib_probe(struct auxiliary_device *adev,
 	struct net_device *ndev;
 	struct mana_ib_dev *dev;
 	u8 mac_addr[ETH_ALEN];
-	int ret;
+	int ret, i;
 
 	dev = ib_alloc_device(mana_ib_dev, ib_dev);
 	if (!dev)
@@ -123,35 +125,11 @@ static int mana_ib_probe(struct auxiliary_device *adev,
 
 	if (mana_ib_is_rnic(dev)) {
 		dev->ib_dev.phys_port_cnt = 1;
-		rcu_read_lock(); /* required to get primary netdev */
-		ndev = mana_get_primary_netdev_rcu(mc, 0);
-		if (!ndev) {
-			rcu_read_unlock();
-			ret = -ENODEV;
-			ibdev_err(&dev->ib_dev, "Failed to get netdev for IB port 1");
-			goto free_ib_device;
-		}
-		ether_addr_copy(mac_addr, ndev->dev_addr);
-		addrconf_addr_eui48((u8 *)&dev->ib_dev.node_guid, ndev->dev_addr);
-		ret = ib_device_set_netdev(&dev->ib_dev, ndev, 1);
-		rcu_read_unlock();
-		if (ret) {
-			ibdev_err(&dev->ib_dev, "Failed to set ib netdev, ret %d", ret);
-			goto free_ib_device;
-		}
-
-		dev->nb.notifier_call = mana_ib_netdev_event;
-		ret = register_netdevice_notifier(&dev->nb);
-		if (ret) {
-			ibdev_err(&dev->ib_dev, "Failed to register net notifier, %d",
-				  ret);
-			goto free_ib_device;
-		}
-
+		addrconf_addr_eui48((u8 *)&dev->ib_dev.node_guid, mc->ports[0]->dev_addr);
 		ret = mana_ib_gd_query_adapter_caps(dev);
 		if (ret) {
 			ibdev_err(&dev->ib_dev, "Failed to query device caps, ret %d", ret);
-			goto deregister_net_notifier;
+			goto free_ib_device;
 		}
 
 		ib_set_device_ops(&dev->ib_dev, &mana_ib_stats_ops);
@@ -161,16 +139,42 @@ static int mana_ib_probe(struct auxiliary_device *adev,
 		ret = mana_ib_create_eqs(dev);
 		if (ret) {
 			ibdev_err(&dev->ib_dev, "Failed to create EQs, ret %d", ret);
-			goto deregister_net_notifier;
+			goto free_ib_device;
 		}
 
 		ret = mana_ib_gd_create_rnic_adapter(dev);
 		if (ret)
 			goto destroy_eqs;
 
-		ret = mana_ib_gd_config_mac(dev, ADDR_OP_ADD, mac_addr);
+		if (dev->adapter_caps.feature_flags & MANA_IB_FEATURE_MULTI_PORTS_SUPPORT)
+			dev->ib_dev.phys_port_cnt = mc->num_ports;
+
+		for (i = 0; i < dev->ib_dev.phys_port_cnt; i++) {
+			rcu_read_lock(); /* required to get primary netdev */
+			ndev = mana_get_primary_netdev_rcu(mc, i);
+			if (!ndev) {
+				ret = -ENODEV;
+				ibdev_err(&dev->ib_dev,
+					  "Failed to get netdev for IB port %d", i + 1);
+				goto destroy_rnic;
+			}
+			ether_addr_copy(mac_addr, ndev->dev_addr);
+			ret = ib_device_set_netdev(&dev->ib_dev, ndev, i + 1);
+			rcu_read_unlock();
+			if (ret) {
+				ibdev_err(&dev->ib_dev, "Failed to set ib netdev, ret %d", ret);
+				goto destroy_rnic;
+			}
+			ret = mana_ib_gd_config_mac(dev, ADDR_OP_ADD, mac_addr);
+			if (ret) {
+				ibdev_err(&dev->ib_dev, "Failed to add Mac address, ret %d", ret);
+				goto destroy_rnic;
+			}
+		}
+		dev->nb.notifier_call = mana_ib_netdev_event;
+		ret = register_netdevice_notifier(&dev->nb);
 		if (ret) {
-			ibdev_err(&dev->ib_dev, "Failed to add Mac address, ret %d", ret);
+			ibdev_err(&dev->ib_dev, "Failed to register net notifier, %d", ret);
 			goto destroy_rnic;
 		}
 	} else {
@@ -186,7 +190,7 @@ static int mana_ib_probe(struct auxiliary_device *adev,
 				       MANA_AV_BUFFER_SIZE, 0);
 	if (!dev->av_pool) {
 		ret = -ENOMEM;
-		goto destroy_rnic;
+		goto deregister_net_notifier;
 	}
 
 	ibdev_dbg(&dev->ib_dev, "mdev=%p id=%d num_ports=%d\n", mdev,
@@ -203,15 +207,15 @@ static int mana_ib_probe(struct auxiliary_device *adev,
 
 deallocate_pool:
 	dma_pool_destroy(dev->av_pool);
+deregister_net_notifier:
+	if (mana_ib_is_rnic(dev))
+		unregister_netdevice_notifier(&dev->nb);
 destroy_rnic:
 	if (mana_ib_is_rnic(dev))
 		mana_ib_gd_destroy_rnic_adapter(dev);
 destroy_eqs:
 	if (mana_ib_is_rnic(dev))
 		mana_ib_destroy_eqs(dev);
-deregister_net_notifier:
-	if (mana_ib_is_rnic(dev))
-		unregister_netdevice_notifier(&dev->nb);
 free_ib_device:
 	xa_destroy(&dev->qp_table_wq);
 	ib_dealloc_device(&dev->ib_dev);
@@ -225,9 +229,9 @@ static void mana_ib_remove(struct auxiliary_device *adev)
 	ib_unregister_device(&dev->ib_dev);
 	dma_pool_destroy(dev->av_pool);
 	if (mana_ib_is_rnic(dev)) {
+		unregister_netdevice_notifier(&dev->nb);
 		mana_ib_gd_destroy_rnic_adapter(dev);
 		mana_ib_destroy_eqs(dev);
-		unregister_netdevice_notifier(&dev->nb);
 	}
 	xa_destroy(&dev->qp_table_wq);
 	ib_dealloc_device(&dev->ib_dev);
