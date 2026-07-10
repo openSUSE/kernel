@@ -6,6 +6,7 @@
 #include <linux/vmalloc.h>
 #include <linux/memory.h>
 #include <linux/execmem.h>
+#include <linux/printk.h>
 
 #include <asm/text-patching.h>
 #include <asm/insn.h>
@@ -2573,7 +2574,14 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 	 * If something went wrong, crash and burn since recovery paths are not
 	 * implemented.
 	 */
-	BUG_ON(!pages[0] || (cross_page_boundary && !pages[1]));
+	if (!pages[0] || (cross_page_boundary && !pages[1])) {
+		pr_err("%s: failed to get page for %px-%px (%pS): cross=%d core=%d pages=%px/%px\n",
+		       __func__, addr, addr + len - 1, addr, cross_page_boundary,
+		       core_kernel_text((unsigned long)addr),
+		       pages[0], pages[1]);
+		print_hex_dump(KERN_ERR, "op: ", DUMP_PREFIX_NONE, 16, 1, src, len, true);
+		BUG();
+	}
 
 	/*
 	 * Map the page without the global bit, as TLB flushing is done with
