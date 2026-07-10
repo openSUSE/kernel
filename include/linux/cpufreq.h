@@ -179,6 +179,12 @@ struct cpufreq_policy {
 	struct notifier_block nb_max;
 };
 
+DEFINE_GUARD(cpufreq_policy_write, struct cpufreq_policy *,
+	     down_write(&_T->rwsem), up_write(&_T->rwsem))
+
+DEFINE_GUARD(cpufreq_policy_read, struct cpufreq_policy *,
+	     down_read(&_T->rwsem), up_read(&_T->rwsem))
+
 /*
  * Used for passing new cpufreq policy data to the cpufreq driver's ->verify()
  * callback for sanitization.  That callback is only expected to modify the min
@@ -244,8 +250,6 @@ void disable_cpufreq(void);
 
 u64 get_cpu_idle_time(unsigned int cpu, u64 *wall, int io_busy);
 
-struct cpufreq_policy *cpufreq_cpu_acquire(unsigned int cpu);
-void cpufreq_cpu_release(struct cpufreq_policy *policy);
 int cpufreq_get_policy(struct cpufreq_policy *policy, unsigned int cpu);
 void refresh_frequency_limits(struct cpufreq_policy *policy);
 void cpufreq_update_policy(unsigned int cpu);
@@ -375,7 +379,7 @@ struct cpufreq_driver {
 	 * conditions) scale invariance can be disabled, which causes the
 	 * schedutil governor to fall back to the latter.
 	 */
-	void		(*adjust_perf)(unsigned int cpu,
+	void		(*adjust_perf)(struct cpufreq_policy *policy,
 				       unsigned long min_perf,
 				       unsigned long target_perf,
 				       unsigned long capacity);
@@ -404,7 +408,7 @@ struct cpufreq_driver {
 	unsigned int	(*get)(unsigned int cpu);
 
 	/* Called to update policy limits on firmware notifications. */
-	void		(*update_limits)(unsigned int cpu);
+	void		(*update_limits)(struct cpufreq_policy *policy);
 
 	/* optional */
 	int		(*bios_limit)(int cpu, unsigned int *limit);
@@ -620,7 +624,7 @@ struct cpufreq_governor {
 /* Pass a target to the cpufreq driver */
 unsigned int cpufreq_driver_fast_switch(struct cpufreq_policy *policy,
 					unsigned int target_freq);
-void cpufreq_driver_adjust_perf(unsigned int cpu,
+void cpufreq_driver_adjust_perf(struct cpufreq_policy *policy,
 				unsigned long min_perf,
 				unsigned long target_perf,
 				unsigned long capacity);

@@ -563,14 +563,11 @@ static inline bool amd_pstate_sample(struct amd_cpudata *cpudata)
 	return true;
 }
 
-static void amd_pstate_update(struct amd_cpudata *cpudata, u8 min_perf,
+static void amd_pstate_update(struct cpufreq_policy *policy, u8 min_perf,
 			      u8 des_perf, u8 max_perf, bool fast_switch, int gov_flags)
 {
-	struct cpufreq_policy *policy __free(put_cpufreq_policy) = cpufreq_cpu_get(cpudata->cpu);
+	struct amd_cpudata *cpudata = policy->driver_data;
 	union perf_cached perf = READ_ONCE(cpudata->perf);
-
-	if (!policy)
-		return;
 
 	/* limit the max perf when core performance boost feature is disabled */
 	if (!cpudata->boost_supported)
@@ -673,7 +670,7 @@ static int amd_pstate_update_freq(struct cpufreq_policy *policy,
 	if (!fast_switch)
 		cpufreq_freq_transition_begin(policy, &freqs);
 
-	amd_pstate_update(cpudata, perf.min_limit_perf, des_perf,
+	amd_pstate_update(policy, perf.min_limit_perf, des_perf,
 			  perf.max_limit_perf, fast_switch,
 			  policy->governor->flags);
 
@@ -698,13 +695,12 @@ static unsigned int amd_pstate_fast_switch(struct cpufreq_policy *policy,
 	return policy->cur;
 }
 
-static void amd_pstate_adjust_perf(unsigned int cpu,
+static void amd_pstate_adjust_perf(struct cpufreq_policy *policy,
 				   unsigned long _min_perf,
 				   unsigned long target_perf,
 				   unsigned long capacity)
 {
 	u8 max_perf, min_perf, des_perf, cap_perf;
-	struct cpufreq_policy *policy __free(put_cpufreq_policy) = cpufreq_cpu_get(cpu);
 	struct amd_cpudata *cpudata;
 	union perf_cached perf;
 
@@ -735,7 +731,7 @@ static void amd_pstate_adjust_perf(unsigned int cpu,
 	if (max_perf < min_perf)
 		max_perf = min_perf;
 
-	amd_pstate_update(cpudata, min_perf, des_perf, max_perf, true,
+	amd_pstate_update(policy, min_perf, des_perf, max_perf, true,
 			policy->governor->flags);
 }
 
@@ -830,17 +826,14 @@ static void amd_pstate_init_prefcore(struct amd_cpudata *cpudata)
 	sched_set_itmt_core_prio((int)READ_ONCE(cpudata->prefcore_ranking), cpudata->cpu);
 }
 
-static void amd_pstate_update_limits(unsigned int cpu)
+static void amd_pstate_update_limits(struct cpufreq_policy *policy)
 {
-	struct cpufreq_policy *policy __free(put_cpufreq_policy) = cpufreq_cpu_get(cpu);
 	struct amd_cpudata *cpudata;
 	u32 prev_high = 0, cur_high = 0;
 	bool highest_perf_changed = false;
+	unsigned int cpu = policy->cpu;
 
 	if (!amd_pstate_prefcore)
-		return;
-
-	if (!policy)
 		return;
 
 	if (amd_get_highest_perf(cpu, &cur_high))
