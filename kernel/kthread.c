@@ -862,7 +862,7 @@ static int kthreads_online_cpu(unsigned int cpu)
 
 static int kthreads_init(void)
 {
-	return cpuhp_setup_state(CPUHP_AP_KTHREADS_ONLINE, "kthreads:online",
+	return cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "kthreads:online",
 				kthreads_online_cpu, NULL);
 }
 early_initcall(kthreads_init);
