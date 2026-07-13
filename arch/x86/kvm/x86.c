@@ -12755,7 +12755,9 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	if (ret)
 		goto out;
 
-	kvm_mmu_init_vm(kvm);
+	ret = kvm_mmu_init_vm(kvm);
+	if (ret)
+		goto out;
 
 	ret = kvm_x86_call(vm_init)(kvm);
 	if (ret)
