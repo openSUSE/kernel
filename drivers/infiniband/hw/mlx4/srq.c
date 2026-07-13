@@ -194,13 +194,15 @@ struct ib_srq *mlx4_ib_create_srq(struct ib_pd *pd,
 	if (pd->uobject)
 		if (ib_copy_to_udata(udata, &srq->msrq.srqn, sizeof (__u32))) {
 			err = -EFAULT;
-			goto err_wrid;
+			goto err_ibcopy;
 		}
 
 	init_attr->attr.max_wr = srq->msrq.max - 1;
 
 	return &srq->ibsrq;
 
+err_ibcopy:
+	mlx4_srq_free(dev->dev, &srq->msrq);
 err_wrid:
 	if (pd->uobject)
 		mlx4_ib_db_unmap_user(to_mucontext(pd->uobject->context), &srq->db);
