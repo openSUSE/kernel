@@ -175,6 +175,8 @@ static struct tb_property_dir *__tb_property_parse_dir(const u32 *block,
 	if (!dir)
 		return NULL;
 
+	INIT_LIST_HEAD(&dir->properties);
+
 	if (is_root) {
 		content_offset = dir_offset + 2;
 		content_len = dir_len;
@@ -183,6 +185,10 @@ static struct tb_property_dir *__tb_property_parse_dir(const u32 *block,
 			return NULL;
 		}
 	} else {
+		if (dir_len < 4) {
+			tb_property_free_dir(dir);
+			return NULL;
+		}
 		dir->uuid = kmemdup(&block[dir_offset], sizeof(*dir->uuid),
 				    GFP_KERNEL);
 		content_offset = dir_offset + 4;
@@ -191,8 +197,6 @@ static struct tb_property_dir *__tb_property_parse_dir(const u32 *block,
 
 	entries = (const struct tb_property_entry *)&block[content_offset];
 	nentries = content_len / (sizeof(*entries) / 4);
-
-	INIT_LIST_HEAD(&dir->properties);
 
 	for (i = 0; i < nentries; i++) {
 		struct tb_property *property;
