@@ -1336,7 +1336,11 @@ struct kvm_arch {
 	struct hlist_head mmu_page_hash[KVM_NUM_MMU_PAGES];
 	struct list_head active_mmu_pages;
 	struct list_head zapped_obsolete_pages;
-	struct kvm_possible_nx_huge_pages possible_nx_huge_pages[KVM_NR_MMU_TYPES];
+#ifdef __GENKSYMS__
+	struct list_head possible_nx_huge_pages;
+#else
+	struct kvm_possible_nx_huge_pages *possible_nx_huge_pages[KVM_NR_MMU_TYPES];
+#endif
 #ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
 	struct kvm_page_track_notifier_head track_notifier_head;
 #endif
@@ -1813,6 +1817,8 @@ suse_kabi_static_assert(offsetof(struct kvm_arch, boot_vcpu_runs_old_kvmclock) =
                         offsetof(struct __orig_kvm_arch, boot_vcpu_runs_old_kvmclock));
 suse_kabi_static_assert(offsetof(struct kvm_arch, bsp_vcpu_id) ==
                         offsetof(struct __orig_kvm_arch, bsp_vcpu_id));
+suse_kabi_static_assert(offsetof(struct kvm_arch, possible_nx_huge_pages) ==
+                        offsetof(struct __orig_kvm_arch, possible_nx_huge_pages));
 
 struct kvm_vm_stat {
 	struct kvm_vm_stat_generic generic;
@@ -2229,7 +2235,7 @@ void kvm_mmu_vendor_module_exit(void);
 
 void kvm_mmu_destroy(struct kvm_vcpu *vcpu);
 int kvm_mmu_create(struct kvm_vcpu *vcpu);
-void kvm_mmu_init_vm(struct kvm *kvm);
+int kvm_mmu_init_vm(struct kvm *kvm);
 void kvm_mmu_uninit_vm(struct kvm *kvm);
 
 void kvm_mmu_init_memslot_memory_attributes(struct kvm *kvm,
