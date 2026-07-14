@@ -125,6 +125,18 @@
 #define CRYPTO_ALG_FIPS_INTERNAL	0x00020000
 
 /*
+ * Mark an algorithm as unapproved by FIPS.
+ *
+ * Downstream flag introduced to meet the FIPS certification
+ * requirements for crypto_alg implementations that aren't intended
+ * for cryptographic uses, but still exposed through the crypto API.
+ *
+ * Gets propagated from spawns up to relying crypto_instance's, as per
+ * being a member of CRYPTO_ALG_INHERITED_FLAGS.
+ */
+#define CRYPTO_ALG_FIPS_UNAPPROVED	0x40000000
+
+/*
  * Transform masks and values (for crt_flags).
  */
 #define CRYPTO_TFM_NEED_KEY		0x00000001
