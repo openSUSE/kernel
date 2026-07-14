@@ -24,6 +24,8 @@
 #define HWC_INIT_DATA_PF_DEST_CQ_ID	11
 
 #define HWC_DATA_CFG_HWC_TIMEOUT 1
+#define HWC_DATA_HW_LINK_CONNECT 2
+#define HWC_DATA_HW_LINK_DISCONNECT 3
 
 #define HW_CHANNEL_WAIT_RESOURCE_TIMEOUT_MS 30000
 
@@ -46,6 +48,15 @@ union hwc_init_type_data {
 	struct {
 		u32 value	: 24;
 		u32 type	:  8;
+	};
+}; /* HW DATA */
+
+union hwc_init_soc_service_type {
+	u32 as_uint32;
+
+	struct {
+		u32 value	: 28;
+		u32 type	:  4;
 	};
 }; /* HW DATA */
 

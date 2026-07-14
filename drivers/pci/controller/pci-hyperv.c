@@ -49,6 +49,7 @@
 #include <linux/refcount.h>
 #include <linux/irqdomain.h>
 #include <linux/acpi.h>
+#include <linux/sizes.h>
 #include <asm/mshyperv.h>
 
 /*
@@ -465,7 +466,7 @@ struct pci_eject_response {
 	u32 status;
 } __packed;
 
-static int pci_ring_size = (4 * PAGE_SIZE);
+static int pci_ring_size = VMBUS_RING_SIZE(SZ_16K);
 
 /*
  * Driver specific state.
@@ -500,7 +501,6 @@ struct hv_pcibus_device {
 	struct resource *low_mmio_res;
 	struct resource *high_mmio_res;
 	struct completion *survey_event;
-	struct pci_bus *pci_bus;
 	spinlock_t config_lock;	/* Avoid two threads writing index page */
 	spinlock_t device_list_lock;	/* Protect lists below */
 	void __iomem *cfg_addr;
@@ -1375,7 +1375,7 @@ static struct pci_ops hv_pcifront_ops = {
  *
  * If the PF driver wishes to initiate communication, it can "invalidate" one or
  * more of the first 64 blocks.  This invalidation is delivered via a callback
- * supplied by the VF driver by this driver.
+ * supplied to the VF driver by this driver.
  *
  * No protocol is implied, except that supplied by the PF and VF drivers.
  */
@@ -2382,6 +2382,14 @@ static void hv_pci_assign_numa_node(struct hv_pcibus_device *hbus)
 		hv_dev = get_pcichild_wslot(hbus, devfn_to_wslot(dev->devfn));
 		if (!hv_dev)
 			continue;
+
+		/*
+		 * If the Hyper-V host doesn't provide a NUMA node for the
+		 * device, default to node 0. With NUMA_NO_NODE the kernel
+		 * may spread work across NUMA nodes, which degrades
+		 * performance on Hyper-V.
+		 */
+		set_dev_node(&dev->dev, 0);
 
 		if (hv_dev->desc.flags & HV_PCI_DEVICE_FLAG_NUMA_AFFINITY &&
 		    hv_dev->desc.virtual_numa_node < num_possible_nodes())
