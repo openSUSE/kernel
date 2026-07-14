@@ -80,6 +80,11 @@ static const struct smccc_device_info smccc_devices[] __initconst = {
 		.requires_smc   = false,
 		.device_name    = "arm-smccc-trng",
 	},
+	{
+		.func_id        = ARM_SMCCC_LFA_GET_VERSION,
+		.requires_smc   = false,
+		.device_name    = "arm-smccc-lfa",
+	},
 };
 
 static bool __init smccc_probe_smccc_device(const struct smccc_device_info *smccc_dev)

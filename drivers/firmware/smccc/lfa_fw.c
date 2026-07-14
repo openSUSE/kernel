@@ -5,9 +5,9 @@
 
 #include <linux/acpi.h>
 #include <linux/arm-smccc.h>
+#include <linux/arm-smccc-bus.h>
 #include <linux/array_size.h>
 #include <linux/delay.h>
-#include <linux/device/faux.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -20,7 +20,6 @@
 #include <linux/of_irq.h>
 #include <linux/psci.h>
 #include <linux/rwsem.h>
-#include <linux/slab.h>
 #include <linux/stop_machine.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
@@ -33,18 +32,6 @@
 #define DRIVER_NAME	"ARM_LFA"
 #undef pr_fmt
 #define pr_fmt(fmt) "Arm LFA: " fmt
-
-/* LFA v1.0b0 specification */
-#define LFA_1_0_FN_BASE			0xc40002e0
-#define LFA_1_0_FN(n)			(LFA_1_0_FN_BASE + (n))
-
-#define LFA_1_0_FN_GET_VERSION		LFA_1_0_FN(0)
-#define LFA_1_0_FN_CHECK_FEATURE	LFA_1_0_FN(1)
-#define LFA_1_0_FN_GET_INFO		LFA_1_0_FN(2)
-#define LFA_1_0_FN_GET_INVENTORY	LFA_1_0_FN(3)
-#define LFA_1_0_FN_PRIME		LFA_1_0_FN(4)
-#define LFA_1_0_FN_ACTIVATE		LFA_1_0_FN(5)
-#define LFA_1_0_FN_CANCEL		LFA_1_0_FN(6)
 
 /* CALL_AGAIN flags (returned by SMC) */
 #define LFA_PRIME_CALL_AGAIN		BIT(0)
@@ -129,8 +116,6 @@ static struct fw_image *kobj_to_fw_image(struct kobject *kobj)
 	return container_of(kobj, struct fw_image, kobj);
 }
 
-static const char *get_image_name(const struct fw_image *image);
-
 /* A UUID split over two 64-bit registers */
 struct uuid_regs {
 	u64 uuid_lo;
@@ -157,7 +142,7 @@ static const struct fw_image_uuid {
 };
 
 static struct kset *lfa_kset;
-static struct faux_device *lfa_dev;
+static struct arm_smccc_device *lfa_dev;
 static struct workqueue_struct *fw_images_update_wq;
 static struct work_struct fw_images_update_work;
 static struct attribute *image_default_attrs[LFA_ATTR_NR_IMAGES + 1];
@@ -280,7 +265,7 @@ static unsigned long get_nr_lfa_components(void)
 {
 	struct arm_smccc_1_2_regs reg = { 0 };
 
-	reg.a0 = LFA_1_0_FN_GET_INFO;
+	reg.a0 = ARM_SMCCC_LFA_GET_INFO;
 	reg.a1 = 0; /* lfa_info_selector = 0 */
 
 	/* No need for the smc_lock, since no sequence IDs are involved. */
@@ -291,13 +276,21 @@ static unsigned long get_nr_lfa_components(void)
 	return reg.a1;
 }
 
+static const char *get_image_name(const struct fw_image *image)
+{
+	if (image->image_name && image->image_name[0] != '\0')
+		return image->image_name;
+
+	return kobject_name(&image->kobj);
+}
+
 static int lfa_cancel(void *data)
 {
 	struct fw_image *image = data;
 	struct arm_smccc_1_2_regs reg = { 0 };
 
 	down_read(&smc_lock);
-	reg.a0 = LFA_1_0_FN_CANCEL;
+	reg.a0 = ARM_SMCCC_LFA_CANCEL;
 	reg.a1 = image->fw_seq_id;
 	arm_smccc_1_2_invoke(&reg, &reg);
 	up_read(&smc_lock);
@@ -319,14 +312,6 @@ static int lfa_cancel(void *data)
 	return reg.a0;
 }
 
-static const char *get_image_name(const struct fw_image *image)
-{
-	if (image->image_name && image->image_name[0] != '\0')
-		return image->image_name;
-
-	return kobject_name(&image->kobj);
-}
-
 /*
  * Try a single activation call. The smc_lock writer lock must be held,
  * and it must be called from inside stop_machine() when CPU rendezvous is
@@ -338,7 +323,7 @@ static int call_lfa_activate(void *data)
 	struct arm_smccc_1_2_regs reg = { 0 }, res;
 
 	touch_nmi_watchdog();
-	reg.a0 = LFA_1_0_FN_ACTIVATE;
+	reg.a0 = ARM_SMCCC_LFA_ACTIVATE;
 	reg.a1 = image->fw_seq_id;
 	/*
 	 * As we do not support updates requiring a CPU reset (yet),
@@ -380,25 +365,8 @@ retry:
 
 	up_write(&smc_lock);
 
-	if (ret == -LFA_CALL_AGAIN) {
-		/* SMC returned with call_again flag set */
-		if (ktime_before(ktime_get(), end)) {
-			msleep_interruptible(LFA_ACTIVATE_DELAY_MS);
-			goto retry;
-		}
-
-		ret = -LFA_TIMED_OUT;
-	}
-
-	/*
-	 * DEN0147 §2.6: LFA_BUSY means activation was postponed by firmware
-	 * and must be retried. Although the rwsem prevents concurrent ACTIVATE
-	 * from this driver, an external agent or firmware-internal state may
-	 * still return LFA_BUSY. Handle it explicitly so it is not silently
-	 * treated as a terminal failure — catching it here may also indicate a
-	 * bug in the driver or firmware.
-	 */
-	if (ret == -LFA_BUSY) {
+	/* SMC returned with call_again flag set, or with LFA_BUSY */
+	if (ret == -LFA_CALL_AGAIN || ret == -LFA_BUSY) {
 		if (ktime_before(ktime_get(), end)) {
 			msleep_interruptible(LFA_ACTIVATE_DELAY_MS);
 			goto retry;
@@ -419,7 +387,6 @@ static int prime_fw_image(struct fw_image *image)
 {
 	struct arm_smccc_1_2_regs reg = { 0 }, res;
 	ktime_t end = ktime_add_ms(ktime_get(), LFA_PRIME_BUDGET_MS);
-	int ret;
 
 	if (image->may_reset_cpu) {
 		pr_err("CPU reset not supported by kernel driver\n");
@@ -429,7 +396,7 @@ static int prime_fw_image(struct fw_image *image)
 
 	touch_nmi_watchdog();
 
-	reg.a0 = LFA_1_0_FN_PRIME;
+	reg.a0 = ARM_SMCCC_LFA_PRIME;
 retry:
 	/*
 	 * LFA_PRIME will return 1 in reg.a1 if the firmware priming
@@ -442,17 +409,6 @@ retry:
 	arm_smccc_1_2_invoke(&reg, &res);
 	up_read(&smc_lock);
 
-	/*
-	 * DEN0147 §2.5: LFA_BUSY from PRIME means another CPU is concurrently
-	 * running LFA_PRIME. This driver never issues parallel PRIME, so this
-	 * is unexpected and likely indicates a firmware or driver bug.
-	 */
-	if ((long)res.a0 == -LFA_BUSY) {
-		pr_warn("LFA_PRIME for image %s returned LFA_BUSY (concurrent PRIME unexpected; possible firmware or driver bug)\n",
-			get_image_name(image));
-		return res.a0;
-	}
-
 	if ((long)res.a0 < 0) {
 		pr_err("LFA_PRIME for image %s failed: %s\n",
 		       get_image_name(image),
@@ -462,6 +418,8 @@ retry:
 	}
 
 	if (res.a1 & LFA_PRIME_CALL_AGAIN) {
+		int ret;
+
 		/* SMC returned with call_again flag set */
 		if (ktime_before(ktime_get(), end)) {
 			msleep_interruptible(LFA_PRIME_DELAY_MS);
@@ -486,7 +444,7 @@ static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr,
 {
 	struct fw_image *image = kobj_to_fw_image(kobj);
 
-	return sysfs_emit(buf, "%s\n", get_image_name(image));
+	return sysfs_emit(buf, "%s\n", image->image_name);
 }
 
 static ssize_t activation_capable_show(struct kobject *kobj,
@@ -501,7 +459,7 @@ static void _update_fw_image_pending(struct fw_image *image)
 {
 	struct arm_smccc_1_2_regs reg = { 0 };
 
-	reg.a0 = LFA_1_0_FN_GET_INVENTORY;
+	reg.a0 = ARM_SMCCC_LFA_GET_INVENTORY;
 	reg.a1 = image->fw_seq_id;
 	arm_smccc_1_2_invoke(&reg, &reg);
 
@@ -591,7 +549,7 @@ static ssize_t pending_version_show(struct kobject *kobj,
 	 * update, we need to retrieve fresh info instead of stale information.
 	 */
 	down_read(&smc_lock);
-	reg.a0 = LFA_1_0_FN_GET_INVENTORY;
+	reg.a0 = ARM_SMCCC_LFA_GET_INVENTORY;
 	reg.a1 = image->fw_seq_id;
 	arm_smccc_1_2_invoke(&reg, &reg);
 	up_read(&smc_lock);
@@ -786,7 +744,7 @@ static int update_fw_images_tree(void)
 	}
 	spin_unlock(&lfa_kset->list_lock);
 
-	reg.a0 = LFA_1_0_FN_GET_INVENTORY;
+	reg.a0 = ARM_SMCCC_LFA_GET_INVENTORY;
 	for (int i = 0; i < num_of_components; i++) {
 		reg.a1 = i; /* fw_seq_id to be queried */
 		arm_smccc_1_2_invoke(&reg, &res);
@@ -961,49 +919,15 @@ static int lfa_register_dt(struct device *dev)
 					 IRQF_COND_ONESHOT, NULL, NULL);
 }
 
-static int lfa_faux_probe(struct faux_device *fdev)
-{
-	int ret;
-
-	if (!acpi_disabled) {
-		ret = lfa_register_acpi(&fdev->dev);
-		if (ret != -ENODEV) {
-			if (!ret)
-				pr_info("registered LFA ACPI notification\n");
-			return ret;
-		}
-	}
-
-	ret = lfa_register_dt(&fdev->dev);
-	if (!ret)
-		pr_info("registered LFA DT notification interrupt\n");
-	if (ret != -ENODEV)
-		return ret;
-
-	return 0;
-}
-
-static void lfa_faux_remove(struct faux_device *fdev)
-{
-	lfa_remove_acpi(&fdev->dev);
-}
-
-static struct faux_device_ops lfa_device_ops = {
-	.probe = lfa_faux_probe,
-	.remove = lfa_faux_remove,
-};
-
-static int __init lfa_init(void)
+static int lfa_smccc_probe(struct arm_smccc_device *sdev)
 {
 	struct arm_smccc_1_2_regs reg = { 0 };
 	int err;
 
-	reg.a0 = LFA_1_0_FN_GET_VERSION;
+	reg.a0 = ARM_SMCCC_LFA_GET_VERSION;
 	arm_smccc_1_2_invoke(&reg, &reg);
-	if (reg.a0 == -LFA_NOT_SUPPORTED) {
-		pr_info("Live Firmware activation: no firmware agent found\n");
+	if ((s32)reg.a0 == -LFA_NOT_SUPPORTED)
 		return -ENODEV;
-	}
 
 	pr_info("Live Firmware Activation: detected v%ld.%ld\n",
 		reg.a0 >> 16, reg.a0 & 0xffff);
@@ -1021,41 +945,63 @@ static int __init lfa_init(void)
 	lfa_kset = kset_create_and_add("lfa", NULL, firmware_kobj);
 	if (!lfa_kset) {
 		destroy_workqueue(fw_images_update_wq);
+
 		return -ENOMEM;
 	}
-
-	/*
-	 * This faux device is just used for the optional notification
-	 * mechanism, to register the ACPI notification or interrupt.
-	 * If the firmware tables do not contain this information, the
-	 * driver will still work.
-	 */
-	lfa_dev = faux_device_create("arm-lfa", NULL, &lfa_device_ops);
 
 	init_rwsem(&smc_lock);
 
 	err = update_fw_images_tree();
 	if (err != 0) {
-		if (lfa_dev)
-			faux_device_destroy(lfa_dev);
 		kset_unregister(lfa_kset);
 		destroy_workqueue(fw_images_update_wq);
 	}
 
-	return err;
-}
-module_init(lfa_init);
+	if (!acpi_disabled) {
+		err = lfa_register_acpi(&sdev->dev);
+		if (err != -ENODEV) {
+			if (!err)
+				pr_info("registered LFA ACPI notification\n");
+			return err;
+		}
+	}
 
-static void __exit lfa_exit(void)
+	err = lfa_register_dt(&sdev->dev);
+	if (!err)
+		pr_info("registered LFA DT notification interrupt\n");
+	if (err != -ENODEV)
+		return err;
+
+	lfa_dev = sdev;
+
+	return 0;
+}
+
+static void lfa_smccc_remove(struct arm_smccc_device *sdev)
 {
+	lfa_dev = NULL;
+	if (!acpi_disabled)
+		lfa_remove_acpi(&sdev->dev);
 	flush_workqueue(fw_images_update_wq);
 	destroy_workqueue(fw_images_update_wq);
 	clean_fw_images_tree();
 	kset_unregister(lfa_kset);
-	if (lfa_dev)
-		faux_device_destroy(lfa_dev);
 }
-module_exit(lfa_exit);
+
+static const struct arm_smccc_device_id lfa_smccc_id_table[] = {
+	{ .name = "arm-smccc-lfa" },
+	{}
+};
+MODULE_DEVICE_TABLE(arm_smccc, lfa_smccc_id_table);
+
+static struct arm_smccc_driver smccc_lfa_driver = {
+	.name		= KBUILD_MODNAME,
+	.probe		= lfa_smccc_probe,
+	.remove		= lfa_smccc_remove,
+	.id_table	= lfa_smccc_id_table,
+};
+
+module_arm_smccc_driver(smccc_lfa_driver);
 
 MODULE_DESCRIPTION("ARM Live Firmware Activation (LFA)");
 MODULE_LICENSE("GPL");
