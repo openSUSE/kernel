@@ -237,7 +237,7 @@ static inline u32 crypto_requires_off(struct crypto_attr_type *algt, u32 off)
  */
 #define CRYPTO_ALG_INHERITED_FLAGS	\
 	(CRYPTO_ALG_ASYNC | CRYPTO_ALG_NEED_FALLBACK |	\
-	 CRYPTO_ALG_ALLOCATES_MEMORY)
+	 CRYPTO_ALG_ALLOCATES_MEMORY | CRYPTO_ALG_FIPS_UNAPPROVED)
 
 /*
  * Given the type and mask that specify the flags restrictions on a template
