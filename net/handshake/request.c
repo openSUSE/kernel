@@ -237,6 +237,14 @@ int handshake_req_submit(struct socket *sock, struct handshake_req *req,
 		kfree(req);
 		return -EINVAL;
 	}
+	/* Prevent socket release while a handshake request is pending */
+	sock_hold(req->hr_sk);
+
+	if (req->hr_sk->sk_shutdown) {
+		sock_put(req->hr_sk);
+		kfree(req);
+		return -ESHUTDOWN;
+	}
 	req->hr_odestruct = req->hr_sk->sk_destruct;
 	req->hr_sk->sk_destruct = handshake_sk_destruct;
 	req->hr_file = sock->file;
@@ -269,9 +277,6 @@ int handshake_req_submit(struct socket *sock, struct handshake_req *req,
 			goto out_err;
 	}
 
-	/* Prevent socket release while a handshake request is pending */
-	sock_hold(req->hr_sk);
-
 	trace_handshake_submit(net, req, req->hr_sk);
 	return 0;
 
@@ -281,6 +286,7 @@ out_err:
 	/* Restore original destructor so socket teardown still runs on failure */
 	req->hr_sk->sk_destruct = req->hr_odestruct;
 	trace_handshake_submit_err(net, req, req->hr_sk, ret);
+	sock_put(req->hr_sk);
 	handshake_req_destroy(req);
 	return ret;
 }
