@@ -79,7 +79,8 @@ static struct shash_alg alg = {
 		.cra_name	 = "xxhash64",
 		.cra_driver_name = "xxhash64-generic",
 		.cra_priority	 = 100,
-		.cra_flags	 = CRYPTO_ALG_OPTIONAL_KEY,
+		.cra_flags	 = (CRYPTO_ALG_OPTIONAL_KEY |
+				    CRYPTO_ALG_FIPS_UNAPPROVED),
 		.cra_blocksize	 = XXHASH64_BLOCK_SIZE,
 		.cra_ctxsize	 = sizeof(struct xxhash64_tfm_ctx),
 		.cra_module	 = THIS_MODULE,
