@@ -1272,7 +1272,7 @@ static int madvise_vma_behavior(struct vm_area_struct *vma,
 		new_flags |= VM_DONTCOPY;
 		break;
 	case MADV_DOFORK:
-		if (vma->vm_flags & VM_IO)
+		if (new_flags & VM_SPECIAL)
 			return -EINVAL;
 		new_flags &= ~VM_DONTCOPY;
 		break;
