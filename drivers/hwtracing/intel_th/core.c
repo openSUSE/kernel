@@ -717,6 +717,8 @@ int intel_th_output_enable(struct intel_th *th, unsigned int otype)
 	struct intel_th_device *thdev;
 	int src = 0, dst = 0;
 
+	guard(disable_irq)(&th->irq);
+
 	for (src = 0, dst = 0; dst <= th->num_thdevs; src++, dst++) {
 		for (; src < ARRAY_SIZE(intel_th_subdevices); src++) {
 			if (intel_th_subdevices[src].type != INTEL_TH_OUTPUT)
