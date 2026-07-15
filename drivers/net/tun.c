@@ -2455,8 +2455,10 @@ static int tun_xdp_one(struct tun_struct *tun,
 	int err = 0;
 	bool skb_xdp = false;
 
-	if (unlikely(datasize < ETH_HLEN))
+	if (unlikely(datasize < ETH_HLEN)) {
+		put_page(virt_to_head_page(xdp->data));
 		return -EINVAL;
+	}
 
 	xdp_prog = rcu_dereference(tun->xdp_prog);
 	if (xdp_prog) {
