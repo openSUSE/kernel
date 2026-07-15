@@ -3576,8 +3576,8 @@ static bool skb_gso_has_extension_hdr(const struct sk_buff *skb)
 			((skb_shinfo(skb)->gso_type & SKB_GSO_TCPV6 ||
 			  (skb_shinfo(skb)->gso_type & SKB_GSO_UDP_L4 &&
 			   inner_ip_hdr(skb)->version == 6)) &&
-			 skb_inner_network_header_len(skb) != sizeof(struct ipv6hdr)) &&
-			 !ipv6_has_hopopt_jumbo(skb));
+			 skb_inner_network_header_len(skb) != sizeof(struct ipv6hdr) &&
+			 !ipv6_has_hopopt_jumbo(skb)));
 }
 
 static netdev_features_t gso_features_check(const struct sk_buff *skb,
