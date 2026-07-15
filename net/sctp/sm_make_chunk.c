@@ -1655,6 +1655,7 @@ struct sctp_association *sctp_unpack_cookie(
 	struct sk_buff *skb = chunk->skb;
 	struct timeval tv;
 	struct hash_desc desc;
+	struct sctp_chunkhdr *ch;
 
 	/* Header size is static data prior to the actual cookie, including
 	 * any padding.
@@ -1680,6 +1681,10 @@ struct sctp_association *sctp_unpack_cookie(
 	/* Process the cookie.  */
 	cookie = chunk->subh.cookie_hdr;
 	bear_cookie = &cookie->c;
+
+	ch = (struct sctp_chunkhdr *)&bear_cookie->peer_init[0];
+	if (ntohs(ch->length) > len - fixed_size)
+		goto malformed;
 
 	if (!sctp_sk(ep->base.sk)->hmac)
 		goto no_hmac;
