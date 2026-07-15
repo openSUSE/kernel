@@ -173,7 +173,9 @@ static inline bool __io_put_kbuf_ring(struct io_kiocb *req, int len, int nr)
 		ret = io_kbuf_commit(req, bl, len, nr);
 		req->buf_index = bl->bgid;
 	}
-	req->flags &= ~REQ_F_BUFFER_RING;
+	if (ret && (req->flags & REQ_F_BUF_MORE))
+		return false;
+	req->flags &= ~(REQ_F_BUFFER_RING | REQ_F_BUF_MORE);
 	return ret;
 }
 
