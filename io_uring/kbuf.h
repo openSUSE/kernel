@@ -130,6 +130,10 @@ static inline bool io_kbuf_recycle(struct io_kiocb *req, unsigned issue_flags)
 static inline bool io_kbuf_commit(struct io_kiocb *req,
 				  struct io_buffer_list *bl, int len, int nr)
 {
+	/* No data consumed, return false early to avoid consuming the buffer */
+	if (!len)
+		return false;
+
 	if (unlikely(!(req->flags & REQ_F_BUFFERS_COMMIT)))
 		return true;
 
@@ -170,7 +174,9 @@ static inline bool __io_put_kbuf_ring(struct io_kiocb *req, int len, int nr)
 		ret = io_kbuf_commit(req, bl, len, nr);
 		req->buf_index = bl->bgid;
 	}
-	req->flags &= ~REQ_F_BUFFER_RING;
+	if (ret && (req->flags & REQ_F_BUF_MORE))
+		return false;
+	req->flags &= ~(REQ_F_BUFFER_RING | REQ_F_BUF_MORE);
 	return ret;
 }
 
