@@ -4836,6 +4836,9 @@ static void intel_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid)
 	if (WARN_ON_ONCE(!domain))
 		goto out_tear_down;
 
+	/* Blocked domain has no meta data for pasid. */
+	if (domain->type == IOMMU_DOMAIN_BLOCKED)
+		goto out_tear_down;
 	/*
 	 * The SVA implementation needs to handle its own stuffs like the mm
 	 * notification. Before consolidating that code into iommu core, let
