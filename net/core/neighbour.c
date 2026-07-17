@@ -3151,7 +3151,7 @@ int neigh_xmit(int index, struct net_device *dev,
 
 		tbl = neigh_tables[index];
 		if (!tbl)
-			goto out;
+			goto out_kfree_skb;
 		rcu_read_lock();
 		if (index == NEIGH_ARP_TABLE) {
 			u32 key = *((u32 *)addr);
@@ -3177,11 +3177,10 @@ int neigh_xmit(int index, struct net_device *dev,
 			goto out_kfree_skb;
 		err = dev_queue_xmit(skb);
 	}
-out:
 	return err;
 out_kfree_skb:
 	kfree_skb(skb);
-	goto out;
+	return err;
 }
 EXPORT_SYMBOL(neigh_xmit);
 
