@@ -1740,7 +1740,7 @@ struct sctp_association *sctp_unpack_cookie(
 	cookie = chunk->subh.cookie_hdr;
 	bear_cookie = &cookie->c;
 
-	ch = (struct sctp_chunkhdr *)(bear_cookie + 1);
+	ch = (struct sctp_chunkhdr *)&bear_cookie->peer_init[0];
 	chlen = ntohs(ch->length);
 	if (chlen < sizeof(struct sctp_init_chunk))
 		goto malformed;
