@@ -796,24 +796,30 @@ static bool mpam_ris_hw_probe_csu_nrdy(struct mpam_msc_ris *ris)
 
 	mon_sel = FIELD_PREP(MSMON_CFG_MON_SEL_MON_SEL, 0) |
 		  FIELD_PREP(MSMON_CFG_MON_SEL_RIS, ris->ris_idx);
-	mpam_write_monsel_reg(msc, CFG_MON_SEL, mon_sel);
+	if (mpam_write_monsel_reg(msc, CFG_MON_SEL, mon_sel))
+		goto out_unlock;
 
 	/* Hardware might ignore nrdy if it's not enabled */
 	ctl_val = MSMON_CFG_CSU_CTL_TYPE_CSU;
 	ctl_val |= MSMON_CFG_x_CTL_MATCH_PARTID;
 	ctl_val |= MSMON_CFG_x_CTL_MATCH_PMG;
 	ctl_val |= MSMON_CFG_x_CTL_EN;
-	mpam_write_monsel_reg(msc, CFG_CSU_FLT, 0);
-	mpam_write_monsel_reg(msc, CFG_CSU_CTL, ctl_val);
+	if (mpam_write_monsel_reg(msc, CFG_CSU_FLT, 0))
+		goto out_unlock;
+	if (mpam_write_monsel_reg(msc, CFG_CSU_CTL, ctl_val))
+		goto out_unlock;
 
-	_mpam_write_monsel_reg(msc, MSMON_CSU, MSMON___NRDY);
+	if (_mpam_write_monsel_reg(msc, MSMON_CSU, MSMON___NRDY))
+		goto out_unlock;
 	if (_mpam_read_monsel_reg(msc, MSMON_CSU, &now))
 		goto out_unlock;
 	can_set = now & MSMON___NRDY;
 
-	_mpam_write_monsel_reg(msc, MSMON_CSU, 0);
+	if (_mpam_write_monsel_reg(msc, MSMON_CSU, 0))
+		goto out_unlock;
 	/* Configuration change to try and coax hardware into setting nrdy */
-	mpam_write_monsel_reg(msc, CFG_CSU_FLT, 0x1);
+	if (mpam_write_monsel_reg(msc, CFG_CSU_FLT, 0x1))
+		goto out_unlock;
 	if (_mpam_read_monsel_reg(msc, MSMON_CSU, &now))
 		goto out_unlock;
 	can_clear = !(now & MSMON___NRDY);
@@ -1060,8 +1066,9 @@ static int mpam_msc_hw_probe(struct mpam_msc *msc)
 
 	for (ris_idx = 0; ris_idx <= msc->ris_max; ris_idx++) {
 		mutex_lock(&msc->part_sel_lock);
-		__mpam_part_sel(ris_idx, 0, msc);
-		ret = mpam_msc_read_idr(msc, &idr);
+		ret = __mpam_part_sel(ris_idx, 0, msc);
+		if (!ret)
+			ret = mpam_msc_read_idr(msc, &idr);
 		mutex_unlock(&msc->part_sel_lock);
 		if (ret)
 			return ret;
@@ -1080,9 +1087,11 @@ static int mpam_msc_hw_probe(struct mpam_msc *msc)
 		ris->idr = idr;
 
 		mutex_lock(&msc->part_sel_lock);
-		__mpam_part_sel(ris_idx, 0, msc);
-		ret = mpam_ris_hw_probe(ris);
+		ret = __mpam_part_sel(ris_idx, 0, msc);
+		if (!ret)
+			ret = mpam_ris_hw_probe(ris);
 		mutex_unlock(&msc->part_sel_lock);
+
 		if (ret)
 			return ret;
 	}
