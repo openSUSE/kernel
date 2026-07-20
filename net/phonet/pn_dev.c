@@ -102,7 +102,7 @@ static void phonet_device_destroy(struct net_device *dev)
 
 		for_each_set_bit(addr, pnd->addrs, 64)
 			phonet_address_notify(RTM_DELADDR, dev, addr);
-		kfree(pnd);
+		kfree_rcu(pnd, rcu);
 	}
 }
 
