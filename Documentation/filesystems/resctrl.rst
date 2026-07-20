@@ -479,6 +479,12 @@ with the following files:
 	"1":
 		Auto assignment is enabled.
 
+	Automatic counter assignment is done with best effort. If auto
+	assignment is enabled but there are not enough available counters then
+	monitor group creation could succeed while one or more events belonging
+	to the group may not have a counter assigned in all domains. Consult
+	mbm_L3_assignments for counter assignment states of the new groups.
+
 	Example::
 
 	  # echo 0 > /sys/fs/resctrl/info/L3_MON/mbm_assign_on_mkdir
