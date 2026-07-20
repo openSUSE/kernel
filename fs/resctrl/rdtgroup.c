@@ -2331,22 +2331,19 @@ static int resctrl_mkdir_event_configs(struct rdt_resource *r, struct kernfs_nod
 			continue;
 
 		kn_subdir2 = kernfs_create_dir(kn_subdir, mevt->name, kn_subdir->mode, mevt);
-		if (IS_ERR(kn_subdir2)) {
-			ret = PTR_ERR(kn_subdir2);
-			goto out;
-		}
+		if (IS_ERR(kn_subdir2))
+			return PTR_ERR(kn_subdir2);
 
 		ret = rdtgroup_kn_set_ugid(kn_subdir2);
 		if (ret)
-			goto out;
+			return ret;
 
 		ret = rdtgroup_add_files(kn_subdir2, RFTYPE_ASSIGN_CONFIG);
 		if (ret)
-			break;
+			return ret;
 	}
 
-out:
-	return ret;
+	return 0;
 }
 
 static int rdtgroup_mkdir_info_resdir(void *priv, char *name,
