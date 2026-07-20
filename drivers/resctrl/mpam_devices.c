@@ -247,27 +247,38 @@ static bool mpam_msc_check_aidr(struct mpam_msc *msc)
 	return true;
 }
 
-static u64 mpam_msc_read_idr(struct mpam_msc *msc)
+static int mpam_msc_read_idr(struct mpam_msc *msc, u64 *res)
 {
 	u32 idr_high = 0, idr_low;
+	int ret;
 
 	lockdep_assert_held(&msc->part_sel_lock);
 
-	mpam_read_partsel_reg(msc, IDR, &idr_low);
-	if (FIELD_GET(MPAMF_IDR_EXT, idr_low))
-		mpam_read_partsel_reg(msc, IDR + 4, &idr_high);
+	ret = mpam_read_partsel_reg(msc, IDR, &idr_low);
+	if (ret)
+		return ret;
 
-	return ((u64)idr_high << 32) | idr_low;
+	if (FIELD_GET(MPAMF_IDR_EXT, idr_low))
+		ret = mpam_read_partsel_reg(msc, IDR + 4, &idr_high);
+	if (ret)
+		return ret;
+
+	*res = ((u64)idr_high << 32) | idr_low;
+
+	return 0;
 }
 
-static void mpam_msc_clear_esr(struct mpam_msc *msc)
+static int mpam_msc_clear_esr(struct mpam_msc *msc)
 {
 	u32 esr_low;
+	int ret;
 
-	__mpam_read_reg(msc, MPAMF_ESR, &esr_low);
+	ret = __mpam_read_reg(msc, MPAMF_ESR, &esr_low);
+	if (ret)
+		return ret;
 
 	if (!esr_low)
-		return;
+		return 0;
 
 	/*
 	 * Clearing the high/low bits of MPAMF_ESR can not be atomic.
@@ -277,18 +288,30 @@ static void mpam_msc_clear_esr(struct mpam_msc *msc)
 	 */
 	if (msc->has_extd_esr)
 		__mpam_write_reg(msc, MPAMF_ESR + 4, 0);
+
 	__mpam_write_reg(msc, MPAMF_ESR, 0);
+
+	return 0;
 }
 
-static u64 mpam_msc_read_esr(struct mpam_msc *msc)
+static int mpam_msc_read_esr(struct mpam_msc *msc, u64 *res)
 {
 	u32 esr_high = 0, esr_low;
+	int ret;
 
-	__mpam_read_reg(msc, MPAMF_ESR, &esr_low);
-	if (msc->has_extd_esr)
-		__mpam_read_reg(msc, MPAMF_ESR + 4, &esr_high);
+	ret = __mpam_read_reg(msc, MPAMF_ESR, &esr_low);
+	if (ret)
+		return ret;
 
-	return ((u64)esr_high << 32) | esr_low;
+	if (msc->has_extd_esr) {
+		ret = __mpam_read_reg(msc, MPAMF_ESR + 4, &esr_high);
+		if (ret)
+			return ret;
+	}
+
+	*res = ((u64)esr_high << 32) | esr_low;
+
+	return 0;
 }
 
 static void __mpam_part_sel_raw(u32 partsel, struct mpam_msc *msc)
@@ -993,7 +1016,7 @@ static int mpam_msc_hw_probe(struct mpam_msc *msc)
 
 	/* Grab an IDR value to find out how many RIS there are */
 	mutex_lock(&msc->part_sel_lock);
-	idr = mpam_msc_read_idr(msc);
+	mpam_msc_read_idr(msc, &idr);
 	mpam_read_partsel_reg(msc, IIDR, &msc->iidr);
 
 	mutex_unlock(&msc->part_sel_lock);
@@ -1009,7 +1032,7 @@ static int mpam_msc_hw_probe(struct mpam_msc *msc)
 	for (ris_idx = 0; ris_idx <= msc->ris_max; ris_idx++) {
 		mutex_lock(&msc->part_sel_lock);
 		__mpam_part_sel(ris_idx, 0, msc);
-		idr = mpam_msc_read_idr(msc);
+		mpam_msc_read_idr(msc, &idr);
 		mutex_unlock(&msc->part_sel_lock);
 
 		partid_max = FIELD_GET(MPAMF_IDR_PARTID_MAX, idr);
@@ -2492,7 +2515,7 @@ static irqreturn_t __mpam_irq_handler(int irq, struct mpam_msc *msc)
 					   &msc->accessibility)))
 		return IRQ_NONE;
 
-	reg = mpam_msc_read_esr(msc);
+	mpam_msc_read_esr(msc, &reg);
 
 	errcode = FIELD_GET(MPAMF_ESR_ERRCODE, reg);
 	if (!errcode)
