@@ -361,8 +361,8 @@ struct ib_ucontext *pvrdma_alloc_ucontext(struct ib_device *ibdev,
 	uresp.qp_tab_size = vdev->dsr->caps.max_qp;
 	ret = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
 	if (ret) {
-		pvrdma_uar_free(vdev, &context->uar);
 		context->ibucontext.device = ibdev;
+		/* pvrdma_dealloc_ucontext() also frees the UAR */
 		pvrdma_dealloc_ucontext(&context->ibucontext);
 		return ERR_PTR(-EFAULT);
 	}
