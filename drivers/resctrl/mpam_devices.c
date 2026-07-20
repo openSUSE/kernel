@@ -1306,7 +1306,6 @@ static void __ris_msmon_read(void *arg)
 	u64 now;
 	int ret;
 	u32 now32;
-	bool nrdy = false;
 	bool config_mismatch;
 	bool overflow = false;
 	struct mon_read *m = arg;
@@ -1371,14 +1370,18 @@ static void __ris_msmon_read(void *arg)
 	switch (m->type) {
 	case mpam_feat_msmon_csu:
 		ret = mpam_read_monsel_reg(msc, CSU, &now32);
+		if (!ret) {
+			if ((now32 & MSMON___NRDY))
+				ret = -EBUSY;
+
+			if (mpam_has_quirk(IGNORE_CSU_NRDY, msc) &&
+			    m->waited_timeout)
+				ret = 0;
+		}
 		if (ret)
 			goto out_unlock;
-		nrdy = now32 & MSMON___NRDY;
+
 		now = FIELD_GET(MSMON___VALUE, now32);
-
-		if (mpam_has_quirk(IGNORE_CSU_NRDY, msc) && m->waited_timeout)
-			nrdy = false;
-
 		break;
 	case mpam_feat_msmon_mbwu_31counter:
 	case mpam_feat_msmon_mbwu_44counter:
@@ -1394,18 +1397,17 @@ static void __ris_msmon_read(void *arg)
 				now = FIELD_GET(MSMON___L_VALUE, now);
 		} else {
 			ret = mpam_read_monsel_reg(msc, MBWU, &now32);
+			if (!ret && (now32 & MSMON___NRDY))
+				ret = -EBUSY;
 			if (ret)
 				goto out_unlock;
-			nrdy = now32 & MSMON___NRDY;
+
 			now = FIELD_GET(MSMON___VALUE, now32);
 		}
 
 		if (mpam_has_quirk(T241_MBW_COUNTER_SCALE_64, msc) &&
 		    m->type != mpam_feat_msmon_mbwu_63counter)
 			now *= 64;
-
-		if (nrdy)
-			break;
 
 		mbwu_state = &ris->mbwu_state[ctx->mon];
 
@@ -1419,22 +1421,16 @@ static void __ris_msmon_read(void *arg)
 		now += mbwu_state->correction;
 		break;
 	default:
-		m->err = -EINVAL;
+		ret = -EINVAL;
 	}
-	mpam_mon_sel_unlock(msc);
-
-	if (nrdy)
-		m->err = -EBUSY;
-
-	if (!m->err)
-		*m->val += now;
-
-	return;
 
 out_unlock:
 	mpam_mon_sel_unlock(msc);
 
-	m->err = ret;
+	if (ret)
+		m->err = ret;
+	else
+		*m->val += now;
 }
 
 static int _msmon_read(struct mpam_component *comp, struct mon_read *arg)
