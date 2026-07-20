@@ -35,6 +35,10 @@ struct io_provide_buf {
 bool io_kbuf_commit(struct io_kiocb *req,
 		    struct io_buffer_list *bl, int len, int nr)
 {
+	/* No data consumed, return false early to avoid consuming the buffer */
+	if (!len)
+		return false;
+
 	if (unlikely(!(req->flags & REQ_F_BUFFERS_COMMIT)))
 		return true;
 
@@ -195,7 +199,8 @@ static void __user *io_ring_buffer_select(struct io_kiocb *req, size_t *len,
 		 * the transfer completes (or if we get -EAGAIN and must poll of
 		 * retry).
 		 */
-		io_kbuf_commit(req, bl, *len, 1);
+		if (!io_kbuf_commit(req, bl, *len, 1))
+			req->flags |= REQ_F_BUF_MORE;
 		req->buf_list = NULL;
 	}
 	return ret;
@@ -340,7 +345,8 @@ int io_buffers_select(struct io_kiocb *req, struct buf_sel_arg *arg,
 		 */
 		if (ret > 0) {
 			req->flags |= REQ_F_BUFFERS_COMMIT | REQ_F_BL_NO_RECYCLE;
-			io_kbuf_commit(req, bl, arg->out_len, ret);
+			if(!io_kbuf_commit(req, bl, arg->out_len, ret))
+				req->flags |= REQ_F_BUF_MORE;
 		}
 	} else {
 		ret = io_provided_buffers_select(req, &arg->out_len, bl, arg->iovs);
@@ -382,7 +388,9 @@ static inline bool __io_put_kbuf_ring(struct io_kiocb *req, int len, int nr)
 		ret = io_kbuf_commit(req, bl, len, nr);
 		req->buf_index = bl->bgid;
 	}
-	req->flags &= ~REQ_F_BUFFER_RING;
+	if (ret && (req->flags & REQ_F_BUF_MORE))
+		return false;
+	req->flags &= ~(REQ_F_BUFFER_RING | REQ_F_BUF_MORE);
 	return ret;
 }
 

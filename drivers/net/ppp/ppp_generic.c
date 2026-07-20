@@ -2234,6 +2234,21 @@ ppp_do_recv(struct ppp *ppp, struct sk_buff *skb, struct channel *pch)
 }
 
 /**
+ * ppp_skb_is_compressed_proto - checks if PPP protocol in a skb is compressed
+ * @skb: skb to check
+ *
+ * Check if the PPP protocol field is compressed (the least significant
+ * bit of the most significant octet is 1). skb->data must point to the PPP
+ * protocol header.
+ *
+ * Return: Whether the PPP protocol field is compressed.
+ */
+static inline bool ppp_skb_is_compressed_proto(const struct sk_buff *skb)
+{
+	return unlikely(skb->data[0] & 0x01);
+}
+
+/**
  * __ppp_decompress_proto - Decompress protocol field, slim version.
  * @skb: Socket buffer where protocol field should be decompressed. It must have
  *	 at least 1 byte of head room and 1 byte of linear data. First byte of
@@ -2245,7 +2260,7 @@ ppp_do_recv(struct ppp *ppp, struct sk_buff *skb, struct channel *pch)
  */
 static void __ppp_decompress_proto(struct sk_buff *skb)
 {
-	if (skb->data[0] & 0x01)
+	if (ppp_skb_is_compressed_proto(skb))
 		*(u8 *)skb_push(skb, 1) = 0x00;
 }
 
