@@ -19,6 +19,7 @@
 #include <linux/irqdesc.h>
 #include <linux/list.h>
 #include <linux/lockdep.h>
+#include <linux/mailbox_client.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/printk.h>
@@ -26,6 +27,9 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
+
+#include <acpi/pcc.h>
+#include <acpi/acpi_io.h>
 
 #include "mpam_internal.h"
 
@@ -48,6 +52,88 @@ static DEFINE_MUTEX(mpam_list_lock);
 static LIST_HEAD(mpam_all_msc);
 
 struct srcu_struct mpam_srcu;
+
+/* PCC channels might be serving multiple MSCs, so keep a refcounted list. */
+static DEFINE_MUTEX(pcc_chan_list_lock);
+static LIST_HEAD(pcc_chan_list);
+
+static void mpam_pcc_rx_callback(struct mbox_client *cl, void *msg)
+{
+	/* TODO: wake up tasks blocked on this MSC's PCC channel */
+}
+
+static struct mpam_pcc_chan *mpam_pcc_chan_get(struct device *dev,
+					       int subspace_id)
+{
+	struct mpam_pcc_chan *cur;
+
+	mutex_lock(&pcc_chan_list_lock);
+
+	list_for_each_entry(cur, &pcc_chan_list, pcc_chans) {
+		if (cur->subspace_id == subspace_id) {
+			cur->refcount++;
+			mutex_unlock(&pcc_chan_list_lock);
+
+			return cur;
+		}
+	}
+
+	cur = kzalloc(sizeof(*cur), GFP_KERNEL);
+	if (!cur) {
+		mutex_unlock(&pcc_chan_list_lock);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	cur->pcc_cl.dev = dev;
+	cur->pcc_cl.rx_callback = mpam_pcc_rx_callback;
+	cur->pcc_cl.tx_block = true;
+	cur->pcc_cl.tx_tout = 1000; /* 1s */
+
+	cur->pcc_chan = pcc_mbox_request_channel(&cur->pcc_cl, subspace_id);
+	if (IS_ERR(cur->pcc_chan)) {
+		long err = PTR_ERR(cur->pcc_chan);
+
+		kfree(cur);
+		mutex_unlock(&pcc_chan_list_lock);
+		return ERR_PTR(err);
+	}
+
+	mutex_init(&cur->pcc_chan_lock);
+	cur->subspace_id = subspace_id;
+	cur->refcount = 1;
+
+	list_add_tail(&cur->pcc_chans, &pcc_chan_list);
+
+	mutex_unlock(&pcc_chan_list_lock);
+
+	return cur;
+}
+
+static int mpam_pcc_chan_put(struct mpam_pcc_chan *pcc_chan)
+{
+	struct mpam_pcc_chan *cur, *tmp;
+
+	if (!pcc_chan)
+		return 0;
+
+	mutex_lock(&pcc_chan_list_lock);
+
+	list_for_each_entry_safe(cur, tmp, &pcc_chan_list, pcc_chans) {
+		if (cur == pcc_chan) {
+			if (!--cur->refcount) {
+				pcc_mbox_free_channel(cur->pcc_chan);
+				list_del(&pcc_chan->pcc_chans);
+				kfree(cur);
+			}
+			mutex_unlock(&pcc_chan_list_lock);
+			return 0;
+		}
+	}
+
+	mutex_unlock(&pcc_chan_list_lock);
+
+	return -ENOENT;
+}
 
 /*
  * Number of MSCs that have been probed. Once all MSCs have been probed MPAM
@@ -2208,6 +2294,8 @@ static void mpam_msc_drv_remove(struct platform_device *pdev)
 {
 	struct mpam_msc *msc = platform_get_drvdata(pdev);
 
+	mpam_pcc_chan_put(msc->pcc_chan);
+
 	mutex_lock(&mpam_list_lock);
 	mpam_msc_destroy(msc);
 	mutex_unlock(&mpam_list_lock);
@@ -2218,7 +2306,7 @@ static void mpam_msc_drv_remove(struct platform_device *pdev)
 static struct mpam_msc *do_mpam_msc_drv_probe(struct platform_device *pdev)
 {
 	int err;
-	u32 tmp;
+	u32 pcc_subspace_id;
 	struct mpam_msc *msc;
 	struct resource *msc_res;
 	struct device *dev = &pdev->dev;
@@ -2263,7 +2351,8 @@ static struct mpam_msc *do_mpam_msc_drv_probe(struct platform_device *pdev)
 	if (err)
 		return ERR_PTR(err);
 
-	if (device_property_read_u32(&pdev->dev, "pcc-channel", &tmp))
+	if (device_property_read_u32(&pdev->dev, "pcc-channel",
+				     &pcc_subspace_id))
 		msc->iface = MPAM_IFACE_MMIO;
 	else
 		msc->iface = MPAM_IFACE_PCC;
@@ -2279,6 +2368,39 @@ static struct mpam_msc *do_mpam_msc_drv_probe(struct platform_device *pdev)
 		}
 		msc->mapped_hwpage_sz = msc_res->end - msc_res->start;
 		msc->mapped_hwpage = io;
+	} else if (msc->iface == MPAM_IFACE_PCC) {
+		u32 msc_id;
+		int ret;
+
+		if (device_property_read_u32(&pdev->dev, "msc-id", &msc_id)) {
+			pr_err("missing MPAM-Fb MSC identifier\n");
+			return ERR_PTR(-EINVAL);
+		}
+		msc->mpam_fb_msc_id = msc_id;
+
+		msc->pcc_chan = mpam_pcc_chan_get(&pdev->dev, pcc_subspace_id);
+		if (IS_ERR(msc->pcc_chan)) {
+			pr_err("Failed to request MSC PCC channel\n");
+			return (void *)msc->pcc_chan;
+		}
+
+		if (msc->pcc_chan->pcc_chan->shmem_size < MPAM_FB_MAX_MSG_SIZE) {
+			pr_err("MPAM-Fb PCC channel size too small.\n");
+			mpam_pcc_chan_put(msc->pcc_chan);
+			return ERR_PTR(-ENOMEM);
+		}
+		ret = mpam_fb_get_protocol_version(msc);
+		if (ret < 0) {
+			pr_err("Cannot query MPAM-Fb protocol version.\n");
+			mpam_pcc_chan_put(msc->pcc_chan);
+			return ERR_PTR(-EIO);
+		}
+		if ((ret >> 16) != 1) {
+			pr_err("Incompatible MPAM-Fb protocol version %d.%d\n",
+			       ret >> 16, ret & 0xffff);
+			mpam_pcc_chan_put(msc->pcc_chan);
+			return ERR_PTR(-EINVAL);
+		}
 	} else {
 		return ERR_PTR(-EINVAL);
 	}
