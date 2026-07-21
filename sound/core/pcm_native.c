@@ -1956,9 +1956,8 @@ static int snd_pcm_drain(struct snd_pcm_substream *substream,
 		drain_no_period_wakeup = to_check->no_period_wakeup;
 		drain_rate = to_check->rate;
 		drain_periodsz = to_check->period_size;
-		init_waitqueue_entry(&wait, current);
-		set_current_state(TASK_INTERRUPTIBLE);
-		add_wait_queue(&to_check->sleep, &wait);
+		init_wait_entry(&wait, 0);
+		prepare_to_wait(&to_check->sleep, &wait, TASK_INTERRUPTIBLE);
 		snd_pcm_stream_unlock_irq(substream);
 		up_read(&snd_pcm_link_rwsem);
 		if (drain_no_period_wakeup)
@@ -1974,7 +1973,7 @@ static int snd_pcm_drain(struct snd_pcm_substream *substream,
 		tout = schedule_timeout(tout);
 		down_read(&snd_pcm_link_rwsem);
 		snd_pcm_stream_lock_irq(substream);
-		remove_wait_queue(&to_check->sleep, &wait);
+		finish_wait(&to_check->sleep, &wait);
 		if (card->shutdown) {
 			result = -ENODEV;
 			break;
