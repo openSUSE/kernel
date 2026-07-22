@@ -3,6 +3,7 @@
 #include <linux/errno.h>
 #include <linux/file.h>
 #include <linux/io_uring.h>
+#include <linux/time_namespace.h>
 
 #include <trace/events/io_uring.h>
 
@@ -35,7 +36,23 @@ struct io_timeout_rem {
 	bool				ltimeout;
 };
 
-static int io_parse_user_time(ktime_t *time, u64 arg)
+static clockid_t io_flags_to_clock(unsigned flags)
+{
+	switch (flags & IORING_TIMEOUT_CLOCK_MASK) {
+	case IORING_TIMEOUT_BOOTTIME:
+		return CLOCK_BOOTTIME;
+	case IORING_TIMEOUT_REALTIME:
+		return CLOCK_REALTIME;
+	default:
+		/* can't happen, vetted at prep time */
+		WARN_ON_ONCE(1);
+		fallthrough;
+	case 0:
+		return CLOCK_MONOTONIC;
+	}
+}
+
+static int io_parse_user_time(ktime_t *time, u64 arg, unsigned flags)
 {
 	struct timespec64 ts;
 
@@ -44,6 +61,9 @@ static int io_parse_user_time(ktime_t *time, u64 arg)
 	if (ts.tv_sec < 0 || ts.tv_nsec < 0)
 		return -EINVAL;
 	*time = timespec64_to_ktime(ts);
+
+	if (flags & IORING_TIMEOUT_ABS)
+		*time = timens_ktime_to_host(io_flags_to_clock(flags), *time);
 	return 0;
 }
 
@@ -365,18 +385,7 @@ static enum hrtimer_restart io_link_timeout_fn(struct hrtimer *timer)
 
 static clockid_t io_timeout_get_clock(struct io_timeout_data *data)
 {
-	switch (data->flags & IORING_TIMEOUT_CLOCK_MASK) {
-	case IORING_TIMEOUT_BOOTTIME:
-		return CLOCK_BOOTTIME;
-	case IORING_TIMEOUT_REALTIME:
-		return CLOCK_REALTIME;
-	default:
-		/* can't happen, vetted at prep time */
-		WARN_ON_ONCE(1);
-		fallthrough;
-	case 0:
-		return CLOCK_MONOTONIC;
-	}
+	return io_flags_to_clock(data->flags);
 }
 
 static int io_linked_timeout_update(struct io_ring_ctx *ctx, __u64 user_data,
@@ -450,7 +459,7 @@ int io_timeout_remove_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 			tr->ltimeout = true;
 		if (tr->flags & ~(IORING_TIMEOUT_UPDATE_MASK|IORING_TIMEOUT_ABS))
 			return -EINVAL;
-		ret = io_parse_user_time(&tr->time, READ_ONCE(sqe->addr2));
+		ret = io_parse_user_time(&tr->time, READ_ONCE(sqe->addr2), tr->flags);
 		if (ret)
 			return ret;
 	} else if (tr->flags) {
@@ -546,7 +555,7 @@ static int __io_timeout_prep(struct io_kiocb *req,
 	data->req = req;
 	data->flags = flags;
 
-	ret = io_parse_user_time(&data->time, READ_ONCE(sqe->addr));
+	ret = io_parse_user_time(&data->time, READ_ONCE(sqe->addr), flags);
 	if (ret)
 		return ret;
 
