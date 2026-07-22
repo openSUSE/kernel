@@ -28,6 +28,7 @@
 #include <linux/pm_qos.h>
 #include <linux/bitfield.h>
 #include <trace/events/power.h>
+#include <linux/units.h>
 
 #include <asm/cpu.h>
 #include <asm/div64.h>
@@ -308,11 +309,11 @@ static bool hwp_is_hybrid;
 
 static struct cpufreq_driver *intel_pstate_driver __read_mostly;
 
-#define HYBRID_SCALING_FACTOR		78741
+#define HYBRID_SCALING_FACTOR_ADL	78741
 #define HYBRID_SCALING_FACTOR_MTL	80000
 #define HYBRID_SCALING_FACTOR_LNL	86957
 
-static int hybrid_scaling_factor = HYBRID_SCALING_FACTOR;
+static int hybrid_scaling_factor;
 
 static inline int core_get_scaling(void)
 {
@@ -420,18 +421,15 @@ static int intel_pstate_get_cppc_guaranteed(int cpu)
 static int intel_pstate_cppc_get_scaling(int cpu)
 {
 	struct cppc_perf_caps cppc_perf;
-	int ret;
-
-	ret = cppc_get_perf_caps(cpu, &cppc_perf);
 
 	/*
-	 * If the nominal frequency and the nominal performance are not
-	 * zero and the ratio between them is not 100, return the hybrid
-	 * scaling factor.
+	 * Compute the perf-to-frequency scaling factor for the given CPU if
+	 * possible, unless it would be 0.
 	 */
-	if (!ret && cppc_perf.nominal_perf && cppc_perf.nominal_freq &&
-	    cppc_perf.nominal_perf * 100 != cppc_perf.nominal_freq)
-		return hybrid_scaling_factor;
+	if (!cppc_get_perf_caps(cpu, &cppc_perf) &&
+	    cppc_perf.nominal_perf && cppc_perf.nominal_freq)
+		return div_u64(cppc_perf.nominal_freq * KHZ_PER_MHZ,
+			       cppc_perf.nominal_perf);
 
 	return core_get_scaling();
 }
@@ -620,24 +618,9 @@ static int min_perf_pct_min(void)
 		(cpu->pstate.min_pstate * 100 / turbo_pstate) : 0;
 }
 
-static s16 intel_pstate_get_epb(struct cpudata *cpu_data)
-{
-	u64 epb;
-	int ret;
-
-	if (!boot_cpu_has(X86_FEATURE_EPB))
-		return -ENXIO;
-
-	ret = rdmsrq_on_cpu(cpu_data->cpu, MSR_IA32_ENERGY_PERF_BIAS, &epb);
-	if (ret)
-		return (s16)ret;
-
-	return (s16)(epb & 0x0f);
-}
-
 static s16 intel_pstate_get_epp(struct cpudata *cpu_data, u64 hwp_req_data)
 {
-	s16 epp;
+	s16 epp = -EOPNOTSUPP;
 
 	if (boot_cpu_has(X86_FEATURE_HWP_EPP)) {
 		/*
@@ -651,34 +634,13 @@ static s16 intel_pstate_get_epp(struct cpudata *cpu_data, u64 hwp_req_data)
 				return epp;
 		}
 		epp = (hwp_req_data >> 24) & 0xff;
-	} else {
-		/* When there is no EPP present, HWP uses EPB settings */
-		epp = intel_pstate_get_epb(cpu_data);
 	}
 
 	return epp;
 }
 
-static int intel_pstate_set_epb(int cpu, s16 pref)
-{
-	u64 epb;
-	int ret;
-
-	if (!boot_cpu_has(X86_FEATURE_EPB))
-		return -ENXIO;
-
-	ret = rdmsrq_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS, &epb);
-	if (ret)
-		return ret;
-
-	epb = (epb & ~0x0f) | pref;
-	wrmsrq_on_cpu(cpu, MSR_IA32_ENERGY_PERF_BIAS, epb);
-
-	return 0;
-}
-
 /*
- * EPP/EPB display strings corresponding to EPP index in the
+ * EPP display strings corresponding to EPP index in the
  * energy_perf_strings[]
  *	index		String
  *-------------------------------------
@@ -782,7 +744,7 @@ static int intel_pstate_set_energy_pref_index(struct cpudata *cpu_data,
 					      u32 raw_epp)
 {
 	int epp = -EINVAL;
-	int ret;
+	int ret = -EOPNOTSUPP;
 
 	if (!pref_index)
 		epp = cpu_data->epp_default;
@@ -802,10 +764,6 @@ static int intel_pstate_set_energy_pref_index(struct cpudata *cpu_data,
 			return -EBUSY;
 
 		ret = intel_pstate_set_epp(cpu_data, epp);
-	} else {
-		if (epp == -EINVAL)
-			epp = (pref_index - 1) << 2;
-		ret = intel_pstate_set_epb(cpu_data->cpu, epp);
 	}
 
 	return ret;
@@ -937,12 +895,27 @@ static ssize_t show_base_frequency(struct cpufreq_policy *policy, char *buf)
 
 cpufreq_freq_attr_ro(base_frequency);
 
-static struct freq_attr *hwp_cpufreq_attrs[] = {
-	&energy_performance_preference,
-	&energy_performance_available_preferences,
-	&base_frequency,
-	NULL,
+enum hwp_cpufreq_attr_index {
+	HWP_BASE_FREQUENCY_INDEX = 0,
+	HWP_PERFORMANCE_PREFERENCE_INDEX,
+	HWP_PERFORMANCE_AVAILABLE_PREFERENCES_INDEX,
+	HWP_CPUFREQ_ATTR_COUNT,
 };
+
+static struct freq_attr *hwp_cpufreq_attrs[] = {
+	[HWP_BASE_FREQUENCY_INDEX] = &base_frequency,
+	[HWP_PERFORMANCE_PREFERENCE_INDEX] = &energy_performance_preference,
+	[HWP_PERFORMANCE_AVAILABLE_PREFERENCES_INDEX] =
+				&energy_performance_available_preferences,
+	[HWP_CPUFREQ_ATTR_COUNT] = NULL,
+};
+
+static u8 hybrid_get_cpu_type(unsigned int cpu)
+{
+	return cpu_data(cpu).topo.intel_type;
+}
+
+static bool no_cas __ro_after_init;
 
 static struct cpudata *hybrid_max_perf_cpu __read_mostly;
 /*
@@ -1049,6 +1022,10 @@ static void hybrid_refresh_cpu_capacity_scaling(void)
 
 static void hybrid_init_cpu_capacity_scaling(bool refresh)
 {
+	/* Bail out if enabling capacity-aware scheduling is prohibited. */
+	if (no_cas)
+		return;
+
 	/*
 	 * If hybrid_max_perf_cpu is set at this point, the hybrid CPU capacity
 	 * scaling has been enabled already and the driver is just changing the
@@ -1206,9 +1183,8 @@ static void intel_pstate_hwp_set(unsigned int cpu)
 	if (boot_cpu_has(X86_FEATURE_HWP_EPP)) {
 		value &= ~GENMASK_ULL(31, 24);
 		value |= (u64)epp << 24;
-	} else {
-		intel_pstate_set_epb(cpu, epp);
 	}
+
 skip_epp:
 	WRITE_ONCE(cpu_data->hwp_req_cached, value);
 	wrmsrq_on_cpu(cpu, MSR_HWP_REQUEST, value);
@@ -1280,13 +1256,17 @@ static void intel_pstate_hwp_offline(struct cpudata *cpu)
 #define POWER_CTL_EE_ENABLE	1
 #define POWER_CTL_EE_DISABLE	2
 
+/* Enable bit for Dynamic Efficiency Control (DEC) */
+#define POWER_CTL_DEC_ENABLE	27
+
 static int power_ctl_ee_state;
 
 static void set_power_ctl_ee_state(bool input)
 {
 	u64 power_ctl;
 
-	mutex_lock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
+
 	rdmsrq(MSR_IA32_POWER_CTL, power_ctl);
 	if (input) {
 		power_ctl &= ~BIT(MSR_IA32_POWER_CTL_BIT_EE);
@@ -1296,7 +1276,6 @@ static void set_power_ctl_ee_state(bool input)
 		power_ctl_ee_state = POWER_CTL_EE_DISABLE;
 	}
 	wrmsrq(MSR_IA32_POWER_CTL, power_ctl);
-	mutex_unlock(&intel_pstate_driver_lock);
 }
 
 static void intel_pstate_hwp_enable(struct cpudata *cpudata);
@@ -1371,9 +1350,7 @@ static void __intel_pstate_update_max_freq(struct cpufreq_policy *policy,
 
 static bool intel_pstate_update_max_freq(int cpu)
 {
-	struct cpufreq_policy *policy __free(put_cpufreq_policy);
-
-	policy = cpufreq_cpu_get(cpu);
+	struct cpufreq_policy *policy __free(put_cpufreq_policy) = cpufreq_cpu_get(cpu);
 	if (!policy)
 		return false;
 
@@ -1420,13 +1397,9 @@ static int intel_pstate_update_status(const char *buf, size_t size);
 static ssize_t show_status(struct kobject *kobj,
 			   struct kobj_attribute *attr, char *buf)
 {
-	ssize_t ret;
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	mutex_lock(&intel_pstate_driver_lock);
-	ret = intel_pstate_show_status(buf);
-	mutex_unlock(&intel_pstate_driver_lock);
-
-	return ret;
+	return intel_pstate_show_status(buf);
 }
 
 static ssize_t store_status(struct kobject *a, struct kobj_attribute *b,
@@ -1435,11 +1408,13 @@ static ssize_t store_status(struct kobject *a, struct kobj_attribute *b,
 	char *p = memchr(buf, '\n', count);
 	int ret;
 
-	mutex_lock(&intel_pstate_driver_lock);
-	ret = intel_pstate_update_status(buf, p ? p - buf : count);
-	mutex_unlock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	return ret < 0 ? ret : count;
+	ret = intel_pstate_update_status(buf, p ? p - buf : count);
+	if (ret < 0)
+		return ret;
+
+	return count;
 }
 
 static ssize_t show_turbo_pct(struct kobject *kobj,
@@ -1449,12 +1424,10 @@ static ssize_t show_turbo_pct(struct kobject *kobj,
 	int total, no_turbo, turbo_pct;
 	uint32_t turbo_fp;
 
-	mutex_lock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	if (!intel_pstate_driver) {
-		mutex_unlock(&intel_pstate_driver_lock);
+	if (!intel_pstate_driver)
 		return -EAGAIN;
-	}
 
 	cpu = all_cpu_data[0];
 
@@ -1462,8 +1435,6 @@ static ssize_t show_turbo_pct(struct kobject *kobj,
 	no_turbo = cpu->pstate.max_pstate - cpu->pstate.min_pstate + 1;
 	turbo_fp = div_fp(no_turbo, total);
 	turbo_pct = 100 - fp_toint(mul_fp(turbo_fp, int_tofp(100)));
-
-	mutex_unlock(&intel_pstate_driver_lock);
 
 	return sprintf(buf, "%u\n", turbo_pct);
 }
@@ -1474,17 +1445,13 @@ static ssize_t show_num_pstates(struct kobject *kobj,
 	struct cpudata *cpu;
 	int total;
 
-	mutex_lock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	if (!intel_pstate_driver) {
-		mutex_unlock(&intel_pstate_driver_lock);
+	if (!intel_pstate_driver)
 		return -EAGAIN;
-	}
 
 	cpu = all_cpu_data[0];
 	total = cpu->pstate.turbo_pstate - cpu->pstate.min_pstate + 1;
-
-	mutex_unlock(&intel_pstate_driver_lock);
 
 	return sprintf(buf, "%u\n", total);
 }
@@ -1492,20 +1459,12 @@ static ssize_t show_num_pstates(struct kobject *kobj,
 static ssize_t show_no_turbo(struct kobject *kobj,
 			     struct kobj_attribute *attr, char *buf)
 {
-	ssize_t ret;
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	mutex_lock(&intel_pstate_driver_lock);
-
-	if (!intel_pstate_driver) {
-		mutex_unlock(&intel_pstate_driver_lock);
+	if (!intel_pstate_driver)
 		return -EAGAIN;
-	}
 
-	ret = sprintf(buf, "%u\n", global.no_turbo);
-
-	mutex_unlock(&intel_pstate_driver_lock);
-
-	return ret;
+	return sprintf(buf, "%u\n", global.no_turbo);
 }
 
 static ssize_t store_no_turbo(struct kobject *a, struct kobj_attribute *b,
@@ -1517,28 +1476,24 @@ static ssize_t store_no_turbo(struct kobject *a, struct kobj_attribute *b,
 	if (sscanf(buf, "%u", &input) != 1)
 		return -EINVAL;
 
-	mutex_lock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	if (!intel_pstate_driver) {
-		count = -EAGAIN;
-		goto unlock_driver;
-	}
+	if (!intel_pstate_driver)
+		return -EAGAIN;
 
 	no_turbo = !!clamp_t(int, input, 0, 1);
 
 	WRITE_ONCE(global.turbo_disabled, turbo_is_disabled());
 	if (global.turbo_disabled && !no_turbo) {
 		pr_notice("Turbo disabled by BIOS or unavailable on processor\n");
-		count = -EPERM;
 		if (global.no_turbo)
-			goto unlock_driver;
-		else
-			no_turbo = 1;
+			return -EPERM;
+
+		no_turbo = 1;
 	}
 
-	if (no_turbo == global.no_turbo) {
-		goto unlock_driver;
-	}
+	if (no_turbo == global.no_turbo)
+		return count;
 
 	WRITE_ONCE(global.no_turbo, no_turbo);
 
@@ -1558,49 +1513,45 @@ static ssize_t store_no_turbo(struct kobject *a, struct kobj_attribute *b,
 	intel_pstate_update_limits_for_all();
 	arch_set_max_freq_ratio(no_turbo);
 
-unlock_driver:
-	mutex_unlock(&intel_pstate_driver_lock);
-
 	return count;
 }
 
-static void update_qos_request(enum freq_qos_req_type type)
+static void update_cpu_qos_request(int cpu, enum freq_qos_req_type type)
 {
+	struct cpudata *cpudata = all_cpu_data[cpu];
 	struct freq_qos_request *req;
-	struct cpufreq_policy *policy;
+	unsigned int freq;
+
+	struct cpufreq_policy *policy __free(put_cpufreq_policy) = cpufreq_cpu_get(cpu);
+	if (!policy)
+		return;
+
+	req = policy->driver_data;
+	if (!req)
+		return;
+
+	if (hwp_active)
+		intel_pstate_get_hwp_cap(cpudata);
+
+	freq = cpudata->pstate.turbo_freq;
+
+	if (type == FREQ_QOS_MIN) {
+		freq = DIV_ROUND_UP(freq * global.min_perf_pct, 100);
+	} else {
+		req++;
+		freq = (freq * global.max_perf_pct) / 100;
+	}
+
+	if (freq_qos_update_request(req, freq) < 0)
+		pr_warn("Failed to update freq constraint: CPU%d\n", cpu);
+}
+
+static void update_qos_requests(enum freq_qos_req_type type)
+{
 	int i;
 
-	for_each_possible_cpu(i) {
-		struct cpudata *cpu = all_cpu_data[i];
-		unsigned int freq, perf_pct;
-
-		policy = cpufreq_cpu_get(i);
-		if (!policy)
-			continue;
-
-		req = policy->driver_data;
-		if (!req) {
-			cpufreq_cpu_put(policy);
-			continue;
-		}
-
-		if (hwp_active)
-			intel_pstate_get_hwp_cap(cpu);
-
-		if (type == FREQ_QOS_MIN) {
-			perf_pct = global.min_perf_pct;
-		} else {
-			req++;
-			perf_pct = global.max_perf_pct;
-		}
-
-		freq = DIV_ROUND_UP(cpu->pstate.turbo_freq * perf_pct, 100);
-
-		if (freq_qos_update_request(req, freq) < 0)
-			pr_warn("Failed to update freq constraint: CPU%d\n", i);
-
-		cpufreq_cpu_put(policy);
-	}
+	for_each_possible_cpu(i)
+		update_cpu_qos_request(i, type);
 }
 
 static ssize_t store_max_perf_pct(struct kobject *a, struct kobj_attribute *b,
@@ -1613,12 +1564,10 @@ static ssize_t store_max_perf_pct(struct kobject *a, struct kobj_attribute *b,
 	if (ret != 1)
 		return -EINVAL;
 
-	mutex_lock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	if (!intel_pstate_driver) {
-		mutex_unlock(&intel_pstate_driver_lock);
+	if (!intel_pstate_driver)
 		return -EAGAIN;
-	}
 
 	mutex_lock(&intel_pstate_limits_lock);
 
@@ -1629,9 +1578,7 @@ static ssize_t store_max_perf_pct(struct kobject *a, struct kobj_attribute *b,
 	if (intel_pstate_driver == &intel_pstate)
 		intel_pstate_update_policies();
 	else
-		update_qos_request(FREQ_QOS_MAX);
-
-	mutex_unlock(&intel_pstate_driver_lock);
+		update_qos_requests(FREQ_QOS_MAX);
 
 	return count;
 }
@@ -1646,12 +1593,10 @@ static ssize_t store_min_perf_pct(struct kobject *a, struct kobj_attribute *b,
 	if (ret != 1)
 		return -EINVAL;
 
-	mutex_lock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
 
-	if (!intel_pstate_driver) {
-		mutex_unlock(&intel_pstate_driver_lock);
+	if (!intel_pstate_driver)
 		return -EAGAIN;
-	}
 
 	mutex_lock(&intel_pstate_limits_lock);
 
@@ -1663,9 +1608,7 @@ static ssize_t store_min_perf_pct(struct kobject *a, struct kobj_attribute *b,
 	if (intel_pstate_driver == &intel_pstate)
 		intel_pstate_update_policies();
 	else
-		update_qos_request(FREQ_QOS_MIN);
-
-	mutex_unlock(&intel_pstate_driver_lock);
+		update_qos_requests(FREQ_QOS_MIN);
 
 	return count;
 }
@@ -1687,10 +1630,10 @@ static ssize_t store_hwp_dynamic_boost(struct kobject *a,
 	if (ret)
 		return ret;
 
-	mutex_lock(&intel_pstate_driver_lock);
+	guard(mutex)(&intel_pstate_driver_lock);
+
 	hwp_boost = !!input;
 	intel_pstate_update_policies();
-	mutex_unlock(&intel_pstate_driver_lock);
 
 	return count;
 }
@@ -1979,6 +1922,18 @@ static void intel_pstate_hwp_enable(struct cpudata *cpudata)
 	intel_pstate_update_epp_defaults(cpudata);
 }
 
+static u64 get_perf_ctl_val(int pstate)
+{
+	u64 val;
+
+	val = (u64)pstate << 8;
+	if (READ_ONCE(global.no_turbo) && !READ_ONCE(global.turbo_disabled) &&
+	    cpu_feature_enabled(X86_FEATURE_IDA))
+		val |= (u64)1 << 32;
+
+	return val;
+}
+
 static int atom_get_min_pstate(int not_used)
 {
 	u64 value;
@@ -2005,14 +1960,9 @@ static int atom_get_turbo_pstate(int not_used)
 
 static u64 atom_get_val(struct cpudata *cpudata, int pstate)
 {
-	u64 val;
+	u64 val = get_perf_ctl_val(pstate);
 	int32_t vid_fp;
 	u32 vid;
-
-	val = (u64)pstate << 8;
-	if (READ_ONCE(global.no_turbo) && !READ_ONCE(global.turbo_disabled) &&
-	    cpu_feature_enabled(X86_FEATURE_IDA))
-		val |= (u64)1 << 32;
 
 	vid_fp = cpudata->vid.min + mul_fp(
 		int_tofp(pstate - cpudata->pstate.min_pstate),
@@ -2173,14 +2123,7 @@ static int core_get_turbo_pstate(int cpu)
 
 static u64 core_get_val(struct cpudata *cpudata, int pstate)
 {
-	u64 val;
-
-	val = (u64)pstate << 8;
-	if (READ_ONCE(global.no_turbo) && !READ_ONCE(global.turbo_disabled) &&
-	    cpu_feature_enabled(X86_FEATURE_IDA))
-		val |= (u64)1 << 32;
-
-	return val;
+	return get_perf_ctl_val(pstate);
 }
 
 static int knl_get_aperf_mperf_shift(void)
@@ -2201,33 +2144,27 @@ static int knl_get_turbo_pstate(int cpu)
 	return ret;
 }
 
-static void hybrid_get_type(void *data)
-{
-	u8 *cpu_type = data;
-
-	*cpu_type = get_this_hybrid_cpu_type();
-}
-
 static int hwp_get_cpu_scaling(int cpu)
 {
-	u8 cpu_type = 0;
+	if (hybrid_scaling_factor) {
+		/*
+		 * Return the hybrid scaling factor for P-cores and use the
+		 * default core scaling for E-cores.
+		 */
+		if (hybrid_get_cpu_type(cpu) != INTEL_CPU_TYPE_ATOM)
+			return hybrid_scaling_factor;
 
-	smp_call_function_single(cpu, hybrid_get_type, &cpu_type, 1);
-	/* P-cores have a smaller perf level-to-freqency scaling factor. */
-	if (cpu_type == 0x40)
-		return hybrid_scaling_factor;
+		return core_get_scaling();
+	}
 
-	/* Use default core scaling for E-cores */
-	if (cpu_type == 0x20)
+	/* Use core scaling on non-hybrid systems. */
+	if (!cpu_feature_enabled(X86_FEATURE_HYBRID_CPU))
 		return core_get_scaling();
 
 	/*
-	 * If reached here, this system is either non-hybrid (like Tiger
-	 * Lake) or hybrid-capable (like Alder Lake or Raptor Lake) with
-	 * no E cores (in which case CPUID for hybrid support is 0).
-	 *
-	 * The CPPC nominal_frequency field is 0 for non-hybrid systems,
-	 * so the default core scaling will be used for them.
+	 * The system is hybrid, but the hybrid scaling factor is not known or
+	 * the CPU type is not one of the above, so use CPPC to compute the
+	 * scaling factor for this CPU.
 	 */
 	return intel_pstate_cppc_get_scaling(cpu);
 }
@@ -2450,7 +2387,7 @@ static inline bool intel_pstate_sample(struct cpudata *cpu, u64 time)
 	 * that sample.time will always be reset before setting the utilization
 	 * update hook and make the caller skip the sample then.
 	 */
-	if (cpu->last_sample_time) {
+	if (likely(cpu->last_sample_time)) {
 		intel_pstate_calc_avg_perf(cpu);
 		return true;
 	}
@@ -2739,7 +2676,7 @@ static int intel_pstate_init_cpu(unsigned int cpunum)
 	}
 
 	cpu->epp_powersave = -EINVAL;
-	cpu->epp_policy = 0;
+	cpu->epp_policy = CPUFREQ_POLICY_UNKNOWN;
 
 	intel_pstate_get_cpu_pstates(cpu);
 
@@ -2950,10 +2887,12 @@ static int intel_cpufreq_cpu_offline(struct cpufreq_policy *policy)
 	 * from getting to lower performance levels, so force the minimum
 	 * performance on CPU offline to prevent that from happening.
 	 */
-	if (hwp_active)
+	if (hwp_active) {
 		intel_pstate_hwp_offline(cpu);
-	else
+	} else {
 		intel_pstate_set_min_pstate(cpu);
+		policy->cur = cpu->pstate.min_freq;
+	}
 
 	intel_pstate_exit_perf_limits(policy);
 
@@ -3441,7 +3380,7 @@ static int intel_pstate_update_status(const char *buf, size_t size)
 {
 	if (size == 3 && !strncmp(buf, "off", size)) {
 		if (!intel_pstate_driver)
-			return -EINVAL;
+			return 0;
 
 		if (hwp_active)
 			return -EBUSY;
@@ -3698,10 +3637,36 @@ static const struct x86_cpu_id intel_epp_default[] = {
 };
 
 static const struct x86_cpu_id intel_hybrid_scaling_factor[] = {
+	X86_MATCH_VFM(INTEL_ALDERLAKE, HYBRID_SCALING_FACTOR_ADL),
+	X86_MATCH_VFM(INTEL_ALDERLAKE_L, HYBRID_SCALING_FACTOR_ADL),
+	X86_MATCH_VFM(INTEL_RAPTORLAKE, HYBRID_SCALING_FACTOR_ADL),
+	X86_MATCH_VFM(INTEL_RAPTORLAKE_P, HYBRID_SCALING_FACTOR_ADL),
+	X86_MATCH_VFM(INTEL_RAPTORLAKE_S, HYBRID_SCALING_FACTOR_ADL),
+	X86_MATCH_VFM(INTEL_BARTLETTLAKE, HYBRID_SCALING_FACTOR_ADL),
 	X86_MATCH_VFM(INTEL_METEORLAKE_L, HYBRID_SCALING_FACTOR_MTL),
 	X86_MATCH_VFM(INTEL_LUNARLAKE_M, HYBRID_SCALING_FACTOR_LNL),
 	{}
 };
+
+static bool hwp_check_epp(void)
+{
+	if (boot_cpu_has(X86_FEATURE_HWP_EPP))
+		return true;
+
+	/* Without EPP support, don't expose EPP-related sysfs attributes. */
+	hwp_cpufreq_attrs[HWP_PERFORMANCE_PREFERENCE_INDEX] = NULL;
+	hwp_cpufreq_attrs[HWP_PERFORMANCE_AVAILABLE_PREFERENCES_INDEX] = NULL;
+
+	return false;
+}
+
+static bool hwp_check_dec(void)
+{
+	u64 power_ctl;
+
+	rdmsrq(MSR_IA32_POWER_CTL, power_ctl);
+	return !!(power_ctl & BIT(POWER_CTL_DEC_ENABLE));
+}
 
 static int __init intel_pstate_init(void)
 {
@@ -3712,25 +3677,43 @@ static int __init intel_pstate_init(void)
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
 		return -ENODEV;
 
+	/*
+	 * The Intel pstate driver will be ignored if the platform
+	 * firmware has its own power management modes.
+	 */
+	if (intel_pstate_platform_pwr_mgmt_exists()) {
+		pr_info("P-states controlled by the platform\n");
+		return -ENODEV;
+	}
+
 	id = x86_match_cpu(hwp_support_ids);
 	if (id) {
-		hwp_forced = intel_pstate_hwp_is_enabled();
+		bool epp_present = hwp_check_epp();
 
-		if (hwp_forced)
+		/*
+		 * If HWP is enabled already, there is no choice but to deal
+		 * with it.
+		 */
+		hwp_forced = intel_pstate_hwp_is_enabled();
+		if (hwp_forced) {
 			pr_info("HWP enabled by BIOS\n");
-		else if (no_load)
+			no_hwp = 0;
+		} else if (no_load) {
 			return -ENODEV;
+		} else if (!epp_present && !hwp_check_dec()) {
+			/*
+			 * Avoid enabling HWP for processors without EPP support
+			 * unless the Dynamic Efficiency Control (DEC) enable
+			 * bit (MSR_IA32_POWER_CTL, bit 27) is set because that
+			 * means incomplete HWP implementation which is a corner
+			 * case and supporting it is generally problematic.
+			 */
+			no_hwp = 1;
+		}
 
 		copy_cpu_funcs(&core_funcs);
-		/*
-		 * Avoid enabling HWP for processors without EPP support,
-		 * because that means incomplete HWP implementation which is a
-		 * corner case and supporting it is generally problematic.
-		 *
-		 * If HWP is enabled already, though, there is no choice but to
-		 * deal with it.
-		 */
-		if ((!no_hwp && boot_cpu_has(X86_FEATURE_HWP_EPP)) || hwp_forced) {
+
+		if (!no_hwp) {
 			hwp_active = true;
 			hwp_mode_bdw = id->driver_data;
 			intel_pstate.attr = hwp_cpufreq_attrs;
@@ -3748,6 +3731,12 @@ static int __init intel_pstate_init(void)
 	} else {
 		if (no_load)
 			return -ENODEV;
+
+		id = x86_match_cpu(intel_hybrid_scaling_factor);
+		if (id) {
+			pr_info("HWP-disabled hybrid CPU is not supported\n");
+			return -ENODEV;
+		}
 
 		id = x86_match_cpu(intel_pstate_cpu_ids);
 		if (!id) {
@@ -3767,15 +3756,6 @@ static int __init intel_pstate_init(void)
 		default_driver = &intel_pstate;
 
 hwp_cpu_matched:
-	/*
-	 * The Intel pstate driver will be ignored if the platform
-	 * firmware has its own power management modes.
-	 */
-	if (intel_pstate_platform_pwr_mgmt_exists()) {
-		pr_info("P-states controlled by the platform\n");
-		return -ENODEV;
-	}
-
 	if (!hwp_active && hwp_only)
 		return -ENOTSUPP;
 
@@ -3818,9 +3798,9 @@ hwp_cpu_matched:
 
 	}
 
-	mutex_lock(&intel_pstate_driver_lock);
-	rc = intel_pstate_register_driver(default_driver);
-	mutex_unlock(&intel_pstate_driver_lock);
+	scoped_guard(mutex, &intel_pstate_driver_lock) {
+		rc = intel_pstate_register_driver(default_driver);
+	}
 	if (rc) {
 		intel_pstate_sysfs_remove();
 		return rc;
@@ -3858,6 +3838,9 @@ static int __init intel_pstate_setup(char *str)
 
 	if (!strcmp(str, "no_hwp"))
 		no_hwp = 1;
+
+	if (!strcmp(str, "no_cas"))
+		no_cas = true;
 
 	if (!strcmp(str, "force"))
 		force_load = 1;
