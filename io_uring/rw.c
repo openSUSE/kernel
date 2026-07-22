@@ -155,14 +155,14 @@ static void io_rw_iovec_free(struct io_async_rw *rw)
 	}
 }
 
-static void io_rw_recycle(struct io_kiocb *req, unsigned int issue_flags)
+static bool io_rw_recycle(struct io_kiocb *req, unsigned int issue_flags)
 {
 	struct io_async_rw *rw = req->async_data;
 	struct iovec *iov;
 
 	if (unlikely(issue_flags & IO_URING_F_UNLOCKED)) {
 		io_rw_iovec_free(rw);
-		return;
+		return false;
 	}
 	iov = rw->free_iovec;
 	if (io_alloc_cache_put(&req->ctx->rw_cache, rw)) {
@@ -170,7 +170,9 @@ static void io_rw_recycle(struct io_kiocb *req, unsigned int issue_flags)
 			kasan_mempool_poison_object(iov);
 		req->async_data = NULL;
 		req->flags &= ~REQ_F_ASYNC_DATA;
+		return true;
 	}
+	return false;
 }
 
 static void io_req_rw_cleanup(struct io_kiocb *req, unsigned int issue_flags)
@@ -204,7 +206,13 @@ static void io_req_rw_cleanup(struct io_kiocb *req, unsigned int issue_flags)
 	 */
 	if (!(req->flags & REQ_F_REFCOUNT)) {
 		req->flags &= ~REQ_F_NEED_CLEANUP;
-		io_rw_recycle(req, issue_flags);
+		if (!io_rw_recycle(req, issue_flags)) {
+			struct io_async_rw *rw = req->async_data;
+			kfree(rw->free_iovec);
+			rw->free_iov_nr = 0;
+			rw->free_iovec = NULL;
+
+		}
 	}
 }
 
