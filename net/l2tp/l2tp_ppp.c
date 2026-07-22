@@ -1309,19 +1309,17 @@ static int pppol2tp_ioctl(struct socket *sock, unsigned int cmd,
 	if (!sk)
 		return 0;
 
-	err = -EBADF;
-	if (sock_flag(sk, SOCK_DEAD) != 0)
-		goto end;
-
-	err = -ENOTCONN;
-	if ((sk->sk_user_data == NULL) ||
-	    (!(sk->sk_state & (PPPOX_CONNECTED | PPPOX_BOUND))))
-		goto end;
-
 	/* Get session context from the socket */
 	err = -EBADF;
 	session = pppol2tp_sock_to_session(sk);
 	if (session == NULL)
+		return err;
+
+	if (sock_flag(sk, SOCK_DEAD) != 0)
+		goto end;
+
+	err = -ENOTCONN;
+	if (!(sk->sk_state & (PPPOX_CONNECTED | PPPOX_BOUND)))
 		goto end;
 
 	/* Special case: if session's session_id is zero, treat ioctl as a
@@ -1333,18 +1331,17 @@ static int pppol2tp_ioctl(struct socket *sock, unsigned int cmd,
 		err = -EBADF;
 		tunnel = l2tp_sock_to_tunnel(ps->tunnel_sock);
 		if (tunnel == NULL)
-			goto end_put_sess;
+			goto end;
 
 		err = pppol2tp_tunnel_ioctl(tunnel, cmd, arg);
 		sock_put(ps->tunnel_sock);
-		goto end_put_sess;
+		goto end;
 	}
 
 	err = pppol2tp_session_ioctl(session, cmd, arg);
 
-end_put_sess:
-	l2tp_session_dec_refcount(session);
 end:
+	l2tp_session_dec_refcount(session);
 	return err;
 }
 
