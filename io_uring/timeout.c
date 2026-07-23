@@ -3,6 +3,7 @@
 #include <linux/errno.h>
 #include <linux/file.h>
 #include <linux/io_uring.h>
+#include <linux/time_namespace.h>
 
 #include <trace/events/io_uring.h>
 
@@ -30,10 +31,41 @@ struct io_timeout_rem {
 	u64				addr;
 
 	/* timeout update */
-	struct timespec64		ts;
+	ktime_t				time;
 	u32				flags;
 	bool				ltimeout;
 };
+
+static clockid_t io_flags_to_clock(unsigned flags)
+{
+	switch (flags & IORING_TIMEOUT_CLOCK_MASK) {
+	case IORING_TIMEOUT_BOOTTIME:
+		return CLOCK_BOOTTIME;
+	case IORING_TIMEOUT_REALTIME:
+		return CLOCK_REALTIME;
+	default:
+		/* can't happen, vetted at prep time */
+		WARN_ON_ONCE(1);
+		fallthrough;
+	case 0:
+		return CLOCK_MONOTONIC;
+	}
+}
+
+static int io_parse_user_time(ktime_t *time, u64 arg, unsigned flags)
+{
+	struct timespec64 ts;
+
+	if (get_timespec64(&ts, u64_to_user_ptr(arg)))
+		return -EFAULT;
+	if (ts.tv_sec < 0 || ts.tv_nsec < 0)
+		return -EINVAL;
+	*time = timespec64_to_ktime(ts);
+
+	if (flags & IORING_TIMEOUT_ABS)
+		*time = timens_ktime_to_host(io_flags_to_clock(flags), *time);
+	return 0;
+}
 
 static inline bool io_is_timeout_noseq(struct io_kiocb *req)
 {
@@ -77,7 +109,7 @@ static void io_timeout_complete(struct io_kiocb *req, struct io_tw_state *ts)
 			spin_lock_irq(&ctx->timeout_lock);
 			list_add(&timeout->list, ctx->timeout_list.prev);
 			data->timer.function = io_timeout_fn;
-			hrtimer_start(&data->timer, timespec64_to_ktime(data->ts), data->mode);
+			hrtimer_start(&data->timer, data->time, data->mode);
 			spin_unlock_irq(&ctx->timeout_lock);
 			return;
 		}
@@ -353,22 +385,11 @@ static enum hrtimer_restart io_link_timeout_fn(struct hrtimer *timer)
 
 static clockid_t io_timeout_get_clock(struct io_timeout_data *data)
 {
-	switch (data->flags & IORING_TIMEOUT_CLOCK_MASK) {
-	case IORING_TIMEOUT_BOOTTIME:
-		return CLOCK_BOOTTIME;
-	case IORING_TIMEOUT_REALTIME:
-		return CLOCK_REALTIME;
-	default:
-		/* can't happen, vetted at prep time */
-		WARN_ON_ONCE(1);
-		fallthrough;
-	case 0:
-		return CLOCK_MONOTONIC;
-	}
+	return io_flags_to_clock(data->flags);
 }
 
 static int io_linked_timeout_update(struct io_ring_ctx *ctx, __u64 user_data,
-				    struct timespec64 *ts, enum hrtimer_mode mode)
+				    ktime_t ts, enum hrtimer_mode mode)
 	__must_hold(&ctx->timeout_lock)
 {
 	struct io_timeout_data *io;
@@ -391,12 +412,12 @@ static int io_linked_timeout_update(struct io_ring_ctx *ctx, __u64 user_data,
 		return -EALREADY;
 	hrtimer_init(&io->timer, io_timeout_get_clock(io), mode);
 	io->timer.function = io_link_timeout_fn;
-	hrtimer_start(&io->timer, timespec64_to_ktime(*ts), mode);
+	hrtimer_start(&io->timer, ts, mode);
 	return 0;
 }
 
 static int io_timeout_update(struct io_ring_ctx *ctx, __u64 user_data,
-			     struct timespec64 *ts, enum hrtimer_mode mode)
+			     ktime_t time, enum hrtimer_mode mode)
 	__must_hold(&ctx->timeout_lock)
 {
 	struct io_cancel_data cd = { .ctx = ctx, .data = user_data, };
@@ -409,18 +430,19 @@ static int io_timeout_update(struct io_ring_ctx *ctx, __u64 user_data,
 
 	timeout->off = 0; /* noseq */
 	data = req->async_data;
-	data->ts = *ts;
+	data->time = time;
 
 	list_add_tail(&timeout->list, &ctx->timeout_list);
 	hrtimer_init(&data->timer, io_timeout_get_clock(data), mode);
 	data->timer.function = io_timeout_fn;
-	hrtimer_start(&data->timer, timespec64_to_ktime(data->ts), mode);
+	hrtimer_start(&data->timer, data->time, mode);
 	return 0;
 }
 
 int io_timeout_remove_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_timeout_rem *tr = io_kiocb_to_cmd(req, struct io_timeout_rem);
+	int ret;
 
 	if (unlikely(req->flags & (REQ_F_FIXED_FILE | REQ_F_BUFFER_SELECT)))
 		return -EINVAL;
@@ -439,10 +461,9 @@ int io_timeout_remove_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 			tr->ltimeout = true;
 		if (tr->flags & ~(IORING_TIMEOUT_UPDATE_MASK|IORING_TIMEOUT_ABS))
 			return -EINVAL;
-		if (get_timespec64(&tr->ts, u64_to_user_ptr(sqe->addr2)))
-			return -EFAULT;
-		if (tr->ts.tv_sec < 0 || tr->ts.tv_nsec < 0)
-			return -EINVAL;
+		ret = io_parse_user_time(&tr->time, READ_ONCE(sqe->addr2), tr->flags);
+		if (ret)
+			return ret;
 	} else if (tr->flags) {
 		/* timeout removal doesn't support flags */
 		return -EINVAL;
@@ -477,9 +498,9 @@ int io_timeout_remove(struct io_kiocb *req, unsigned int issue_flags)
 
 		spin_lock_irq(&ctx->timeout_lock);
 		if (tr->ltimeout)
-			ret = io_linked_timeout_update(ctx, tr->addr, &tr->ts, mode);
+			ret = io_linked_timeout_update(ctx, tr->addr, tr->time, mode);
 		else
-			ret = io_timeout_update(ctx, tr->addr, &tr->ts, mode);
+			ret = io_timeout_update(ctx, tr->addr, tr->time, mode);
 		spin_unlock_irq(&ctx->timeout_lock);
 	}
 
@@ -497,6 +518,7 @@ static int __io_timeout_prep(struct io_kiocb *req,
 	struct io_timeout_data *data;
 	unsigned flags;
 	u32 off = READ_ONCE(sqe->off);
+	int ret;
 
 	if (sqe->addr3 || sqe->__pad2[0])
 		return -EINVAL;
@@ -537,12 +559,9 @@ static int __io_timeout_prep(struct io_kiocb *req,
 	data->req = req;
 	data->flags = flags;
 
-	if (get_timespec64(&data->ts, u64_to_user_ptr(sqe->addr)))
-		return -EFAULT;
-
-	if (data->ts.tv_sec < 0 || data->ts.tv_nsec < 0)
-		return -EINVAL;
-
+	ret = io_parse_user_time(&data->time, READ_ONCE(sqe->addr), flags);
+	if (ret)
+		return ret;
 	data->mode = io_translate_timeout_mode(flags);
 	hrtimer_init(&data->timer, io_timeout_get_clock(data), data->mode);
 
@@ -615,7 +634,7 @@ int io_timeout(struct io_kiocb *req, unsigned int issue_flags)
 add:
 	list_add(&timeout->list, entry);
 	data->timer.function = io_timeout_fn;
-	hrtimer_start(&data->timer, timespec64_to_ktime(data->ts), data->mode);
+	hrtimer_start(&data->timer, data->time, data->mode);
 	spin_unlock_irq(&ctx->timeout_lock);
 	return IOU_ISSUE_SKIP_COMPLETE;
 }
@@ -634,8 +653,7 @@ void io_queue_linked_timeout(struct io_kiocb *req)
 		struct io_timeout_data *data = req->async_data;
 
 		data->timer.function = io_link_timeout_fn;
-		hrtimer_start(&data->timer, timespec64_to_ktime(data->ts),
-				data->mode);
+		hrtimer_start(&data->timer, data->time, data->mode);
 		list_add_tail(&timeout->list, &ctx->ltimeout_list);
 	}
 	spin_unlock_irq(&ctx->timeout_lock);
