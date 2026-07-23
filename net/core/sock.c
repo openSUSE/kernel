@@ -899,6 +899,13 @@ set_rcvbuf:
 		if (optlen == sizeof(struct sock_fprog)) {
 			struct sock_fprog fprog;
 
+			if ((sk->sk_family == AF_INET || sk->sk_family == AF_INET6) &&
+			    sk->sk_type == SOCK_STREAM &&
+			    sk->sk_protocol == IPPROTO_TCP &&
+			    !capable(CAP_NET_ADMIN)) {
+				ret = -EPERM;
+				break;
+			}
 			ret = -EFAULT;
 			if (copy_from_user(&fprog, optval, sizeof(fprog)))
 				break;
