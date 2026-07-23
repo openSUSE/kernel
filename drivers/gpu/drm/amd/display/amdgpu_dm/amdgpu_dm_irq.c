@@ -641,6 +641,9 @@ void amdgpu_dm_hpd_init(struct amdgpu_device *adev)
 
 		const struct dc_link *dc_link = amdgpu_dm_connector->dc_link;
 
+		if (!dc_link)
+			continue;
+
 		if (DC_IRQ_SOURCE_INVALID != dc_link->irq_source_hpd) {
 			dc_interrupt_set(adev->dm.dc,
 					dc_link->irq_source_hpd,
