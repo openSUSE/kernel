@@ -6572,18 +6572,16 @@ static int smb2_set_info_file(struct ksmbd_work *work, struct ksmbd_file *fp,
 	}
 	case FILE_LINK_INFORMATION:
 	{
-		struct smb2_file_link_info *file_info;
-
-		if (buf_len < sizeof(struct smb2_file_link_info))
-			return -EINVAL;
-
-		file_info = (struct smb2_file_link_info *)buffer;
-		if (file_info->ReplaceIfExists && !(fp->daccess & FILE_DELETE_LE)) {
+		if (!(fp->daccess & FILE_DELETE_LE)) {
 			pr_err("no right to delete : 0x%x\n", fp->daccess);
 			return -EACCES;
 		}
 
-		return smb2_create_link(work, work->tcon->share_conf, file_info,
+		if (buf_len < sizeof(struct smb2_file_link_info))
+			return -EINVAL;
+
+		return smb2_create_link(work, work->tcon->share_conf,
+					(struct smb2_file_link_info *)buffer,
 					buf_len, fp->filp,
 					work->conn->local_nls);
 	}
