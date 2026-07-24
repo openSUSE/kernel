@@ -71,6 +71,7 @@
 #include <linux/security.h>
 #include <linux/jump_label.h>
 #include <asm/shmparam.h>
+#include <linux/time_namespace.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/io_uring.h>
@@ -2631,7 +2632,10 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events, u32 flags,
 
 	if (ext_arg->ts_set) {
 		iowq.timeout = timespec64_to_ktime(ext_arg->ts);
-		if (!(flags & IORING_ENTER_ABS_TIMER))
+		if (flags & IORING_ENTER_ABS_TIMER)
+			iowq.timeout = timens_ktime_to_host(ctx->clockid,
+							    iowq.timeout);
+		else
 			iowq.timeout = ktime_add(iowq.timeout, start_time);
 	}
 
