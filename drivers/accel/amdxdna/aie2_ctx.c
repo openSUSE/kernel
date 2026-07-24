@@ -819,6 +819,7 @@ again:
 
 		if (ret == -EBUSY) {
 			amdxdna_umap_put(mapp);
+			mmput(mm);
 			goto again;
 		}
 
@@ -829,11 +830,13 @@ again:
 	if (mmu_interval_read_retry(&mapp->notifier, mapp->range.notifier_seq)) {
 		up_write(&xdna->notifier_lock);
 		amdxdna_umap_put(mapp);
+		mmput(mm);
 		goto again;
 	}
 	mapp->invalid = false;
 	up_write(&xdna->notifier_lock);
 	amdxdna_umap_put(mapp);
+	mmput(mm);
 	goto again;
 
 put_mm:
