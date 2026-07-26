@@ -825,6 +825,9 @@ nfs4_decode_mp_ds_addr(struct net *net, struct xdr_stream *xdr, gfp_t gfp_flags)
 	if (unlikely(!p))
 		goto out_err;
 
+	if (unlikely(nlen <= 0))
+		goto out_err;
+
 	netid = kmalloc(nlen+1, gfp_flags);
 	if (unlikely(!netid))
 		goto out_err;
@@ -840,6 +843,9 @@ nfs4_decode_mp_ds_addr(struct net *net, struct xdr_stream *xdr, gfp_t gfp_flags)
 
 	p = xdr_inline_decode(xdr, rlen);
 	if (unlikely(!p))
+		goto out_free_netid;
+
+	if (unlikely(rlen <= 0))
 		goto out_free_netid;
 
 	/* port is ".ABC.DEF", 8 chars max */
