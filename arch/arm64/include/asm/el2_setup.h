@@ -39,7 +39,6 @@
 	orr	x0, x0, #HCR_E2H
 .LnVHE_\@:
 	msr_hcr_el2 x0
-	isb
 .endm
 
 .macro __init_el2_sctlr
