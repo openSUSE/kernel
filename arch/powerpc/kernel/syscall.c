@@ -25,19 +25,19 @@ notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 	 * unambiguous out-of-band signal.  The field is not initialised by
 	 * the entry assembly.
 	 */
-	regs->entry_flags = 0;
 	add_random_kstack_offset();
+	clear_thread_entry_flags(-1);
 	r0 = syscall_enter_from_user_mode(regs, r0);
 
 	/*
 	 * Seccomp or ptrace may have set a return value and requested that
 	 * the syscall be skipped. syscall_set_return_value() sets
-	 * SYSCALL_ENTRY_RET_SET in regs->entry_flags as an
+	 * SYSCALL_ENTRY_RET_SET in thread_info.entry_flags as an
 	 * unambiguous out-of-band signal. This avoids the ambiguity of
 	 * using r0 == -1 as the skip sentinel when the user themselves
 	 * called syscall(-1).
 	 */
-	if (unlikely(test_and_clear_syscall_entry_ret(regs)))
+	if (unlikely(test_and_clear_thread_entry_flags(_TEF_SYSCALL_RET_SET)))
 		return syscall_get_error(current, regs);
 
 	if (unlikely(r0 >= NR_syscalls)) {

@@ -93,7 +93,7 @@ static inline void syscall_set_return_value(struct task_struct *task,
 	 * ptrace so that system_call_exception() can skip the syscall
 	 * unconditionally, even when the user requested syscall(-1).
 	 */
-	set_syscall_entry_ret(regs);
+	set_thread_entry_flags(_TEF_SYSCALL_RET_SET);
 }
 
 static inline void syscall_get_arguments(struct task_struct *task,

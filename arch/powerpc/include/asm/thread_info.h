@@ -57,6 +57,8 @@ struct thread_info {
 #ifdef CONFIG_SMP
 	unsigned int	cpu;
 #endif
+	unsigned long	entry_flags;		/* Entry flags for entry/exit */
+	unsigned long	exit_flags;		/* Exit Flags for entry/exit */
 	unsigned long	syscall_work;		/* SYSCALL_WORK_ flags */
 	unsigned long	local_flags;		/* private flags for thread */
 #ifdef CONFIG_LIVEPATCH_64
@@ -175,6 +177,34 @@ static inline bool test_thread_local_flags(unsigned int flags)
 {
 	struct thread_info *ti = current_thread_info();
 	return (ti->local_flags & flags) != 0;
+}
+
+/*
+ * _TEF_SYSCALL_RET_SET: seccomp or ptrace called syscall_set_return_value()
+ * and wants the syscall skipped; regs->gpr[3] already holds the return value.
+ */
+#define _TEF_SYSCALL_RET_SET BIT(0)
+
+static inline void set_thread_entry_flags(unsigned int flags)
+{
+	struct thread_info *ti = current_thread_info();
+	ti->entry_flags |= flags;
+}
+
+static inline void clear_thread_entry_flags(unsigned int flags)
+{
+	struct thread_info *ti = current_thread_info();
+	ti->entry_flags &= ~flags;
+}
+
+static inline bool test_and_clear_thread_entry_flags(unsigned int flags)
+{
+	struct thread_info *ti = current_thread_info();
+	bool ret = (ti->entry_flags & flags) != 0;
+
+	ti->entry_flags &= ~flags;
+
+	return ret;
 }
 
 #ifdef CONFIG_COMPAT
