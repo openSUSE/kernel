@@ -103,6 +103,12 @@ static void intel_vsec_remove_aux(void *data)
 	auxiliary_device_uninit(data);
 }
 
+static void intel_vsec_dev_free(struct intel_vsec_device *intel_vsec_dev)
+{
+	kfree(intel_vsec_dev->acpi_disc);
+	kfree(intel_vsec_dev);
+}
+
 static void intel_vsec_dev_release(struct device *dev)
 {
 	struct intel_vsec_device *intel_vsec_dev = dev_to_ivdev(dev);
@@ -111,9 +117,8 @@ static void intel_vsec_dev_release(struct device *dev)
 
 	ida_free(intel_vsec_dev->ida, intel_vsec_dev->auxdev.id);
 
-	kfree(intel_vsec_dev->acpi_disc);
 	kfree(intel_vsec_dev->resource);
-	kfree(intel_vsec_dev);
+	intel_vsec_dev_free(intel_vsec_dev);
 }
 
 static const struct vsec_feature_dependency *
@@ -220,13 +225,14 @@ int intel_vsec_add_aux(struct device *parent,
 	int ret, id;
 
 	if (!parent)
+		intel_vsec_dev_free(intel_vsec_dev);
 		return -EINVAL;
 
 	ret = xa_alloc(&auxdev_array, &intel_vsec_dev->id, intel_vsec_dev,
 		       PMT_XA_LIMIT, GFP_KERNEL);
 	if (ret < 0) {
 		kfree(intel_vsec_dev->resource);
-		kfree(intel_vsec_dev);
+		intel_vsec_dev_free(intel_vsec_dev);
 		return ret;
 	}
 
@@ -234,7 +240,7 @@ int intel_vsec_add_aux(struct device *parent,
 	if (id < 0) {
 		xa_erase(&auxdev_array, intel_vsec_dev->id);
 		kfree(intel_vsec_dev->resource);
-		kfree(intel_vsec_dev);
+		intel_vsec_dev_free(intel_vsec_dev);
 		return id;
 	}
 
