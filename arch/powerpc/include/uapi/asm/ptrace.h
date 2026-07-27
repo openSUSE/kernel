@@ -55,6 +55,13 @@ struct pt_regs
 	unsigned long dar;		/* Fault registers */
 	unsigned long dsisr;		/* on 4xx/Book-E used for ESR */
 	unsigned long result;		/* Result of a system call */
+#ifndef __GENKSYMS__
+	unsigned long __pt_regs_pad[4];
+#else
+	unsigned long exit_flags;
+	unsigned long entry_flags;
+	unsigned long __pt_regs_pad[2];
+#endif
 };
 
 #endif /* __ASSEMBLER__ */

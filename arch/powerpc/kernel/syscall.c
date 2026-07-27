@@ -26,7 +26,7 @@ notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 	 * the entry assembly.
 	 */
 	add_random_kstack_offset();
-	clear_thread_entry_flags(-1);
+	clear_thread_local_flags(_TLF_SYSCALL_RET_SET);
 	r0 = syscall_enter_from_user_mode(regs, r0);
 
 	/*
@@ -37,7 +37,7 @@ notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 	 * using r0 == -1 as the skip sentinel when the user themselves
 	 * called syscall(-1).
 	 */
-	if (unlikely(test_and_clear_thread_entry_flags(_TEF_SYSCALL_RET_SET)))
+	if (unlikely(test_and_clear_thread_local_flags(_TLF_SYSCALL_RET_SET)))
 		return syscall_get_error(current, regs);
 
 	if (unlikely(r0 >= NR_syscalls)) {
