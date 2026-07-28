@@ -40,14 +40,17 @@ static u32 chipid;
 
 u32 tegra_read_chipid(void)
 {
-	WARN(!chipid, "Tegra APB MISC not yet available\n");
+	WARN(!apbmisc_base, "Tegra APB MISC not yet available\n");
+
+	if (!chipid)
+		chipid = readl_relaxed(apbmisc_base + 4);
 
 	return chipid;
 }
 
 u8 tegra_get_chip_id(void)
 {
-#ifdef CONFIG_HAVE_ARM_SMCCC_DISCOVERY
+#if IS_ENABLED(CONFIG_HAVE_ARM_SMCCC_DISCOVERY)
 	s32 soc_id = arm_smccc_get_soc_id_version();
 
 	if (soc_id >= 0)
@@ -58,7 +61,7 @@ u8 tegra_get_chip_id(void)
 
 u8 tegra_get_major_rev(void)
 {
-#ifdef CONFIG_HAVE_ARM_SMCCC_DISCOVERY
+#if IS_ENABLED(CONFIG_HAVE_ARM_SMCCC_DISCOVERY)
 	s32 soc_id = arm_smccc_get_soc_id_version();
 
 	if (soc_id >= 0)
@@ -69,7 +72,7 @@ u8 tegra_get_major_rev(void)
 
 u8 tegra_get_minor_rev(void)
 {
-#ifdef CONFIG_HAVE_ARM_SMCCC_DISCOVERY
+#if IS_ENABLED(CONFIG_HAVE_ARM_SMCCC_DISCOVERY)
 	s32 revision = arm_smccc_get_soc_id_revision();
 
 	if (revision >= 0)
@@ -81,7 +84,7 @@ u8 tegra_get_minor_rev(void)
 
 u8 tegra_get_platform(void)
 {
-#ifdef CONFIG_HAVE_ARM_SMCCC_DISCOVERY
+#if IS_ENABLED(CONFIG_HAVE_ARM_SMCCC_DISCOVERY)
 	s32 revision = arm_smccc_get_soc_id_revision();
 
 	if (revision >= 0)
@@ -201,9 +204,7 @@ static void tegra_init_apbmisc_resources(struct resource *apbmisc,
 	void __iomem *strapping_base;
 
 	apbmisc_base = ioremap(apbmisc->start, resource_size(apbmisc));
-	if (apbmisc_base)
-		chipid = readl_relaxed(apbmisc_base + 4);
-	else
+	if (!apbmisc_base)
 		pr_err("failed to map APBMISC registers\n");
 
 	strapping_base = ioremap(straps->start, resource_size(straps));
