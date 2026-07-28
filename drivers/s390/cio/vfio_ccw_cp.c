@@ -617,6 +617,13 @@ static int ccwchain_fetch_direct(struct ccwchain *chain,
 		if (ret)
 			goto out_unpin;
 
+		/* Unexpected mismatch from earlier read */
+		if (idaws[0] != iova) {
+			pa->pa_nr = 0;
+			ret = -EINVAL;
+			goto out_unpin;
+		}
+
 		/*
 		 * Copy guest IDAWs into page_array, in case the memory they
 		 * occupy is not contiguous.
