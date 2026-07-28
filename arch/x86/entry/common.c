@@ -75,10 +75,10 @@ static __always_inline bool do_syscall_x32(struct pt_regs *regs, int nr)
 /* Returns true to return using SYSRET, or false to use IRET */
 __visible noinstr bool do_syscall_64(struct pt_regs *regs, int nr)
 {
-	add_random_kstack_offset();
 	nr = syscall_enter_from_user_mode(regs, nr);
 
 	instrumentation_begin();
+	add_random_kstack_offset();
 
 	if (!do_syscall_x64(regs, nr) && !do_syscall_x32(regs, nr) && nr != -1) {
 		/* Invalid system call, but still a system call. */
@@ -327,7 +327,6 @@ __visible noinstr void do_int80_syscall_32(struct pt_regs *regs)
 {
 	int nr = syscall_32_enter(regs);
 
-	add_random_kstack_offset();
 	/*
 	 * Subtlety here: if ptrace pokes something larger than 2^31-1 into
 	 * orig_ax, the int return value truncates it. This matches
@@ -335,6 +334,7 @@ __visible noinstr void do_int80_syscall_32(struct pt_regs *regs)
 	 */
 	nr = syscall_enter_from_user_mode(regs, nr);
 	instrumentation_begin();
+	add_random_kstack_offset();
 
 	do_syscall_32_irqs_on(regs, nr);
 
@@ -348,7 +348,6 @@ static noinstr bool __do_fast_syscall_32(struct pt_regs *regs)
 	int nr = syscall_32_enter(regs);
 	int res;
 
-	add_random_kstack_offset();
 	/*
 	 * This cannot use syscall_enter_from_user_mode() as it has to
 	 * fetch EBP before invoking any of the syscall entry work
@@ -357,6 +356,7 @@ static noinstr bool __do_fast_syscall_32(struct pt_regs *regs)
 	syscall_enter_from_user_mode_prepare(regs);
 
 	instrumentation_begin();
+	add_random_kstack_offset();
 	/* Fetch EBP from where the vDSO stashed it. */
 	if (IS_ENABLED(CONFIG_X86_64)) {
 		/*
