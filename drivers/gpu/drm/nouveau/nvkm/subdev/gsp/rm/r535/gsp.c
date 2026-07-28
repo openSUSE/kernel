@@ -1718,7 +1718,7 @@ r535_gsp_sr_data_size(struct nvkm_gsp *gsp)
 }
 
 int
-r535_gsp_fini(struct nvkm_gsp *gsp, bool suspend)
+r535_gsp_fini(struct nvkm_gsp *gsp, enum nvkm_suspend_state suspend)
 {
 	struct nvkm_rm *rm = gsp->rm;
 	int ret;
@@ -1745,7 +1745,7 @@ r535_gsp_fini(struct nvkm_gsp *gsp, bool suspend)
 		sr->sysmemAddrOfSuspendResumeData = gsp->sr.radix3.lvl0.addr;
 		sr->sizeOfSuspendResumeData = len;
 
-		ret = rm->api->fbsr->suspend(gsp);
+		ret = rm->api->fbsr->suspend(gsp, suspend == NVKM_RUNTIME_SUSPEND);
 		if (ret) {
 			nvkm_gsp_mem_dtor(&gsp->sr.meta);
 			nvkm_gsp_radix3_dtor(gsp, &gsp->sr.radix3);

@@ -433,10 +433,10 @@ void a6xx_preempt_init(struct msm_gpu *gpu)
 			gpu->aspace, &a6xx_gpu->preempt_postamble_bo,
 			&a6xx_gpu->preempt_postamble_iova);
 
-	preempt_prepare_postamble(a6xx_gpu);
-
 	if (IS_ERR(a6xx_gpu->preempt_postamble_ptr))
 		goto fail;
+
+	preempt_prepare_postamble(a6xx_gpu);
 
 	timer_setup(&a6xx_gpu->preempt_timer, a6xx_preempt_timer, 0);
 
