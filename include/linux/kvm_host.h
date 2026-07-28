@@ -1197,6 +1197,11 @@ int kvm_request_irq_source_id(struct kvm *kvm);
 void kvm_free_irq_source_id(struct kvm *kvm, int irq_source_id);
 bool kvm_arch_irqfd_allowed(struct kvm *kvm, struct kvm_irqfd *args);
 
+static inline bool is_gfn_in_memslot(const struct kvm_memory_slot *slot, gfn_t gfn)
+{
+	return gfn >= slot->base_gfn && gfn < slot->base_gfn + slot->npages;
+}
+
 /*
  * search_memslots() and __gfn_to_memslot() are here because they are
  * used in non-modular code in arch/powerpc/kvm/book3s_hv_rm_mmu.c.
@@ -1215,8 +1220,7 @@ search_memslots(struct kvm_memslots *slots, gfn_t gfn)
 	if (unlikely(!slots->used_slots))
 		return NULL;
 
-	if (gfn >= memslots[slot].base_gfn &&
-	    gfn < memslots[slot].base_gfn + memslots[slot].npages)
+	if (is_gfn_in_memslot(&memslots[slot], gfn))
 		return &memslots[slot];
 
 	while (start < end) {
@@ -1228,8 +1232,7 @@ search_memslots(struct kvm_memslots *slots, gfn_t gfn)
 			start = slot + 1;
 	}
 
-	if (start < slots->used_slots && gfn >= memslots[start].base_gfn &&
-	    gfn < memslots[start].base_gfn + memslots[start].npages) {
+	if (start < slots->used_slots && is_gfn_in_memslot(&memslots[start], gfn)) {
 		atomic_set(&slots->lru_slot, start);
 		return &memslots[start];
 	}
