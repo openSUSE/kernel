@@ -224,9 +224,10 @@ int intel_vsec_add_aux(struct device *parent,
 	struct auxiliary_device *auxdev = &intel_vsec_dev->auxdev;
 	int ret, id;
 
-	if (!parent)
+	if (!parent){
 		intel_vsec_dev_free(intel_vsec_dev);
 		return -EINVAL;
+	}
 
 	ret = xa_alloc(&auxdev_array, &intel_vsec_dev->id, intel_vsec_dev,
 		       PMT_XA_LIMIT, GFP_KERNEL);
