@@ -1889,21 +1889,25 @@ static bool amdgpu_device_pcie_dynamic_switching_supported(struct amdgpu_device 
 
 static bool amdgpu_device_aspm_support_quirk(struct amdgpu_device *adev)
 {
+	/* Enabling ASPM causes randoms hangs on Tahiti and Oland on Zen4.
+	 * It's unclear if this is a platform-specific or GPU-specific issue.
+	 * Disable ASPM on SI for the time being.
+	 */
+	if (adev->family == AMDGPU_FAMILY_SI)
+		return true;
+
 #if IS_ENABLED(CONFIG_X86)
 	struct cpuinfo_x86 *c = &cpu_data(0);
 
-	if (!(amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(12, 0, 0) ||
-		  amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(12, 0, 1)))
-		return false;
-
-	if (c->x86 == 6 &&
-		adev->pm.pcie_gen_mask & CAIL_PCIE_LINK_SPEED_SUPPORT_GEN5) {
+	if (c->x86_vendor == X86_VENDOR_INTEL) {
 		switch (c->x86_model) {
 		case VFM_MODEL(INTEL_ALDERLAKE):
 		case VFM_MODEL(INTEL_ALDERLAKE_L):
 		case VFM_MODEL(INTEL_RAPTORLAKE):
 		case VFM_MODEL(INTEL_RAPTORLAKE_P):
 		case VFM_MODEL(INTEL_RAPTORLAKE_S):
+		case VFM_MODEL(INTEL_TIGERLAKE):
+		case VFM_MODEL(INTEL_TIGERLAKE_L):
 			return true;
 		default:
 			return false;
