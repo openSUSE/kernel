@@ -977,7 +977,7 @@ static void device_pasid_table_teardown(struct device *dev, u8 bus, u8 devfn)
 		return;
 	}
 
-	context_clear_entry(context);
+	context_clear_present(context);
 	__iommu_flush_cache(iommu, context, sizeof(*context));
 	spin_unlock(&iommu->lock);
 
@@ -999,6 +999,8 @@ static void device_pasid_table_teardown(struct device *dev, u8 bus, u8 devfn)
 	iommu->flush.flush_context(iommu, 0, PCI_DEVID(bus, devfn),
 				   DMA_CCMD_MASK_NOBIT, DMA_CCMD_DEVICE_INVL);
 	devtlb_invalidation_with_pasid(iommu, dev, IOMMU_NO_PASID);
+	context_clear_entry(context);
+	__iommu_flush_cache(iommu, context, sizeof(*context));
 }
 
 static int pci_pasid_table_teardown(struct pci_dev *pdev, u16 alias, void *data)
