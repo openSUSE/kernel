@@ -959,12 +959,6 @@ int intel_pasid_setup_nested(struct intel_iommu *iommu, struct device *dev,
 	return 0;
 }
 
-static inline void context_clear_entry(struct context_entry *context)
-{
-	context->lo = 0;
-	context->hi = 0;
-}
-
 /*
  * Interfaces to setup or teardown a pasid table to the scalable-mode
  * context table entry:
