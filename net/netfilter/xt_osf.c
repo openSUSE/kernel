@@ -180,25 +180,13 @@ static inline int xt_osf_ttl(const struct sk_buff *skb, const struct xt_osf_info
 	const struct iphdr *ip = ip_hdr(skb);
 
 	if (info->flags & XT_OSF_TTL) {
-		if (info->ttl == XT_OSF_TTL_TRUE)
+		switch (info->ttl) {
+		case XT_OSF_TTL_TRUE:
 			return ip->ttl == f_ttl;
-		if (info->ttl == XT_OSF_TTL_NOCHECK)
+		case XT_OSF_TTL_NOCHECK:
 			return 1;
-		else if (ip->ttl <= f_ttl)
-			return 1;
-		else {
-			struct in_device *in_dev = __in_dev_get_rcu(skb->dev);
-			int ret = 0;
-
-			for_ifa(in_dev) {
-				if (inet_ifa_match(ip->saddr, ifa)) {
-					ret = (ip->ttl == f_ttl);
-					break;
-				}
-			}
-			endfor_ifa(in_dev);
-
-			return ret;
+		default:
+			return ip->ttl <= f_ttl;
 		}
 	}
 
