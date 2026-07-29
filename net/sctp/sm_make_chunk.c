@@ -1649,12 +1649,13 @@ struct sctp_association *sctp_unpack_cookie(
 	int headersize, bodysize, fixed_size;
 	__u8 *digest = ep->digest;
 	struct scatterlist sg;
-	unsigned int keylen, len;
+	unsigned int keylen, len, chlen;
 	char *key;
 	sctp_scope_t scope;
 	struct sk_buff *skb = chunk->skb;
 	struct timeval tv;
 	struct hash_desc desc;
+	struct sctp_chunkhdr *ch;
 
 	/* Header size is static data prior to the actual cookie, including
 	 * any padding.
@@ -1680,6 +1681,15 @@ struct sctp_association *sctp_unpack_cookie(
 	/* Process the cookie.  */
 	cookie = chunk->subh.cookie_hdr;
 	bear_cookie = &cookie->c;
+
+	ch = (struct sctp_chunkhdr *)&bear_cookie->peer_init[0];
+	chlen = ntohs(ch->length);
+	if (chlen < sizeof(struct sctp_init_chunk))
+		goto malformed;
+	if (chlen > len - fixed_size)
+		goto malformed;
+	if (bear_cookie->raw_addr_list_len > len - fixed_size - chlen)
+		goto malformed;
 
 	if (!sctp_sk(ep->base.sk)->hmac)
 		goto no_hmac;
@@ -2584,6 +2594,9 @@ do_addr_param:
 			goto fall_through;
 
 		addr_param = param.v + sizeof(sctp_addip_param_t);
+		if (ntohs(addr_param->p.length) >
+		    ntohs(param.p->length) - sizeof(sctp_addip_param_t))
+			break;
 
 		af = sctp_get_af_specific(param_type2af(param.p->type));
 		if (!af)
@@ -2955,13 +2968,16 @@ static __be16 sctp_process_asconf_param(struct sctp_association *asoc,
 	union sctp_addr	addr;
 	union sctp_addr_param *addr_param;
 
-	addr_param = (union sctp_addr_param *)
-			((void *)asconf_param + sizeof(sctp_addip_param_t));
-
 	if (asconf_param->param_hdr.type != SCTP_PARAM_ADD_IP &&
 	    asconf_param->param_hdr.type != SCTP_PARAM_DEL_IP &&
 	    asconf_param->param_hdr.type != SCTP_PARAM_SET_PRIMARY)
 		return SCTP_ERROR_UNKNOWN_PARAM;
+
+	addr_param = (union sctp_addr_param *)
+			((void *)asconf_param + sizeof(sctp_addip_param_t));
+	if (ntohs(addr_param->p.length) >
+	    ntohs(asconf_param->param_hdr.length) - sizeof(sctp_addip_param_t))
+		return SCTP_ERROR_PROTO_VIOLATION;
 
 	switch (addr_param->p.type) {
 	case SCTP_PARAM_IPV6_ADDRESS:
