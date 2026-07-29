@@ -30,7 +30,7 @@ static void iwl_parse_shared_mem_22000(struct iwl_fw_runtime *fwrt,
 
 	if (api_ver >= 4 &&
 	    !IWL_FW_CHECK(fwrt, iwl_rx_packet_payload_len(pkt) < sizeof(*mem_cfg),
-			  "bad shared mem notification size\n")) {
+			  "bad shared mem notification size%s\n", "")) {
 		fwrt->smem_cfg.rxfifo2_control_size =
 			le32_to_cpu(mem_cfg->rxfifo2_control_size);
 	}
