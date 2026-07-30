@@ -364,6 +364,8 @@ void rds_conn_shutdown(struct rds_conn_path *cp)
 	cancel_delayed_work_sync(&cp->cp_conn_w);
 	if (conn->c_destroy_in_prog)
 		return;
+
+	clear_bit(RDS_RECONNECT_PENDING, &cp->cp_flags);
 	rcu_read_lock();
 	if (!hlist_unhashed(&conn->c_hash_node)) {
 		rcu_read_unlock();
