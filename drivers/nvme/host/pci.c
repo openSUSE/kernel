@@ -955,7 +955,7 @@ static void nvme_submit_cmds(struct nvme_queue *nvmeq, struct request **rqlist)
 {
 	struct request *req;
 
-	if (rq_list_empty(rqlist))
+	if (rq_list_empty(*rqlist))
 		return;
 
 	spin_lock(&nvmeq->sq_lock);
