@@ -89,15 +89,17 @@ notrace unsigned long syscall_exit_prepare(unsigned long r3,
 					   long scv)
 {
 	unsigned long ti_flags;
+	unsigned long ret = 0;
 	bool is_not_scv = !IS_ENABLED(CONFIG_PPC_BOOK3S_64) || !scv;
 
 	kuap_assert_locked();
 
 	regs->result = r3;
-	regs->exit_flags = 0;
+
+	/* Clear exit_flags so only flags set during this exit are visible */
+	clear_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL);
 
 	ti_flags = read_thread_flags();
-
 	if (unlikely(r3 >= (unsigned long)-MAX_ERRNO) && is_not_scv) {
 		if (likely(!(ti_flags & (_TIF_NOERROR | _TIF_RESTOREALL)))) {
 			r3 = -r3;
@@ -107,7 +109,7 @@ notrace unsigned long syscall_exit_prepare(unsigned long r3,
 
 	if (unlikely(ti_flags & _TIF_PERSYSCALL_MASK)) {
 		if (ti_flags & _TIF_RESTOREALL)
-			regs->exit_flags = _TIF_RESTOREALL;
+			ret = _TIF_RESTOREALL;
 		else
 			regs->gpr[3] = r3;
 		clear_bits(_TIF_PERSYSCALL_MASK, &current_thread_info()->flags);
@@ -116,7 +118,7 @@ notrace unsigned long syscall_exit_prepare(unsigned long r3,
 	}
 
 	if (unlikely(ti_flags & _TIF_SYSCALL_DOTRACE)) {
-		regs->exit_flags |= _TIF_RESTOREALL;
+		ret |= _TIF_RESTOREALL;
 	}
 
 	syscall_exit_to_user_mode(regs);
@@ -132,17 +134,20 @@ again:
 
 	/* Restore user access locks last */
 	kuap_user_restore(regs);
-
+	if (test_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL))
+		ret |= _TIF_RESTOREALL;
 #ifdef CONFIG_PPC64
-	regs->exit_result = regs->exit_flags;
+	regs->exit_result = ret;
 #endif
 
-	return regs->exit_flags;
+	return ret;
 }
 
 #ifdef CONFIG_PPC64
 notrace unsigned long syscall_exit_restart(unsigned long r3, struct pt_regs *regs)
 {
+	unsigned long ret = 0;
+
 	/*
 	 * This is called when detecting a soft-pending interrupt as well as
 	 * an alternate-return interrupt. So we can't just have the alternate
@@ -167,15 +172,16 @@ again:
 	}
 
 	kuap_user_restore(regs);
-	regs->exit_result |= regs->exit_flags;
+	if (test_and_clear_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL))
+		regs->exit_result |= _TIF_RESTOREALL;
 
-	return regs->exit_result;
+	return ret;
 }
 #endif
 
 notrace unsigned long interrupt_exit_user_prepare(struct pt_regs *regs)
 {
-	unsigned long ret;
+	unsigned long ret = 0;
 
 	BUG_ON(regs_is_unrecoverable(regs));
 	BUG_ON(regs_irqs_disabled(regs));
@@ -186,8 +192,10 @@ notrace unsigned long interrupt_exit_user_prepare(struct pt_regs *regs)
 	 */
 	kuap_assert_locked();
 
+	/* Clear exit_flags so only flags set during this exit are visible */
+	clear_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL);
+
 	local_irq_disable();
-	regs->exit_flags = 0;
 again:
 	check_return_regs_valid(regs);
 	user_enter_irqoff();
@@ -200,9 +208,8 @@ again:
 
 	/* Restore user access locks last */
 	kuap_user_restore(regs);
-
-	ret = regs->exit_flags;
-
+	if (test_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL))
+		ret = _TIF_RESTOREALL;
 #ifdef CONFIG_PPC64
 	regs->exit_result = ret;
 #endif
