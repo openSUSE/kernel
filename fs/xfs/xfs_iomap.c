@@ -838,6 +838,10 @@ xfs_direct_write_iomap_begin(
 	if (offset + length > i_size_read(inode))
 		iomap_flags |= IOMAP_F_DIRTY;
 
+	/* HW-offload atomics are always used in this path */
+	if (flags & IOMAP_ATOMIC)
+		iomap_flags |= IOMAP_F_ATOMIC_BIO;
+
 	/*
 	 * COW writes may allocate delalloc space or convert unwritten COW
 	 * extents, so we need to make sure to take the lock exclusively here.
@@ -879,7 +883,7 @@ relock:
 		if (error)
 			goto out_unlock;
 		if (shared) {
-			if ((flags & IOMAP_ATOMIC_HW) &&
+			if ((flags & IOMAP_ATOMIC) &&
 			    !xfs_bmap_hw_atomic_write_possible(ip, &cmap,
 					offset_fsb, end_fsb)) {
 				error = -ENOPROTOOPT;
@@ -893,7 +897,7 @@ relock:
 
 	needs_alloc = imap_needs_alloc(inode, flags, &imap, nimaps);
 
-	if (flags & IOMAP_ATOMIC_HW) {
+	if (flags & IOMAP_ATOMIC) {
 		error = -ENOPROTOOPT;
 		/*
 		 * If we allocate less than what is required for the write
