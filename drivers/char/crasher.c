@@ -48,6 +48,7 @@ MODULE_PARM_DESC(jump_null, "test option. jump to a NULL pointer to simulate a c
 MODULE_PARM_DESC(jump_bad, "test option. jump to an invalid address to simulate a crash and render the system unusable.");
 MODULE_PARM_DESC(threads, "number of threads to run");
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Module to crash the system in various ways");
 
 #define NUM_ALLOC 24
 static const unsigned int sizes[] = { 32, 64, 128, 192, 256, 1024, 2048, 4096 };
