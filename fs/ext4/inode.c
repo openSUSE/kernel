@@ -3574,7 +3574,7 @@ static int ext4_iomap_alloc(struct inode *inode, struct ext4_map_blocks *map,
 	 * then let's assume the no. of pextents required can be m_len i.e.
 	 * every alternate block can be unwritten and hole.
 	 */
-	if (flags & IOMAP_ATOMIC) {
+	if (flags & IOMAP_ATOMIC_HW) {
 		unsigned int orig_mlen = map->m_len;
 
 		ret = ext4_map_blocks(NULL, inode, map, 0);
@@ -3621,7 +3621,7 @@ retry:
 	else if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
 		m_flags = EXT4_GET_BLOCKS_IO_CREATE_EXT;
 
-	if (flags & IOMAP_ATOMIC)
+	if (flags & IOMAP_ATOMIC_HW)
 		ret = ext4_map_blocks_atomic_write(handle, inode, map, m_flags,
 						   &force_commit);
 	else
@@ -3695,8 +3695,8 @@ static int ext4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 			 * be mapped.
 			 */
 			if (map.m_flags & EXT4_MAP_MAPPED) {
-				if ((!(flags & IOMAP_ATOMIC) && ret > 0) ||
-				   (flags & IOMAP_ATOMIC && ret >= orig_mlen))
+				if ((!(flags & IOMAP_ATOMIC_HW) && ret > 0) ||
+				   (flags & IOMAP_ATOMIC_HW && ret >= orig_mlen))
 					goto out;
 			}
 			map.m_len = orig_mlen;
@@ -3724,7 +3724,7 @@ out:
 	 * Before returning to iomap, let's ensure the allocated mapping
 	 * covers the entire requested length for atomic writes.
 	 */
-	if (flags & IOMAP_ATOMIC) {
+	if (flags & IOMAP_ATOMIC_HW) {
 		if (map.m_len < (length >> blkbits)) {
 			WARN_ON_ONCE(1);
 			return -EINVAL;

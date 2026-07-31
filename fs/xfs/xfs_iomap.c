@@ -879,7 +879,7 @@ relock:
 		if (error)
 			goto out_unlock;
 		if (shared) {
-			if ((flags & IOMAP_ATOMIC) &&
+			if ((flags & IOMAP_ATOMIC_HW) &&
 			    !xfs_bmap_hw_atomic_write_possible(ip, &cmap,
 					offset_fsb, end_fsb)) {
 				error = -ENOPROTOOPT;
@@ -893,7 +893,7 @@ relock:
 
 	needs_alloc = imap_needs_alloc(inode, flags, &imap, nimaps);
 
-	if (flags & IOMAP_ATOMIC) {
+	if (flags & IOMAP_ATOMIC_HW) {
 		error = -ENOPROTOOPT;
 		/*
 		 * If we allocate less than what is required for the write
