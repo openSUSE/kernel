@@ -259,7 +259,8 @@ static int fdl_load_file(struct sdca_interrupt *interrupt,
 
 	if (!swf) {
 		dev_err(dev, "failed to locate SWF\n");
-		return -ENOENT;
+		ret = -ENOENT;
+		goto error;
 	}
 
 	ret = sdca_ump_write_message(dev, interrupt->device_regmap,
@@ -268,6 +269,8 @@ static int fdl_load_file(struct sdca_interrupt *interrupt,
 				     SDCA_CTL_XU_FDL_MESSAGEOFFSET, fdl_file->fdl_offset,
 				     SDCA_CTL_XU_FDL_MESSAGELENGTH, swf->data,
 				     swf->file_length - offsetof(struct acpi_sw_file, data));
+
+error:
 	release_firmware(firmware);
 	return ret;
 }
