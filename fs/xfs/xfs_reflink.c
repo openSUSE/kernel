@@ -399,6 +399,21 @@ retry:
 	/*
 	 * Even if the extent is not shared we might have a preallocation for
 	 * it in the COW fork.  If so use it.
+	 * The data fork mapping may have changed while we dropped the ILOCK
+	 * (a racing O_DIRECT writer under IOLOCK_SHARED can complete a full
+	 * CoW cycle including xfs_reflink_end_cow(), which remaps this offset
+	 * and drops the refcount of the old shared block).  Re-read it so the
+	 * shared-status recheck below and the caller's in-place iomap both
+	 * operate on the current mapping rather than a stale physical block.
+	 */
+	nimaps = 1;
+	error = xfs_bmapi_read(ip, imap->br_startoff,
+		imap->br_blockcount, imap, &nimaps, 0);
+	if (error)
+		goto out;
+
+	/*
+	 * Check for an overlapping extent again now that we dropped the ilock.
 	 */
 	if (xfs_iext_lookup_extent(ip, ip->i_cowfp, offset_fsb, &icur, &got) &&
 	    got.br_startoff <= offset_fsb) {
