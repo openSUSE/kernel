@@ -409,7 +409,8 @@ void ucsi_notify(struct ucsi *ucsi)
 		complete(&ucsi->complete);
 	} else if (cci->ack_complete && test_bit(ACK_PENDING, &ucsi->flags)) {
 		complete(&ucsi->complete);
-	} else if (cci->connector_change) {
+	} else if (cci->connector_change &&
+		   cci->connector_change <= ucsi->cap.num_connectors) {
 		struct ucsi_connector *con;
 
 		con = &ucsi->connector[cci->connector_change - 1];
