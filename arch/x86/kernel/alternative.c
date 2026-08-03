@@ -2547,42 +2547,57 @@ typedef void text_poke_f(void *dst, const void *src, size_t len);
 static void dump_pte(void *paddr)
 {
 	unsigned long addr = (unsigned long)paddr;
-
-	if (core_kernel_text(addr))
-		return;
-
 	pgd_t *pgd = pgd_offset_k(addr);
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *ptep, pte;
+
+	if (core_kernel_text(addr)) {
+		pr_err("%s: address %px is in core kernel text\n", __func__, paddr);
+		return;
+	}
+
 	if (pgd_none(*pgd)) {
 		pr_err("%s: PGD is none\n", __func__);
 		return;
 	}
 
-	p4d_t *p4d = p4d_offset(pgd, addr);
+	p4d = p4d_offset(pgd, addr);
 	if (p4d_none(*p4d)) {
 		pr_err("%s: P4D is none\n", __func__);
 		return;
 	}
-	if (p4d_leaf(*p4d))
+	if (p4d_leaf(*p4d)) {
+		pr_err("%s: P4D is leaf: %llx\n", __func__,
+		       (u64)p4d_page(*p4d) + ((addr & ~P4D_MASK) >> PAGE_SHIFT));
 		return;
+	}
 
-	pud_t *pud = pud_offset(p4d, addr);
+	pud = pud_offset(p4d, addr);
 	if (pud_none(*pud)) {
 		pr_err("%s: PUD is none\n", __func__);
 		return;
 	}
-	if (pud_leaf(*pud))
+	if (pud_leaf(*pud)) {
+		pr_err("%s: PUD is leaf: %llx\n", __func__,
+		       (u64)pud_page(*pud) + ((addr & ~PUD_MASK) >> PAGE_SHIFT));
 		return;
+	}
 
-	pmd_t *pmd = pmd_offset(pud, addr);
+	pmd = pmd_offset(pud, addr);
 	if (pmd_none(*pmd)) {
 		pr_err("%s: PMD is none\n", __func__);
 		return;
 	}
-	if (pmd_leaf(*pmd))
+	if (pmd_leaf(*pmd)) {
+		pr_err("%s: PMD is leaf: %llx\n", __func__,
+		       (u64)pmd_page(*pmd) + ((addr & ~PMD_MASK) >> PAGE_SHIFT));
 		return;
+	}
 
-	pte_t *ptep = pte_offset_kernel(pmd, addr);
-        pte_t pte = ptep_get(ptep);
+	ptep = pte_offset_kernel(pmd, addr);
+	pte = ptep_get(ptep);
 	if (!pte_present(pte)) {
 		pr_err("%s: PTE is non-present\n", __func__);
 		return;
@@ -2623,12 +2638,13 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 	 * implemented.
 	 */
 	if (!pages[0] || (cross_page_boundary && !pages[1])) {
-		pr_err("%s: failed to get page for %px-%px (%pS): cross=%d core=%d pages=%px/%px\n",
+		pr_err("%s: failed to get page for %px-%px (%pS): cross=%d core=%d pages=%px/%px page=%px\n",
 		       __func__, addr, addr + len - 1, addr, cross_page_boundary,
 		       core_kernel_text((unsigned long)addr),
-		       pages[0], pages[1]);
+		       pages[0], pages[1], vmalloc_to_page(addr));
 		print_hex_dump(KERN_ERR, "op: ", DUMP_PREFIX_NONE, 16, 1, src, len, true);
 		dump_pte(addr);
+		pr_err("vmalloc_to_page=%px\n", vmalloc_to_page(addr));
 		BUG();
 	}
 
