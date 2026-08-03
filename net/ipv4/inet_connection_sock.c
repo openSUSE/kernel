@@ -925,6 +925,9 @@ static void reqsk_queue_hash_req(struct request_sock *req,
 				 unsigned long timeout)
 {
 	timer_setup(&req->rsk_timer, reqsk_timer_handler, TIMER_PINNED);
+
+	preempt_disable_nested();
+
 	mod_timer(&req->rsk_timer, jiffies + timeout);
 
 	inet_ehash_insert(req_to_sk(req), NULL, NULL);
@@ -933,6 +936,9 @@ static void reqsk_queue_hash_req(struct request_sock *req,
 	 */
 	smp_wmb();
 	refcount_set(&req->rsk_refcnt, 2 + 1);
+
+	preempt_enable_nested();
+
 }
 
 void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
