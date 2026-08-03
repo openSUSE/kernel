@@ -2569,8 +2569,8 @@ static void dump_pte(void *paddr)
 		return;
 	}
 	if (p4d_leaf(*p4d)) {
-		pr_err("%s: P4D is leaf: %llx\n", __func__,
-		       (u64)p4d_page(*p4d) + ((addr & ~P4D_MASK) >> PAGE_SHIFT));
+		pr_err("%s: P4D is leaf: %px\n", __func__,
+		       p4d_page(*p4d) + ((addr & ~P4D_MASK) >> PAGE_SHIFT));
 		return;
 	}
 
@@ -2580,8 +2580,8 @@ static void dump_pte(void *paddr)
 		return;
 	}
 	if (pud_leaf(*pud)) {
-		pr_err("%s: PUD is leaf: %llx\n", __func__,
-		       (u64)pud_page(*pud) + ((addr & ~PUD_MASK) >> PAGE_SHIFT));
+		pr_err("%s: PUD is leaf: %px\n", __func__,
+		       pud_page(*pud) + ((addr & ~PUD_MASK) >> PAGE_SHIFT));
 		return;
 	}
 
@@ -2591,8 +2591,8 @@ static void dump_pte(void *paddr)
 		return;
 	}
 	if (pmd_leaf(*pmd)) {
-		pr_err("%s: PMD is leaf: %llx\n", __func__,
-		       (u64)pmd_page(*pmd) + ((addr & ~PMD_MASK) >> PAGE_SHIFT));
+		pr_err("%s: PMD is leaf: %px\n", __func__,
+		       pmd_page(*pmd) + ((addr & ~PMD_MASK) >> PAGE_SHIFT));
 		return;
 	}
 
