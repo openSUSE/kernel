@@ -27,6 +27,7 @@
 struct xdomain_request_work {
 	struct work_struct work;
 	struct tb_xdp_header *pkg;
+	size_t pkg_len;
 	struct tb *tb;
 };
 
@@ -467,6 +468,7 @@ static void tb_xdp_handle_request(struct work_struct *work)
 {
 	struct xdomain_request_work *xw = container_of(work, typeof(*xw), work);
 	const struct tb_xdp_header *pkg = xw->pkg;
+	size_t pkg_len = xw->pkg_len;
 	const struct tb_xdomain_header *xhdr = &pkg->xd_hdr;
 	struct tb *tb = xw->tb;
 	struct tb_ctl *ctl = tb->ctl;
@@ -493,27 +495,31 @@ static void tb_xdp_handle_request(struct work_struct *work)
 
 	switch (pkg->type) {
 	case PROPERTIES_REQUEST:
-		ret = tb_xdp_properties_response(tb, ctl, route, sequence, uuid,
-			(const struct tb_xdp_properties *)pkg);
+		if (pkg_len >= sizeof(struct tb_xdp_properties)) {
+			ret = tb_xdp_properties_response(tb, ctl, route, sequence, uuid,
+				(const struct tb_xdp_properties *)pkg);
+		}
 		break;
 
 	case PROPERTIES_CHANGED_REQUEST: {
-		const struct tb_xdp_properties_changed *xchg =
-			(const struct tb_xdp_properties_changed *)pkg;
-		struct tb_xdomain *xd;
+		if (pkg_len >= sizeof(struct tb_xdp_properties_changed)) {
+			const struct tb_xdp_properties_changed *xchg =
+				(const struct tb_xdp_properties_changed *)pkg;
+			struct tb_xdomain *xd;
 
-		ret = tb_xdp_properties_changed_response(ctl, route, sequence);
+			ret = tb_xdp_properties_changed_response(ctl, route, sequence);
 
-		/*
-		 * Since the properties have been changed, let's update
-		 * the xdomain related to this connection as well in
-		 * case there is a change in services it offers.
-		 */
-		xd = tb_xdomain_find_by_uuid_locked(tb, &xchg->src_uuid);
-		if (xd) {
-			queue_delayed_work(tb->wq, &xd->get_properties_work,
-					   msecs_to_jiffies(50));
-			tb_xdomain_put(xd);
+			/*
+			 * Since the properties have been changed, let's update
+			 * the xdomain related to this connection as well in
+			 * case there is a change in services it offers.
+			 */
+			xd = tb_xdomain_find_by_uuid_locked(tb, &xchg->src_uuid);
+			if (xd) {
+				queue_delayed_work(tb->wq, &xd->get_properties_work,
+						   msecs_to_jiffies(50));
+				tb_xdomain_put(xd);
+			}
 		}
 
 		break;
@@ -545,6 +551,7 @@ tb_xdp_schedule_request(struct tb *tb, const struct tb_xdp_header *hdr,
 
 	INIT_WORK(&xw->work, tb_xdp_handle_request);
 	xw->pkg = kmemdup(hdr, size, GFP_KERNEL);
+	xw->pkg_len = size;
 	xw->tb = tb;
 
 	queue_work(tb->wq, &xw->work);
