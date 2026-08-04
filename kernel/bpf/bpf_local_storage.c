@@ -404,14 +404,19 @@ void bpf_selem_link_map(struct bpf_local_storage_map *smap,
 	raw_spin_unlock_irqrestore(&b->lock, flags);
 }
 
-void bpf_selem_unlink(struct bpf_local_storage_elem *selem, bool reuse_now)
+int bpf_selem_unlink(struct bpf_local_storage_elem *selem, bool reuse_now)
 {
+	if (in_nmi())
+		return -EOPNOTSUPP;
+
 	/* Always unlink from map before unlinking from local_storage
 	 * because selem will be freed after successfully unlinked from
 	 * the local_storage.
 	 */
 	bpf_selem_unlink_map(selem);
 	bpf_selem_unlink_storage(selem, reuse_now);
+
+	return 0;
 }
 
 /* If cacheit_lockit is false, this lookup function is lockless */

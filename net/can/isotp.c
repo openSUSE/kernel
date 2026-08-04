@@ -1215,10 +1215,17 @@ static int isotp_release(struct socket *sock)
 						  SINGLE_MASK(so->txid),
 						  isotp_rcv_echo, sk);
 				dev_put(dev);
-				synchronize_rcu();
 			}
 		}
 	}
+
+	/* Always wait for a grace period before touching the timers below.
+	 * A concurrent NETDEV_UNREGISTER may have already unregistered our
+	 * filters and cleared so->bound in isotp_notify() without waiting
+	 * for in-flight isotp_rcv() callers to finish, so this call must not
+	 * be skipped just because so->bound is already 0 here.
+	 */
+	synchronize_rcu();
 
 	hrtimer_cancel(&so->txfrtimer);
 	hrtimer_cancel(&so->txtimer);
@@ -1730,13 +1737,18 @@ static __init int isotp_module_init(void)
 
 	pr_info("can: isotp protocol (max_pdu_size %d)\n", max_pdu_size);
 
-	err = can_proto_register(&isotp_can_proto);
-	if (err < 0)
-		pr_err("can: registration of isotp protocol failed %pe\n", ERR_PTR(err));
-	else
-		register_netdevice_notifier(&canisotp_notifier);
+	err = register_netdevice_notifier(&canisotp_notifier);
+	if (err)
+		return err;
 
-	return err;
+	err = can_proto_register(&isotp_can_proto);
+	if (err < 0) {
+		pr_err("can: registration of isotp protocol failed %pe\n", ERR_PTR(err));
+		unregister_netdevice_notifier(&canisotp_notifier);
+		return err;
+	}
+
+	return 0;
 }
 
 static __exit void isotp_module_exit(void)

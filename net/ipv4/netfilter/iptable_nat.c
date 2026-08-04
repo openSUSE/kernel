@@ -79,6 +79,7 @@ static int ipt_nat_register_lookups(struct net *net)
 			while (i)
 				nf_nat_ipv4_unregister_fn(net, &ops[--i]);
 
+			synchronize_rcu();
 			kfree(ops);
 			return ret;
 		}
@@ -100,6 +101,7 @@ static void ipt_nat_unregister_lookups(struct net *net)
 	for (i = 0; i < ARRAY_SIZE(nf_nat_ipv4_ops); i++)
 		nf_nat_ipv4_unregister_fn(net, &ops[i]);
 
+	synchronize_rcu();
 	kfree(ops);
 }
 
