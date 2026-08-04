@@ -15,6 +15,7 @@
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
 #include <linux/errno.h>
+#include <linux/if_arp.h>
 #include <linux/if_ether.h>
 #include <linux/netlink.h>
 #include <linux/jiffies.h>
@@ -227,8 +228,8 @@ bitmap_ipmac_kadt(struct ip_set *set, const struct sk_buff *skb,
 		return -IPSET_ERR_BITMAP_RANGE;
 
 	/* Backward compatibility: we don't check the second flag */
-	if (skb_mac_header(skb) < skb->head ||
-	    (skb_mac_header(skb) + ETH_HLEN) > skb->data)
+	if (!skb->dev || skb->dev->type != ARPHRD_ETHER ||
+	    !skb_mac_header_was_set(skb) || skb_mac_header_len(skb) < ETH_HLEN)
 		return -EINVAL;
 
 	e.id = ip_to_id(map, ip);

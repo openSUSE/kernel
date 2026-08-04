@@ -12,6 +12,7 @@
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
 #include <linux/errno.h>
+#include <linux/if_arp.h>
 #include <linux/if_ether.h>
 #include <net/netlink.h>
 
@@ -88,8 +89,8 @@ hash_mac4_kadt(struct ip_set *set, const struct sk_buff *skb,
 	if (!(opt->flags & IPSET_DIM_ONE_SRC))
 		return 0;
 
-	if (skb_mac_header(skb) < skb->head ||
-	    (skb_mac_header(skb) + ETH_HLEN) > skb->data)
+	if (!skb->dev || skb->dev->type != ARPHRD_ETHER ||
+	    !skb_mac_header_was_set(skb) || skb_mac_header_len(skb) < ETH_HLEN)
 		return -EINVAL;
 
 	ether_addr_copy(e.ether, eth_hdr(skb)->h_source);

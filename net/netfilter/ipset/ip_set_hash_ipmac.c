@@ -14,6 +14,7 @@
 #include <linux/skbuff.h>
 #include <linux/errno.h>
 #include <linux/random.h>
+#include <linux/if_arp.h>
 #include <linux/if_ether.h>
 #include <net/ip.h>
 #include <net/ipv6.h>
@@ -99,8 +100,8 @@ hash_ipmac4_kadt(struct ip_set *set, const struct sk_buff *skb,
 	if (!(opt->flags & IPSET_DIM_TWO_SRC))
 		return 0;
 
-	if (skb_mac_header(skb) < skb->head ||
-	    (skb_mac_header(skb) + ETH_HLEN) > skb->data)
+	if (!skb->dev || skb->dev->type != ARPHRD_ETHER ||
+	    !skb_mac_header_was_set(skb) || skb_mac_header_len(skb) < ETH_HLEN)
 		return -EINVAL;
 
 	memcpy(e.ether, eth_hdr(skb)->h_source, ETH_ALEN);
@@ -215,8 +216,8 @@ hash_ipmac6_kadt(struct ip_set *set, const struct sk_buff *skb,
 	if (!(opt->flags & IPSET_DIM_TWO_SRC))
 		return 0;
 
-	if (skb_mac_header(skb) < skb->head ||
-	    (skb_mac_header(skb) + ETH_HLEN) > skb->data)
+	if (!skb->dev || skb->dev->type != ARPHRD_ETHER ||
+	    !skb_mac_header_was_set(skb) || skb_mac_header_len(skb) < ETH_HLEN)
 		return -EINVAL;
 
 	memcpy(e.ether, eth_hdr(skb)->h_source, ETH_ALEN);
