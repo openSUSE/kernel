@@ -1150,7 +1150,7 @@ static bool reqsk_queue_hash_req(struct request_sock *req,
 	return true;
 }
 
-bool inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
+bool __inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 				   unsigned long timeout)
 {
 	if (!reqsk_queue_hash_req(req, timeout))
@@ -1158,6 +1158,14 @@ bool inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 
 	inet_csk_reqsk_queue_added(sk);
 	return true;
+}
+EXPORT_SYMBOL_GPL(__inet_csk_reqsk_queue_hash_add);
+
+void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
+                                   unsigned long timeout)
+{
+	if (!__inet_csk_reqsk_queue_hash_add(sk, req, timeout))
+		refcount_set(&req->rsk_refcnt, 1);
 }
 EXPORT_SYMBOL_GPL(inet_csk_reqsk_queue_hash_add);
 
