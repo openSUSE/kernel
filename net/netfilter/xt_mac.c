@@ -32,9 +32,7 @@ static bool mac_mt(const struct sk_buff *skb, struct xt_action_param *par)
 
 	if (skb->dev == NULL || skb->dev->type != ARPHRD_ETHER)
 		return false;
-	if (skb_mac_header(skb) < skb->head)
-		return false;
-	if (skb_mac_header(skb) + ETH_HLEN > skb->data)
+	if (!skb_mac_header_was_set(skb) || (skb_network_header(skb) - skb_mac_header(skb)) < ETH_HLEN)
 		return false;
 	ret  = compare_ether_addr(eth_hdr(skb)->h_source, info->srcaddr) == 0;
 	ret ^= info->invert;
