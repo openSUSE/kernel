@@ -914,7 +914,7 @@ static int hci_linkpol_req(struct hci_request *req, unsigned long opt)
 }
 
 /* FIXME: global SRCU instead of hci_dev.srcu for kABI compatibility */
-DEFINE_STATIC_SRCU(__hci_dev_srcu);
+DEFINE_SRCU(__hci_dev_srcu);
 
 /* Get HCI device by index.
  * Device is held on return. */

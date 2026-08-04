@@ -5,6 +5,8 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
+extern struct srcu_struct __hci_dev_srcu;
+
 static struct class *bt_class;
 
 static void bt_link_release(struct device *dev)
@@ -86,9 +88,12 @@ static void bt_host_release(struct device *dev)
 {
 	struct hci_dev *hdev = to_hci_dev(dev);
 
-	if (hci_dev_test_flag(hdev, HCI_UNREGISTER))
+	if (hci_dev_test_flag(hdev, HCI_UNREGISTER)) {
 		hci_cleanup_dev(hdev);
-	kfree(hdev);
+	} else {
+		synchronize_srcu(&__hci_dev_srcu);
+		kfree(hdev);
+	}
 	module_put(THIS_MODULE);
 }
 
