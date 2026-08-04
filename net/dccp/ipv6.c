@@ -397,7 +397,7 @@ static int dccp_v6_conn_request(struct sock *sk, struct sk_buff *skb)
 	if (dccp_v6_send_response(sk, req))
 		goto drop_and_free;
 
-	if (unlikely(!inet_csk_reqsk_queue_hash_add(sk, req, DCCP_TIMEOUT_INIT)))
+	if (unlikely(!__inet_csk_reqsk_queue_hash_add(sk, req, DCCP_TIMEOUT_INIT)))
 		reqsk_free(req);
 	else
 		reqsk_put(req);
