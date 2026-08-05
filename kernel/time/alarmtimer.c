@@ -563,15 +563,10 @@ static enum alarmtimer_restart alarm_handle_timer(struct alarm *alarm,
 					    it.alarm.alarmtimer);
 	enum alarmtimer_restart result = ALARMTIMER_NORESTART;
 	unsigned long flags;
-	int si_private = 0;
 
 	spin_lock_irqsave(&ptr->it_lock, flags);
 
-	ptr->it_active = 0;
-	if (ptr->it_interval)
-		si_private = ++ptr->it_requeue_pending;
-
-	if (posix_timer_event(ptr, si_private) && ptr->it_interval) {
+	if (posix_timer_queue_signal(ptr) && ptr->it_interval) {
 		/*
 		 * Handle ignored signals and rearm the timer. This will go
 		 * away once we handle ignored signals proper. Ensure that
@@ -579,7 +574,7 @@ static enum alarmtimer_restart alarm_handle_timer(struct alarm *alarm,
 		 */
 		ptr->it_overrun += __alarm_forward_now(alarm, ptr->it_interval, true);
 		++ptr->it_requeue_pending;
-		ptr->it_active = 1;
+		ptr->it_status = POSIX_TIMER_ARMED;
 		result = ALARMTIMER_RESTART;
 	}
 	spin_unlock_irqrestore(&ptr->it_lock, flags);
@@ -591,12 +586,13 @@ static enum alarmtimer_restart alarm_handle_timer(struct alarm *alarm,
  * alarm_timer_rearm - Posix timer callback for rearming timer
  * @timr:	Pointer to the posixtimer data struct
  */
-static void alarm_timer_rearm(struct k_itimer *timr)
+static bool alarm_timer_rearm(struct k_itimer *timr)
 {
 	struct alarm *alarm = &timr->it.alarm.alarmtimer;
 
 	timr->it_overrun += alarm_forward_now(alarm, timr->it_interval);
 	alarm_start(alarm, alarm->node.expires);
+	return true;
 }
 
 /**
@@ -652,7 +648,7 @@ static void alarm_timer_wait_running(struct k_itimer *timr)
  * @absolute:	Expiry value is absolute time
  * @sigev_none:	Posix timer does not deliver signals
  */
-static void alarm_timer_arm(struct k_itimer *timr, ktime_t expires,
+static bool alarm_timer_arm(struct k_itimer *timr, ktime_t expires,
 			    bool absolute, bool sigev_none)
 {
 	struct alarm *alarm = &timr->it.alarm.alarmtimer;
@@ -664,6 +660,7 @@ static void alarm_timer_arm(struct k_itimer *timr, ktime_t expires,
 		alarm->node.expires = expires;
 	else
 		alarm_start(&timr->it.alarm.alarmtimer, expires);
+	return true;
 }
 
 /**
