@@ -168,11 +168,6 @@ static phys_addr_t root_entry_uctp(struct root_entry *re)
 	return re->hi & VTD_PAGE_MASK;
 }
 
-static inline void context_set_present(struct context_entry *context)
-{
-	context->lo |= 1;
-}
-
 static inline void context_set_fault_enable(struct context_entry *context)
 {
 	context->lo &= (((u64)-1) << 2) | 1;
@@ -212,12 +207,6 @@ static inline void context_set_pasid(struct context_entry *context)
 static inline int context_domain_id(struct context_entry *c)
 {
 	return((c->hi >> 8) & 0xffff);
-}
-
-static inline void context_clear_entry(struct context_entry *context)
-{
-	context->lo = 0;
-	context->hi = 0;
 }
 
 static inline bool context_copied(struct intel_iommu *iommu, u8 bus, u8 devfn)
@@ -1532,6 +1521,14 @@ static void __iommu_flush_dev_iotlb(struct device_domain_info *info,
 	if (!info || !info->ats_enabled)
 		return;
 
+	/*
+	 * Skip dev-IOTLB flush for inaccessible PCIe devices to prevent the
+	 * Intel IOMMU from waiting indefinitely for an ATS invalidation that
+	 * cannot complete.
+	 */
+	if (!pci_device_is_present(to_pci_dev(info->dev)))
+		return;
+
 	sid = info->bus << 8 | info->devfn;
 	qdep = info->ats_qdep;
 	qi_flush_dev_iotlb(info->iommu, sid, info->pfsid,
@@ -2388,7 +2385,7 @@ static void domain_context_clear_one(struct device_domain_info *info, u8 bus, u8
 		did_old = context_domain_id(context);
 	}
 
-	context_clear_entry(context);
+	context_clear_present(context);
 	__iommu_flush_cache(iommu, context, sizeof(*context));
 	spin_unlock(&iommu->lock);
 	iommu->flush.flush_context(iommu,
@@ -2407,6 +2404,8 @@ static void domain_context_clear_one(struct device_domain_info *info, u8 bus, u8
 				 DMA_TLB_DSI_FLUSH);
 
 	__iommu_flush_dev_iotlb(info, 0, MAX_AGAW_PFN_WIDTH);
+	context_clear_entry(context);
+	__iommu_flush_cache(iommu, context, sizeof(*context));
 }
 
 static int domain_setup_first_level(struct intel_iommu *iommu,
@@ -4836,6 +4835,9 @@ static void intel_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid)
 	if (WARN_ON_ONCE(!domain))
 		goto out_tear_down;
 
+	/* Blocked domain has no meta data for pasid. */
+	if (domain->type == IOMMU_DOMAIN_BLOCKED)
+		goto out_tear_down;
 	/*
 	 * The SVA implementation needs to handle its own stuffs like the mm
 	 * notification. Before consolidating that code into iommu core, let

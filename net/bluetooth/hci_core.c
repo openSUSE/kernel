@@ -65,7 +65,7 @@ DEFINE_MUTEX(hci_cb_list_lock);
 static DEFINE_IDA(hci_index_ida);
 
 /* FIXME: global SRCU instead of hci_dev.srcu for kABI compatibility */
-DEFINE_STATIC_SRCU(__hci_dev_srcu);
+DEFINE_SRCU(__hci_dev_srcu);
 
 /* FIXME: global spinlock instead of discovery_state.lock for kABI */
 DEFINE_SPINLOCK(__hci_dev_discovery_lock);
