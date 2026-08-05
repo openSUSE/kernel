@@ -519,9 +519,8 @@ static struct task_struct *timer_lock_sighand(struct k_itimer *timer, unsigned l
 {
 	enum pid_type type = clock_pid_type(timer->it_clock);
 	struct cpu_timer *ctmr = &timer->it.cpu;
-	struct task_struct *ret = NULL;
 
-	rcu_read_lock();
+	guard(rcu)();
 
 	for (;;) {
 		struct task_struct *t = pid_task(timer->it.cpu.pid, type);
@@ -531,10 +530,8 @@ static struct task_struct *timer_lock_sighand(struct k_itimer *timer, unsigned l
 			break;
 
 		/* Try to lock the task's sighand */
-		if (lock_task_sighand(t, flags)) {
-			ret = t;
-			goto unlock;
-		}
+		if (lock_task_sighand(t, flags))
+			return t;
 
 		/*
 		 * The next PID lookup might either fail or return the new
@@ -560,9 +557,7 @@ static struct task_struct *timer_lock_sighand(struct k_itimer *timer, unsigned l
 	 */
 	smp_rmb();
 	WARN_ON_ONCE(ctmr->head || timerqueue_node_queued(&ctmr->node));
-unlock:
-	rcu_read_unlock();
-	return ret;
+	return NULL;
 }
 
 /*
