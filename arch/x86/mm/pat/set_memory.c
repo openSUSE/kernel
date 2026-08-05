@@ -65,8 +65,25 @@ static const int cpa_warn_level = CPA_PROTECT;
  * Serialize cpa() using cpa_lock so that we don't allow any other cpu, with
  * stale large tlb entries, to change the page attribute in parallel to some
  * other cpu splitting a large page entry along with changing the attribute.
+ *
+ * When debug_pagealloc_enabled(), page attributes could be changed in atomic
+ * context that would warrant disabling IRQs. But since debug_pagealloc always
+ * uses 4k pages in the direct map there are no races for splits and collapses
+ * and locking can be just skipped altogether.
  */
-static DEFINE_SPINLOCK(cpa_lock);
+static DEFINE_SPINLOCK(_cpa_lock);
+
+static inline void cpa_lock(void)
+{
+	if (!debug_pagealloc_enabled())
+		spin_lock(&_cpa_lock);
+}
+
+static inline void cpa_unlock(void)
+{
+	if (!debug_pagealloc_enabled())
+		spin_unlock(&_cpa_lock);
+}
 
 #define CPA_FLUSHTLB 1
 #define CPA_ARRAY 2
@@ -417,7 +434,7 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 	int collapsed = 0;
 	int i;
 
-	spin_lock(&cpa_lock);
+	cpa_lock();
 
 	if (cpa->flags & (CPA_PAGES_ARRAY | CPA_ARRAY)) {
 		for (i = 0; i < cpa->numpages; i++)
@@ -433,7 +450,7 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 	}
 
 	if (!collapsed) {
-		spin_unlock(&cpa_lock);
+		cpa_unlock();
 		return;
 	}
 
@@ -444,7 +461,7 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 		pagetable_free(ptdesc);
 	}
 
-	spin_unlock(&cpa_lock);
+	cpa_unlock();
 }
 
 static void cpa_flush(struct cpa_data *cpa, int cache)
@@ -1240,9 +1257,9 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 {
 	struct ptdesc *ptdesc;
 
-	spin_unlock(&cpa_lock);
+	cpa_unlock();
 	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
-	spin_lock(&cpa_lock);
+	cpa_lock();
 	if (!ptdesc)
 		return -ENOMEM;
 
@@ -2026,9 +2043,9 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int primary)
 		if (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))
 			cpa->numpages = 1;
 
-		spin_lock(&cpa_lock);
+		cpa_lock();
 		ret = __change_page_attr(cpa, primary);
-		spin_unlock(&cpa_lock);
+		cpa_unlock();
 		if (ret)
 			goto out;
 
