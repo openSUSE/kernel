@@ -127,6 +127,7 @@ int amdgpu_gart_table_vram_alloc(struct amdgpu_device *adev)
 		if (r) {
 			return r;
 		}
+		memset_io(adev->gart.ptr, adev->gart.gart_pte_flags, adev->gart.table_size);
 	}
 	return 0;
 }
