@@ -181,6 +181,10 @@ static int ip6_parse_tlv(struct tlvtype_proc *procs, struct sk_buff *skb)
 				if (ip6_tlvopt_unknown(skb, off) == 0)
 					return 0;
 			}
+
+			/* recompute the network header pointer in case it has changed */
+			nh = skb_network_header(skb);
+
 			break;
 		}
 		off += optlen;
