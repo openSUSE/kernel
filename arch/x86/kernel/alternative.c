@@ -2623,6 +2623,14 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 	 */
 	BUG_ON(!after_bootmem);
 
+	/*
+	 * Exclude against change_page_attr() collapse in execmem ROX regions.
+	 * These are PMD sized and this module may not own the whole PMD,
+	 * thus breakdown/collapse may happen at any moment by concurrent module
+	 * loading, which races with vmalloc_to_page().
+	 */
+	guard(mmap_read_lock)(&init_mm);
+
 	if (!core_kernel_text((unsigned long)addr)) {
 		pages[0] = vmalloc_to_page(addr);
 		if (cross_page_boundary)
