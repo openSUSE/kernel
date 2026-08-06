@@ -34,9 +34,8 @@ static int monmap_show(struct seq_file *s, void *p)
 	int i;
 	struct ceph_client *client = s->private;
 
-	mutex_lock(&client->monc.mutex);
 	if (client->monc.monmap == NULL)
-		goto out_unlock;
+		return 0;
 
 	seq_printf(s, "epoch %d\n", client->monc.monmap->epoch);
 	for (i = 0; i < client->monc.monmap->num_mon; i++) {
@@ -47,9 +46,6 @@ static int monmap_show(struct seq_file *s, void *p)
 			   ENTITY_NAME(inst->name),
 			   ceph_pr_addr(&inst->addr.in_addr));
 	}
-
-out_unlock:
-	mutex_unlock(&client->monc.mutex);
 	return 0;
 }
 
@@ -57,40 +53,34 @@ static int osdmap_show(struct seq_file *s, void *p)
 {
 	int i;
 	struct ceph_client *client = s->private;
-	struct ceph_osdmap *map;
 	struct rb_node *n;
 
-	down_read(&osdc->lock);
-	map = osdc->osdmap;
-	if (map == NULL)
-		goto out_unlock;
-
-	seq_printf(s, "epoch %d\n", map->epoch);
+	if (client->osdc.osdmap == NULL)
+		return 0;
+	seq_printf(s, "epoch %d\n", client->osdc.osdmap->epoch);
 	seq_printf(s, "flags%s%s\n",
-		   (map->flags & CEPH_OSDMAP_NEARFULL) ?
+		   (client->osdc.osdmap->flags & CEPH_OSDMAP_NEARFULL) ?
 		   " NEARFULL" : "",
-		   (map->flags & CEPH_OSDMAP_FULL) ?
+		   (client->osdc.osdmap->flags & CEPH_OSDMAP_FULL) ?
 		   " FULL" : "");
-	for (n = rb_first(&map->pg_pools); n; n = rb_next(n)) {
+	for (n = rb_first(&client->osdc.osdmap->pg_pools); n; n = rb_next(n)) {
 		struct ceph_pg_pool_info *pool =
 			rb_entry(n, struct ceph_pg_pool_info, node);
 		seq_printf(s, "pg_pool %llu pg_num %d / %d\n",
 			   (unsigned long long)pool->id, pool->pg_num,
 			   pool->pg_num_mask);
 	}
-	for (i = 0; i < map->max_osd; i++) {
+	for (i = 0; i < client->osdc.osdmap->max_osd; i++) {
 		struct ceph_entity_addr *addr =
-			&map->osd_addr[i];
-		int state = map->osd_state[i];
+			&client->osdc.osdmap->osd_addr[i];
+		int state = client->osdc.osdmap->osd_state[i];
 		char sb[64];
 
 		seq_printf(s, "\tosd%d\t%s\t%3d%%\t(%s)\n",
 			   i, ceph_pr_addr(&addr->in_addr),
-			   ((map->osd_weight[i]*100) >> 16),
+			   ((client->osdc.osdmap->osd_weight[i]*100) >> 16),
 			   ceph_osdmap_state_str(sb, sizeof(sb), state));
 	}
-out_unlock:
-	up_read(&osdc->lock);
 	return 0;
 }
 
