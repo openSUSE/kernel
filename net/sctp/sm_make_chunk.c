@@ -3059,8 +3059,14 @@ static __be16 sctp_process_asconf_param(struct sctp_association *asoc,
 			sctp_assoc_set_primary(asoc, asconf->transport);
 			sctp_assoc_del_nonprimary_peers(asoc,
 							asconf->transport);
-		} else
+		} else {
+			/* Don't free asconf->transport; a later wildcard DEL-IP
+		 	 * parameter reuses it.
+		 	 */
+			if (sctp_assoc_lookup_paddr(asoc, &addr) == asconf->transport)
+				return SCTP_ERROR_REQ_REFUSED;
 			sctp_assoc_del_peer(asoc, &addr);
+		}
 		break;
 	case SCTP_PARAM_SET_PRIMARY:
 		/* ADDIP Section 4.2.4
