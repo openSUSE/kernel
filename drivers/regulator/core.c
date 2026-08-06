@@ -1590,8 +1590,18 @@ static int regulator_resolve_supply(struct regulator_dev *rdev)
 	if (_regulator_is_enabled(rdev)) {
 		ret = regulator_enable(rdev->supply);
 		if (ret < 0) {
-			_regulator_put(rdev->supply);
+			struct regulator *supply;
+
+			mutex_lock(&rdev->mutex);
+			mutex_lock_nested(&rdev->supply->rdev->mutex, 1);
+
+			supply = rdev->supply;
 			rdev->supply = NULL;
+
+			mutex_unlock(&supply->rdev->mutex);
+			mutex_unlock(&rdev->mutex);
+
+			regulator_put(supply);
 			return ret;
 		}
 	}
