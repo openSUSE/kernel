@@ -556,8 +556,28 @@ EXPORT_SYMBOL(ceph_destroy_client);
  */
 static int have_mon_and_osd_map(struct ceph_client *client)
 {
-	return client->monc.monmap && client->monc.monmap->epoch &&
-	       client->osdc.osdmap && client->osdc.osdmap->epoch;
+	bool have_monmap, have_osdmap;
+
+	mutex_lock(&client->monc.mutex);
+	have_monmap = client->monc.monmap && client->monc.monmap->epoch;
+	mutex_unlock(&client->monc.mutex);
+
+	down_read(&client->osdc.map_sem);
+	have_osdmap = client->osdc.osdmap && client->osdc.osdmap->epoch;
+	up_read(&client->osdc.map_sem);
+
+	return have_monmap && have_osdmap;
+}
+
+static int check_auth_err(struct ceph_client *client)
+{
+	int auth_err;
+
+	mutex_lock(&client->monc.mutex);
+	auth_err = client->auth_err;
+	mutex_unlock(&client->monc.mutex);
+
+	return auth_err;
 }
 
 /*
@@ -566,6 +586,7 @@ static int have_mon_and_osd_map(struct ceph_client *client)
 int __ceph_open_session(struct ceph_client *client, unsigned long started)
 {
 	int err;
+	int auth_err;
 	unsigned long timeout = client->options->mount_timeout * HZ;
 
 	/* open session, and wait for mon and osd maps */
@@ -581,12 +602,13 @@ int __ceph_open_session(struct ceph_client *client, unsigned long started)
 		/* wait */
 		dout("mount waiting for mon_map\n");
 		err = wait_event_interruptible_timeout(client->auth_wq,
-			have_mon_and_osd_map(client) || (client->auth_err < 0),
+			have_mon_and_osd_map(client) || (check_auth_err(client) < 0),
 			timeout);
 		if (err == -EINTR || err == -ERESTARTSYS)
 			return err;
-		if (client->auth_err < 0)
-			return client->auth_err;
+		auth_err = check_auth_err(client);
+		if (auth_err < 0)
+			return auth_err;
 	}
 
 	return 0;
