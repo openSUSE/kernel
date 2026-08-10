@@ -86,11 +86,16 @@ __EXPORT_THUNK(srso_alias_untrain_ret)
 /* Needs a definition for the __x86_return_thunk alternative below. */
 .globl srso_alias_safe_ret;
 srso_alias_safe_ret:
+	/*
+	 * Safe-RET sequence. If you need to change it, adjust
+	 * handle_interrupted_saferet() too.
+	 */
 #ifdef CONFIG_CPU_SRSO
 	lea 8(%_ASM_SP), %_ASM_SP
 	UNWIND_HINT_FUNC
 #endif
 	ret
+	/* End of Safe-RET sequence */
 	int3
 ENDPROC(srso_alias_safe_ret)
 
@@ -203,8 +208,14 @@ srso_untrain_ret:
 
 .globl srso_safe_ret;
 srso_safe_ret:
+	/*
+	 * Safe-RET sequence. If you need to change it, adjust
+	 * handle_interrupted_saferet() too.
+	 */
 	lea 8(%_ASM_SP), %_ASM_SP
 	ret
+	/* End of Safe-RET sequence */
+
 	int3
 	int3
 	lfence
