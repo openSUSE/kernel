@@ -229,7 +229,7 @@
  * kernel can support nested alternatives with arbitrary nesting.
  */
 .macro CALL_UNTRAIN_RET
- #if defined(CONFIG_MITIGATION_UNRET_ENTRY) || defined(CONFIG_MITIGATION_SRSO)
+ #if defined(CONFIG_RETPOLINE) || defined(CONFIG_CPU_SRSO)
 	ALTERNATIVE_2 "", "call entry_untrain_ret", X86_FEATURE_UNRET, \
 		          "call srso_alias_untrain_ret", X86_FEATURE_SRSO_ALIAS
  #endif
