@@ -1103,12 +1103,14 @@ key_ref_t find_key_to_update(key_ref_t keyring_ref,
 {
 	struct key *keyring, *key;
 	const void *object;
+	key_ref_t ret = NULL;
 
 	keyring = key_ref_to_ptr(keyring_ref);
 
 	kenter("{%d},{%s,%s}",
 	       keyring->serial, index_key->type->name, index_key->description);
 
+	rcu_read_lock();
 	object = assoc_array_find(&keyring->keys, &keyring_assoc_array_ops,
 				  index_key);
 
@@ -1116,18 +1118,21 @@ key_ref_t find_key_to_update(key_ref_t keyring_ref,
 		goto found;
 
 	kleave(" = NULL");
-	return NULL;
+	goto unlock;
 
 found:
 	key = keyring_ptr_to_key(object);
 	if (key->flags & ((1 << KEY_FLAG_INVALIDATED) |
 			  (1 << KEY_FLAG_REVOKED))) {
 		kleave(" = NULL [x]");
-		return NULL;
+		goto unlock;
 	}
 	__key_get(key);
 	kleave(" = {%d}", key->serial);
-	return make_key_ref(key, is_key_possessed(keyring_ref));
+	ret = make_key_ref(key, is_key_possessed(keyring_ref));
+unlock:
+	rcu_read_lock();
+	return ret;
 }
 
 /*
