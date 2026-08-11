@@ -1304,7 +1304,8 @@ static int dvb_net_stop(struct net_device *dev)
 
 static const struct header_ops dvb_header_ops = {
 	.create		= eth_header,
-	.parse		= eth_header_parse,
+	.parse		= parse_header_kabi_helper,
+	.parse2		= eth_header_parse2,
 };
 
 
