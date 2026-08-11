@@ -933,6 +933,15 @@ static int fnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		err = -EOPNOTSUPP;
 		goto err_out_fnic_role;
 	case VFCF_FC_NVME_INITIATOR:
+		err = fnic_nvmef_debugfs_init(fnic);
+		if (err) {
+			dev_info(&fnic->pdev->dev,
+			       "fnic(%d) Failed to initialize debugfs for nvmef\n",
+			       fnic->fnic_num);
+			fnic_nvmef_debugfs_remove(fnic);
+			goto err_out_fnic_role;
+		}
+
 		fnic->role = FNIC_ROLE_NVME_INITIATOR;
 		dev_info(&fnic->pdev->dev, "fnic: %d is NVME initiator\n",
 			fnic->fnic_num);
@@ -1277,6 +1286,7 @@ static void fnic_remove(struct pci_dev *pdev)
 	if ((fnic_fdmi_support == 1) && (fnic->iport.fabric.fdmi_pending > 0))
 		del_timer_sync(&fnic->iport.fabric.fdmi_timer);
 
+	fnic_nvmef_debugfs_remove(fnic);
 	fnic_stats_debugfs_remove(fnic);
 
 	/*
