@@ -18,7 +18,7 @@ struct tcf_idrinfo {
 
 struct tc_action_ops;
 
-struct tc_action {
+struct __orig_tc_action {
 	const struct tc_action_ops	*ops;
 	__u32				type; /* for backward compat(TCA_OLD_COMPAT) */
 	__u32				order;
@@ -41,6 +41,41 @@ struct tc_action {
 	struct tc_cookie	__rcu *act_cookie;
 	struct tcf_chain	*goto_chain;
 };
+
+struct tc_action {
+	const struct tc_action_ops	*ops;
+	__u32				type; /* for backward compat(TCA_OLD_COMPAT) */
+	__u32				order;
+	struct tcf_idrinfo		*idrinfo;
+
+	u32				tcfa_index;
+	refcount_t			tcfa_refcnt;
+	atomic_t			tcfa_bindcnt;
+	u32				tcfa_capab;
+	int				tcfa_action;
+	struct tcf_t			tcfa_tm;
+	struct gnet_stats_basic_packed	tcfa_bstats;
+	struct gnet_stats_basic_packed	tcfa_bstats_hw;
+#ifdef __GENKSYMS__
+	struct gnet_stats_queue		tcfa_qstats;
+#else
+	union {
+		struct gnet_stats_queue		tcfa_qstats;
+		struct rcu_head         tcfa_rcu;
+	};
+#endif
+	struct net_rate_estimator __rcu *tcfa_rate_est;
+	spinlock_t			tcfa_lock;
+	struct gnet_stats_basic_cpu __percpu *cpu_bstats;
+	struct gnet_stats_basic_cpu __percpu *cpu_bstats_hw;
+	struct gnet_stats_queue __percpu *cpu_qstats;
+	struct tc_cookie	__rcu *act_cookie;
+	struct tcf_chain	*goto_chain;
+};
+suse_kabi_static_assert(offsetof(struct tc_action, tcfa_qstats) ==
+			offsetof(struct __orig_tc_action, tcfa_qstats));
+suse_kabi_static_assert(offsetof(struct tc_action, tcfa_rate_est) ==
+			offsetof(struct __orig_tc_action, tcfa_rate_est));
 #define tcf_index	common.tcfa_index
 #define tcf_refcnt	common.tcfa_refcnt
 #define tcf_bindcnt	common.tcfa_bindcnt
