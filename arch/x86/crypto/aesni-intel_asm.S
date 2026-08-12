@@ -284,7 +284,7 @@ _get_AAD_loop2_done\num_initial_blocks\operation:
 	PSHUFB_XMM   %xmm14, \XMM0
 
 .if (\i == 5) || (\i == 6) || (\i == 7)
-	MOVADQ		ONE(%RIP),\TMP1
+	MOVADQ		ONE(%rip),\TMP1
 	MOVADQ		(%arg1),\TMP2
 .irpc index, \i_seq
 	paddd	   \TMP1, \XMM0                 # INCR Y0
@@ -506,7 +506,7 @@ _get_AAD_loop2_done\num_initial_blocks\operation:
 
 .if (\i == 5) || (\i == 6) || (\i == 7)
 
-	MOVADQ		ONE(%RIP),\TMP1
+	MOVADQ		ONE(%rip),\TMP1
 	MOVADQ		0(%arg1),\TMP2
 .irpc index, \i_seq
 	paddd		\TMP1, \XMM0                 # INCR Y0
@@ -570,7 +570,7 @@ aes_loop_initial_enc\num_initial_blocks:
 * Precomputations for HashKey parallel with encryption of first 4 blocks.
 * Haskey_i_k holds XORed values of the low and high parts of the Haskey_i
 */
-	MOVADQ	   ONE(%RIP),\TMP1
+	MOVADQ	   ONE(%rip),\TMP1
 	paddd	   \TMP1, \XMM0              # INCR Y0
 	MOVADQ	   \XMM0, \XMM1
 	PSHUFB_XMM  %xmm14, \XMM1        # perform a 16 byte swap
