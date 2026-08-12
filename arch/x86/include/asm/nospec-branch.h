@@ -13,6 +13,7 @@
 #include <asm/percpu.h>
 #endif
 #include <asm/unwind_hints.h>
+#include <asm/ptrace-abi.h>
 
 /*
  * Fill the CPU return stack buffer.
@@ -61,6 +62,52 @@
 	jnz	771b;				\
 	/* barrier for jnz misprediction */	\
 	lfence;
+
+
+/*
+ * Helper for detecting if an interrupt occurred at an unsafe location within
+ * Safe-RET.  If Safe-RET is interrupted after the CALL or LEA the RSB may get
+ * poisoned by the interrupt handler.
+ *
+ * The Safe-RET sequence is:
+ *
+ * CALL
+ * LEA 8(%RSP), %RSP
+ * RET
+ *
+ * The two CMPs below check whether RIP points to after the CALL or after the
+ * LEA.
+ *
+ * The LFENCE below is to address this particular speculation case:
+ *
+ * 1. Userspace runs and poisons the BTB around the safe-RET routine
+ *
+ * 2. Userspace triggers some kind of exception
+ *
+ * 3. Kernel executes error_entry() and mis-speculates the branch into thinking
+ *    it actually came from kernel space
+ *
+ * 4. The kernel then further mis-speculates that the exception occurred due
+ *    to an interrupted safe-RET
+ *
+ * 5. The handle_interrupted_saferet() routine speculatively executes and
+ *    speculatively does a safe-RET. But this is unsafe since it was never
+ *    untrained.
+ *
+ * The LFENCE fixes this by ensuring step 5 is never reached speculatively.
+ * Note that this LFENCE only occurs if safe-RET was actually interrupted (so
+ * it's outside of the normal path).
+ */
+#define __HANDLE_INTR_SAFERET(name, pt_regs)		\
+	cmpq	$(name), RIP+pt_regs;			\
+	jb	1f;					\
+	cmpq	$(name)+5, RIP+pt_regs;			\
+	ja	1f;					\
+	lfence;						\
+	leaq	pt_regs, %rdi;				\
+	call	handle_interrupted_saferet;		\
+	1:
+
 
 #ifdef __ASSEMBLY__
 
@@ -182,7 +229,7 @@
  * kernel can support nested alternatives with arbitrary nesting.
  */
 .macro CALL_UNTRAIN_RET
- #if defined(CONFIG_MITIGATION_UNRET_ENTRY) || defined(CONFIG_MITIGATION_SRSO)
+ #if defined(CONFIG_RETPOLINE) || defined(CONFIG_CPU_SRSO)
 	ALTERNATIVE_2 "", "call entry_untrain_ret", X86_FEATURE_UNRET, \
 		          "call srso_alias_untrain_ret", X86_FEATURE_SRSO_ALIAS
  #endif
@@ -228,6 +275,16 @@
 #else
 #define CLEAR_BRANCH_HISTORY
 #endif
+
+
+.macro HANDLE_INTR_SAFERET pt_regs
+#ifdef CONFIG_CPU_SRSO
+	ALTERNATIVE_2 "", \
+	__stringify(__HANDLE_INTR_SAFERET(srso_safe_ret, \pt_regs)), X86_FEATURE_SRSO, \
+	__stringify(__HANDLE_INTR_SAFERET(srso_alias_safe_ret, \pt_regs)), X86_FEATURE_SRSO_ALIAS
+
+#endif
+.endm
 
 #else /* __ASSEMBLY__ */
 
@@ -492,6 +549,11 @@ static inline void mds_idle_clear_cpu_buffers(void)
 	if (static_branch_likely(&mds_idle_clear))
 		mds_clear_cpu_buffers();
 }
+
+
+void srso_safe_ret(void);
+void srso_alias_safe_ret(void);
+void handle_interrupted_saferet(struct pt_regs *regs);
 
 #endif /* __ASSEMBLY__ */
 
