@@ -324,6 +324,33 @@ static void ghes_copy_tofrom_phys(void *buffer, u64 paddr, u32 len,
 	}
 }
 
+/* Check the top-level record header has an appropriate size. */
+static int __ghes_check_estatus(struct ghes *ghes,
+				struct acpi_hest_generic_status *estatus, int silent)
+{
+	u32 len = cper_estatus_len(estatus);
+
+	if (len < sizeof(*estatus)) {
+		if (!silent && printk_ratelimit())
+			pr_warning(FW_WARN GHES_PFX "Truncated error status block!\n");
+		return -EIO;
+	}
+
+	if (len > ghes->generic->error_block_length) {
+		if (!silent && printk_ratelimit())
+			pr_warning(FW_WARN GHES_PFX "Invalid error status block length!\n");
+		return -EIO;
+	}
+
+	if (cper_estatus_check_header(estatus)) {
+		if (!silent && printk_ratelimit())
+			pr_warning(FW_WARN GHES_PFX "Invalid CPER header!\n");
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static int ghes_read_estatus(struct ghes *ghes, int silent)
 {
 	struct acpi_hest_generic *g = ghes->generic;
@@ -350,26 +377,21 @@ static int ghes_read_estatus(struct ghes *ghes, int silent)
 	ghes->buffer_paddr = buf_paddr;
 	ghes->flags |= GHES_TO_CLEAR;
 
-	rc = -EIO;
+	rc = __ghes_check_estatus(ghes, ghes->estatus, silent);
+	if (rc)
+		return rc;
+
 	len = cper_estatus_len(ghes->estatus);
-	if (len < sizeof(*ghes->estatus))
-		goto err_read_block;
-	if (len > ghes->generic->error_block_length)
-		goto err_read_block;
-	if (cper_estatus_check_header(ghes->estatus))
-		goto err_read_block;
 	ghes_copy_tofrom_phys(ghes->estatus + 1,
 			      buf_paddr + sizeof(*ghes->estatus),
 			      len - sizeof(*ghes->estatus), 1);
-	if (cper_estatus_check(ghes->estatus))
-		goto err_read_block;
-	rc = 0;
-
-err_read_block:
-	if (rc && !silent && printk_ratelimit())
+	if (cper_estatus_check(ghes->estatus) && !silent && printk_ratelimit()) {
 		pr_warning(FW_WARN GHES_PFX
 			   "Failed to read error status block!\n");
-	return rc;
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static void ghes_clear_estatus(struct ghes *ghes)
