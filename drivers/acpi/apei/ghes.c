@@ -245,6 +245,7 @@ static struct ghes *ghes_new(struct acpi_hest_generic *generic)
 		error_block_length = GHES_ESTATUS_MAX_SIZE;
 	}
 	ghes->estatus = kmalloc(error_block_length, GFP_KERNEL);
+	ghes->estatus_length = error_block_length;
 	if (!ghes->estatus) {
 		rc = -ENOMEM;
 		goto err_unmap_status_addr;
@@ -329,6 +330,8 @@ static int __ghes_check_estatus(struct ghes *ghes,
 				struct acpi_hest_generic_status *estatus, int silent)
 {
 	u32 len = cper_estatus_len(estatus);
+	u32 max_len = min(ghes->generic->error_block_length,
+			  ghes->estatus_length);
 
 	if (len < sizeof(*estatus)) {
 		if (!silent && printk_ratelimit())
@@ -336,7 +339,7 @@ static int __ghes_check_estatus(struct ghes *ghes,
 		return -EIO;
 	}
 
-	if (len > ghes->generic->error_block_length) {
+	if (!len || len > max_len) {
 		if (!silent && printk_ratelimit())
 			pr_warning(FW_WARN GHES_PFX "Invalid error status block length!\n");
 		return -EIO;
