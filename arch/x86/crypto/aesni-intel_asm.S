@@ -795,7 +795,7 @@ _partial_block_done_\@:
 
 .if (\i == 5) || (\i == 6) || (\i == 7)
 
-	MOVADQ		ONE(%RIP),\TMP1
+	MOVADQ		ONE(%rip),\TMP1
 	MOVADQ		0(%arg1),\TMP2
 .irpc index, \i_seq
 	paddd		\TMP1, \XMM0                 # INCR Y0
@@ -867,7 +867,7 @@ aes_loop_initial_\@:
 * Precomputations for HashKey parallel with encryption of first 4 blocks.
 * Haskey_i_k holds XORed values of the low and high parts of the Haskey_i
 */
-	MOVADQ	   ONE(%RIP),\TMP1
+	MOVADQ	   ONE(%rip),\TMP1
 	paddd	   \TMP1, \XMM0              # INCR Y0
 	MOVADQ	   \XMM0, \XMM1
 	pshufb  %xmm14, \XMM1        # perform a 16 byte swap
