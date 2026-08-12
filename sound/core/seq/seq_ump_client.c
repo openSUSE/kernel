@@ -46,6 +46,7 @@ struct seq_ump_client {
 	struct snd_ump_endpoint *ump;	/* assigned endpoint */
 	int seq_client;			/* sequencer client id */
 	int opened[2];			/* current opens for each direction */
+	rwlock_t output_lock;		/* protects out_rfile output access */
 	struct snd_rawmidi_file out_rfile; /* rawmidi for output */
 	struct seq_ump_input_buffer input; /* input parser context */
 	struct seq_ump_group groups[SNDRV_UMP_MAX_GROUPS]; /* table of groups */
@@ -95,27 +96,36 @@ static int seq_ump_process_event(struct snd_seq_event *ev, int direct,
 	struct seq_ump_client *client = private_data;
 	struct snd_rawmidi_substream *substream;
 	struct snd_seq_ump_event *ump_ev;
+	unsigned long flags;
 	unsigned char type;
 	int len;
+	int ret = 0;
 
+	read_lock_irqsave(&client->output_lock, flags);
 	substream = client->out_rfile.output;
-	if (!substream)
-		return -ENODEV;
+	if (!substream) {
+		ret = -ENODEV;
+		goto out;
+	}
 	if (!snd_seq_ev_is_ump(ev))
-		return 0; /* invalid event, skip */
+		goto out; /* invalid event, skip */
 	ump_ev = (struct snd_seq_ump_event *)ev;
 	type = ump_message_type(ump_ev->ump[0]);
 	len = ump_packet_words[type];
 	if (len > 4)
-		return 0; // invalid - skip
+		goto out; // invalid - skip
 	snd_rawmidi_kernel_write(substream, ev->data.raw8.d, len << 2);
-	return 0;
+out:
+	read_unlock_irqrestore(&client->output_lock, flags);
+	return ret;
 }
 
 /* open the rawmidi */
 static int seq_ump_client_open(struct seq_ump_client *client, int dir)
 {
 	struct snd_ump_endpoint *ump = client->ump;
+	struct snd_rawmidi_file rfile = {};
+	unsigned long flags;
 	int err;
 
 	guard(mutex)(&ump->open_mutex);
@@ -123,9 +133,12 @@ static int seq_ump_client_open(struct seq_ump_client *client, int dir)
 		err = snd_rawmidi_kernel_open(&ump->core, 0,
 					      SNDRV_RAWMIDI_LFLG_OUTPUT |
 					      SNDRV_RAWMIDI_LFLG_APPEND,
-					      &client->out_rfile);
+					      &rfile);
 		if (err < 0)
 			return err;
+		write_lock_irqsave(&client->output_lock, flags);
+		client->out_rfile = rfile;
+		write_unlock_irqrestore(&client->output_lock, flags);
 	}
 	client->opened[dir]++;
 	return 0;
@@ -135,11 +148,20 @@ static int seq_ump_client_open(struct seq_ump_client *client, int dir)
 static int seq_ump_client_close(struct seq_ump_client *client, int dir)
 {
 	struct snd_ump_endpoint *ump = client->ump;
+	struct snd_rawmidi_file rfile = {};
+	unsigned long flags;
 
 	guard(mutex)(&ump->open_mutex);
-	if (!--client->opened[dir])
-		if (dir == STR_OUT)
-			snd_rawmidi_kernel_release(&client->out_rfile);
+	if (!--client->opened[dir]) {
+		if (dir == STR_OUT) {
+			write_lock_irqsave(&client->output_lock, flags);
+			rfile = client->out_rfile;
+			client->out_rfile = (struct snd_rawmidi_file){};
+			write_unlock_irqrestore(&client->output_lock, flags);
+			if (rfile.rmidi)
+				snd_rawmidi_kernel_release(&rfile);
+		}
+	}
 	return 0;
 }
 
@@ -492,6 +514,7 @@ static int snd_seq_ump_probe(struct device *_dev)
 
 	INIT_WORK(&client->group_notify_work, handle_group_notify);
 	client->ump = ump;
+	rwlock_init(&client->output_lock);
 
 	client->seq_client =
 		snd_seq_create_kernel_client(card, ump->core.device,
