@@ -420,6 +420,8 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 	int collapsed = 0;
 	int i;
 
+	spin_lock(&cpa_lock);
+
 	if (cpa->flags & (CPA_PAGES_ARRAY | CPA_ARRAY)) {
 		for (i = 0; i < cpa->numpages; i++)
 			collapsed += collapse_large_pages(__cpa_addr(cpa, i),
@@ -433,8 +435,10 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 			collapsed += collapse_large_pages(addr, &pgtables);
 	}
 
-	if (!collapsed)
+	if (!collapsed) {
+		spin_unlock(&cpa_lock);
 		return;
+	}
 
 	flush_tlb_all();
 
@@ -450,6 +454,8 @@ static void __cpa_collapse_large_pages(struct cpa_data *cpa)
 		else
 			pagetable_free(ptdesc);
 	}
+
+	spin_unlock(&cpa_lock);
 }
 
 static void cpa_collapse_large_pages(struct cpa_data *cpa)
@@ -1263,7 +1269,6 @@ static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 	if (cpa->init_mm_read_locked)
 		mmap_read_lock(&init_mm);
 	spin_lock(&cpa_lock);
-
 	if (!pte)
 		return -ENOMEM;
 
