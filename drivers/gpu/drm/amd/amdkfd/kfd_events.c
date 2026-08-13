@@ -107,6 +107,9 @@ static int allocate_event_notification_slot(struct kfd_process *p,
 	}
 
 	if (restore_id) {
+		if (*restore_id >= KFD_SIGNAL_EVENT_LIMIT)
+			return -EINVAL;
+
 		id = idr_alloc(&p->event_idr, ev, *restore_id, *restore_id + 1,
 				GFP_KERNEL);
 	} else {
@@ -517,6 +520,9 @@ int kfd_criu_restore_event(struct file *devkfd,
 			sizeof(struct kfd_hsa_hw_exception_data));
 
 		ret = create_other_event(p, ev, &ev_priv->event_id);
+		break;
+	default:
+		ret = -EINVAL;
 		break;
 	}
 	mutex_unlock(&p->event_mutex);
