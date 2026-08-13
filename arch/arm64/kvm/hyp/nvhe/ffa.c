@@ -801,7 +801,7 @@ out_unlock:
 
 bool kvm_host_ffa_handler(struct kvm_cpu_context *host_ctxt, u32 func_id)
 {
-	struct arm_smccc_res res;
+	struct arm_smccc_res res = {0};
 
 	/*
 	 * There's no way we can tell what a non-standard SMC call might
