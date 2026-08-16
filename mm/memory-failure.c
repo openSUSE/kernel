@@ -1956,16 +1956,18 @@ void folio_clear_hugetlb_hwpoison(struct folio *folio)
  *   -EBUSY        - the hugepage is busy (try to retry)
  *   -EHWPOISON    - the hugepage is already hwpoisoned
  */
-int __get_huge_page_for_hwpoison(unsigned long pfn, int flags,
+int get_huge_page_for_hwpoison(unsigned long pfn, int flags,
 				 bool *migratable_cleared)
 {
 	struct page *page = pfn_to_page(pfn);
-	struct folio *folio = page_folio(page);
+	struct folio *folio;
 	int ret = 2;	/* fallback to normal page handling */
 	bool count_increased = false;
 
+	spin_lock_irq(&hugetlb_lock);
+	folio = page_folio(page);
 	if (!folio_test_hugetlb(folio))
-		goto out;
+		goto out_unlock;
 
 	if (flags & MF_COUNT_INCREASED) {
 		ret = 1;
@@ -1979,12 +1981,12 @@ int __get_huge_page_for_hwpoison(unsigned long pfn, int flags,
 	} else {
 		ret = -EBUSY;
 		if (!(flags & MF_NO_RETRY))
-			goto out;
+			goto out_unlock;
 	}
 
 	if (folio_set_hugetlb_hwpoison(folio, page)) {
 		ret = -EHWPOISON;
-		goto out;
+		goto out_unlock;
 	}
 
 	/*
@@ -1996,8 +1998,10 @@ int __get_huge_page_for_hwpoison(unsigned long pfn, int flags,
 		*migratable_cleared = true;
 	}
 
+	spin_unlock_irq(&hugetlb_lock);
 	return ret;
-out:
+out_unlock:
+	spin_unlock_irq(&hugetlb_lock);
 	if (count_increased)
 		folio_put(folio);
 	return ret;
