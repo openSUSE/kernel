@@ -2231,11 +2231,10 @@ static int hwp_get_cpu_scaling(int cpu)
 		 * Return the hybrid scaling factor for P-cores and use the
 		 * default core scaling for E-cores.
 		 */
-		if (cpu_type == 0x40)
+		if (cpu_type != 0x20)
 			return hybrid_scaling_factor;
 
-		if (cpu_type == 0x20)
-			return core_get_scaling();
+		return core_get_scaling();
 	}
 
 	/* Use core scaling on non-hybrid systems. */
