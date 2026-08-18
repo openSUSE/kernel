@@ -348,7 +348,7 @@ output_color_format_to_hdmi_colorspace(const struct drm_connector *connector,
 static const struct drm_display_mode *
 connector_state_get_mode(const struct drm_connector_state *conn_state)
 {
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	struct drm_crtc_state *crtc_state;
 	struct drm_crtc *crtc;
 
@@ -858,7 +858,7 @@ hdmi_generate_infoframes(const struct drm_connector *connector,
  * Zero on success, or an errno code otherwise.
  */
 int drm_atomic_helper_connector_hdmi_check(struct drm_connector *connector,
-					   struct drm_atomic_state *state)
+					   struct drm_atomic_commit *state)
 {
 	struct drm_connector_state *old_conn_state =
 		drm_atomic_get_old_connector_state(state, connector);
@@ -1000,7 +1000,7 @@ static int write_or_clear_infoframe(struct drm_connector *connector,
  * Zero on success, error code on failure.
  */
 int drm_atomic_helper_connector_hdmi_update_infoframes(struct drm_connector *connector,
-						       struct drm_atomic_state *state)
+						       struct drm_atomic_commit *state)
 {
 	const struct drm_connector_hdmi_funcs *funcs = connector->hdmi.funcs;
 	struct drm_connector_state *old_conn_state =
@@ -1096,7 +1096,8 @@ drm_atomic_helper_connector_hdmi_update_audio_infoframe(struct drm_connector *co
 
 	mutex_lock(&connector->hdmi.infoframes.lock);
 
-	memcpy(&infoframe->data, frame, sizeof(infoframe->data));
+	BUILD_BUG_ON(sizeof(*frame) > sizeof(infoframe->data));
+	memcpy(&infoframe->data, frame, sizeof(*frame));
 	infoframe->set = true;
 
 	ret = write_infoframe(connector, &funcs->audio, "Audio", infoframe);

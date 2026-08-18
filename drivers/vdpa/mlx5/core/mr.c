@@ -221,11 +221,10 @@ static int create_direct_keys(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_mr *
 
 	list_for_each_entry(dmr, &mr->head, list) {
 		struct mlx5_create_mkey_mem *cmd_mem;
-		int mttlen, mttcount;
+		int mttcount;
 
-		mttlen = roundup(MLX5_ST_SZ_BYTES(mtt) * dmr->nsg, MLX5_VDPA_MTT_ALIGN);
-		mttcount = mttlen / sizeof(cmd_mem->mtt[0]);
-		cmd_mem = kvcalloc(1, struct_size(cmd_mem, mtt, mttcount), GFP_KERNEL);
+		mttcount = ALIGN(dmr->nsg, MLX5_VDPA_MTT_ALIGN / sizeof(cmd_mem->mtt[0]));
+		cmd_mem = kvzalloc_flex(*cmd_mem, mtt, mttcount);
 		if (!cmd_mem) {
 			err = -ENOMEM;
 			goto done;
@@ -234,7 +233,8 @@ static int create_direct_keys(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_mr *
 		cmds[i].out = cmd_mem->out;
 		cmds[i].outlen = sizeof(cmd_mem->out);
 		cmds[i].in = cmd_mem->in;
-		cmds[i].inlen = struct_size(cmd_mem, mtt, mttcount);
+		cmds[i].inlen = struct_size(cmd_mem, mtt, mttcount) -
+				offsetof(struct mlx5_create_mkey_mem, in);
 
 		fill_create_direct_mr(mvdev, dmr, cmd_mem);
 
@@ -777,6 +777,9 @@ static int _mlx5_vdpa_create_mr(struct mlx5_vdpa_dev *mvdev,
 {
 	int err;
 
+	if (mlx5_vdpa_max_iotlb_entries < 2)
+		return -EINVAL;
+
 	if (iotlb)
 		err = create_user_mr(mvdev, mr, iotlb);
 	else
@@ -785,7 +788,7 @@ static int _mlx5_vdpa_create_mr(struct mlx5_vdpa_dev *mvdev,
 	if (err)
 		return err;
 
-	mr->iotlb = vhost_iotlb_alloc(0, 0);
+	mr->iotlb = vhost_iotlb_alloc(mlx5_vdpa_max_iotlb_entries, 0);
 	if (!mr->iotlb) {
 		err = -ENOMEM;
 		goto err_mr;
