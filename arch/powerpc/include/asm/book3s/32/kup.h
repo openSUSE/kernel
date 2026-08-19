@@ -7,7 +7,7 @@
 #include <asm/mmu.h>
 #include <asm/synch.h>
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #include <linux/jump_label.h>
 
@@ -185,6 +185,6 @@ __bad_kuap_fault(struct pt_regs *regs, unsigned long address, bool is_write)
 
 #endif /* CONFIG_PPC_KUAP */
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_POWERPC_BOOK3S_32_KUP_H */

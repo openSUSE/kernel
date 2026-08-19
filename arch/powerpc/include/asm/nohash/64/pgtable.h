@@ -82,7 +82,7 @@
 
 #define H_PAGE_4K_PFN 0
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 /* pte_clear moved to later in this file */
 
 static inline pte_t pte_mkwrite_novma(pte_t pte)
@@ -323,6 +323,6 @@ void __patch_exception(int exc, unsigned long addr);
 	__patch_exception((exc), (unsigned long)&name); \
 } while (0)
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_POWERPC_NOHASH_64_PGTABLE_H */

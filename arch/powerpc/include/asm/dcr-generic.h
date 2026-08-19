@@ -7,7 +7,7 @@
 #ifndef _ASM_POWERPC_DCR_GENERIC_H
 #define _ASM_POWERPC_DCR_GENERIC_H
 #ifdef __KERNEL__
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 enum host_type_t {DCR_HOST_MMIO, DCR_HOST_NATIVE, DCR_HOST_INVALID};
 
@@ -29,7 +29,7 @@ extern u32 dcr_read_generic(dcr_host_t host, unsigned int dcr_n);
 
 extern void dcr_write_generic(dcr_host_t host, unsigned int dcr_n, u32 value);
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_DCR_GENERIC_H */
 
