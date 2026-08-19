@@ -255,8 +255,8 @@ static int rds_cong_monitor(struct rds_sock *rs, char __user *optval,
 	return ret;
 }
 
-static int rds_set_transport(struct rds_sock *rs, char __user *optval,
-			     int optlen)
+static int rds_set_transport(struct net *net, struct rds_sock *rs,
+			     char __user *optval, int optlen)
 {
 	int t_type;
 
@@ -271,6 +271,10 @@ static int rds_set_transport(struct rds_sock *rs, char __user *optval,
 
 	if (t_type < 0 || t_type >= RDS_TRANS_COUNT)
 		return -EINVAL;
+
+	/* RDS/IB is restricted to the initial network namespace */
+	if (t_type != RDS_TRANS_TCP && !net_eq(net, &init_net))
+		return -EPROTOTYPE;
 
 	rs->rs_transport = rds_trans_get(t_type);
 
@@ -329,6 +333,7 @@ static int rds_setsockopt(struct socket *sock, int level, int optname,
 			  char __user *optval, unsigned int optlen)
 {
 	struct rds_sock *rs = rds_sk_to_rs(sock->sk);
+	struct net *net = sock_net(sock->sk);
 	int ret;
 
 	if (level != SOL_RDS) {
@@ -357,7 +362,7 @@ static int rds_setsockopt(struct socket *sock, int level, int optname,
 		break;
 	case SO_RDS_TRANSPORT:
 		lock_sock(sock->sk);
-		ret = rds_set_transport(rs, optval, optlen);
+		ret = rds_set_transport(net, rs, optval, optlen);
 		release_sock(sock->sk);
 		break;
 	case SO_TIMESTAMP:
