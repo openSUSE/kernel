@@ -1121,13 +1121,23 @@ static int iommu_completion_wait(struct amd_iommu *iommu)
 	unsigned long flags;
 	int ret;
 
-	if (!iommu->need_sync)
-		return 0;
+	spin_lock_irqsave(&iommu->lock, flags);
 
+	if (!iommu->need_sync) {
+		/*
+		 * No command has been queued since the last completion-wait.
+		 * A concurrent CPU may have already queued that CWAIT and
+		 * cleared need_sync; need_sync == false only means a covering
+		 * CWAIT is queued, not that all prior commands have completed.
+		 * Wait for the last allocated sequence number so that any
+		 * command queued before this call (possibly on another CPU)
+		 * is guaranteed to have completed before returning.
+		 */
+		spin_unlock_irqrestore(&iommu->lock, flags);
+		return wait_on_sem(&iommu->cmd_sem);
+	}
 
 	build_completion_wait(&cmd, (u64)&iommu->cmd_sem);
-
-	spin_lock_irqsave(&iommu->lock, flags);
 
 	iommu->cmd_sem = 0;
 
