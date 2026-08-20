@@ -21,7 +21,7 @@ struct tcf_idrinfo {
 
 struct tc_action_ops;
 
-struct tc_action {
+struct __orig_tc_action {
 	const struct tc_action_ops	*ops;
 	__u32				type; /* for backward compat(TCA_OLD_COMPAT) */
 	struct tcf_idrinfo		*idrinfo;
@@ -47,6 +47,42 @@ struct tc_action {
 	bool			used_hw_stats_valid;
 	u32			in_hw_count;
 };
+
+struct tc_action {
+	const struct tc_action_ops	*ops;
+	__u32				type; /* for backward compat(TCA_OLD_COMPAT) */
+	struct tcf_idrinfo		*idrinfo;
+
+	u32				tcfa_index;
+	refcount_t			tcfa_refcnt;
+	atomic_t			tcfa_bindcnt;
+	int				tcfa_action;
+	struct tcf_t			tcfa_tm;
+#ifdef __GENKSYMS__
+	struct gnet_stats_basic_sync	tcfa_bstats;
+#else
+	union {
+		struct gnet_stats_basic_sync	tcfa_bstats;
+		struct rcu_head         tcfa_rcu;
+	};
+#endif
+	struct gnet_stats_basic_sync	tcfa_bstats_hw;
+	struct gnet_stats_queue		tcfa_qstats;
+	struct net_rate_estimator __rcu *tcfa_rate_est;
+	spinlock_t			tcfa_lock;
+	struct gnet_stats_basic_sync __percpu *cpu_bstats;
+	struct gnet_stats_basic_sync __percpu *cpu_bstats_hw;
+	struct gnet_stats_queue __percpu *cpu_qstats;
+	struct tc_cookie	__rcu *user_cookie;
+	struct tcf_chain	__rcu *goto_chain;
+	u32			tcfa_flags;
+	u8			hw_stats;
+	u8			used_hw_stats;
+	bool			used_hw_stats_valid;
+	u32			in_hw_count;
+};
+suse_kabi_static_assert(offsetof(struct tc_action, tcfa_bstats_hw) ==
+			offsetof(struct __orig_tc_action, tcfa_bstats_hw));
 #define tcf_index	common.tcfa_index
 #define tcf_refcnt	common.tcfa_refcnt
 #define tcf_bindcnt	common.tcfa_bindcnt

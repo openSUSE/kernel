@@ -2124,23 +2124,29 @@ bool tdx_has_emulated_msr(u32 index)
 	case MSR_IA32_MC0_CTL2 ... MSR_IA32_MCx_CTL2(KVM_MAX_MCE_BANKS) - 1:
 		/* MSR_IA32_MCx_{CTL, STATUS, ADDR, MISC, CTL2} */
 	case MSR_KVM_POLL_CONTROL:
+	/*
+	 * Except for x2APIC registers that are virtualized by the CPU, which
+	 * KVM can't emulate as KVM doesn't have access to the virtual APIC
+	 * page, KVM emulates the same set of x2APIC registers for TDX versus
+	 * non-TDX guests.
+	 */
+	case X2APIC_MSR(APIC_ID):
+	case X2APIC_MSR(APIC_LVR):
+	case X2APIC_MSR(APIC_LDR):
+	case X2APIC_MSR(APIC_SPIV):
+	case X2APIC_MSR(APIC_ESR):
+	case X2APIC_MSR(APIC_LVTCMCI):
+	case X2APIC_MSR(APIC_ICR):
+	case X2APIC_MSR(APIC_LVTT):
+	case X2APIC_MSR(APIC_LVTTHMR):
+	case X2APIC_MSR(APIC_LVTPC):
+	case X2APIC_MSR(APIC_LVT0):
+	case X2APIC_MSR(APIC_LVT1):
+	case X2APIC_MSR(APIC_LVTERR):
+	case X2APIC_MSR(APIC_TMICT):
+	case X2APIC_MSR(APIC_TMCCT):
+	case X2APIC_MSR(APIC_TDCR):
 		return true;
-	case APIC_BASE_MSR ... APIC_BASE_MSR + 0xff:
-		/*
-		 * x2APIC registers that are virtualized by the CPU can't be
-		 * emulated, KVM doesn't have access to the virtual APIC page.
-		 */
-		switch (index) {
-		case X2APIC_MSR(APIC_TASKPRI):
-		case X2APIC_MSR(APIC_PROCPRI):
-		case X2APIC_MSR(APIC_EOI):
-		case X2APIC_MSR(APIC_ISR) ... X2APIC_MSR(APIC_ISR + APIC_ISR_NR):
-		case X2APIC_MSR(APIC_TMR) ... X2APIC_MSR(APIC_TMR + APIC_ISR_NR):
-		case X2APIC_MSR(APIC_IRR) ... X2APIC_MSR(APIC_IRR + APIC_ISR_NR):
-			return false;
-		default:
-			return true;
-		}
 	default:
 		return false;
 	}
@@ -2396,7 +2402,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 
 	ret = -ENOMEM;
 
-	tdr_page = alloc_page(GFP_KERNEL);
+	tdr_page = alloc_page(GFP_KERNEL_ACCOUNT);
 	if (!tdr_page)
 		goto free_hkid;
 
@@ -2404,12 +2410,12 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	/* TDVPS = TDVPR(4K page) + TDCX(multiple 4K pages), -1 for TDVPR. */
 	kvm_tdx->td.tdcx_nr_pages = tdx_sysinfo->td_ctrl.tdvps_base_size / PAGE_SIZE - 1;
 	tdcs_pages = kcalloc(kvm_tdx->td.tdcs_nr_pages, sizeof(*kvm_tdx->td.tdcs_pages),
-			     GFP_KERNEL);
+			     GFP_KERNEL_ACCOUNT);
 	if (!tdcs_pages)
 		goto free_tdr;
 
 	for (i = 0; i < kvm_tdx->td.tdcs_nr_pages; i++) {
-		tdcs_pages[i] = alloc_page(GFP_KERNEL);
+		tdcs_pages[i] = alloc_page(GFP_KERNEL_ACCOUNT);
 		if (!tdcs_pages[i])
 			goto free_tdcs;
 	}
@@ -2888,7 +2894,7 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	int ret, i;
 	u64 err;
 
-	page = alloc_page(GFP_KERNEL);
+	page = alloc_page(GFP_KERNEL_ACCOUNT);
 	if (!page)
 		return -ENOMEM;
 	tdx->vp.tdvpr_page = page;
@@ -2901,14 +2907,14 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	tdx->vp.tdvpr_pa = page_to_phys(tdx->vp.tdvpr_page);
 
 	tdx->vp.tdcx_pages = kcalloc(kvm_tdx->td.tdcx_nr_pages, sizeof(*tdx->vp.tdcx_pages),
-			       	     GFP_KERNEL);
+				     GFP_KERNEL_ACCOUNT);
 	if (!tdx->vp.tdcx_pages) {
 		ret = -ENOMEM;
 		goto free_tdvpr;
 	}
 
 	for (i = 0; i < kvm_tdx->td.tdcx_nr_pages; i++) {
-		page = alloc_page(GFP_KERNEL);
+		page = alloc_page(GFP_KERNEL_ACCOUNT);
 		if (!page) {
 			ret = -ENOMEM;
 			goto free_tdcx;

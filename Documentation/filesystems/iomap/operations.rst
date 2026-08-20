@@ -514,18 +514,33 @@ IOMAP_WRITE`` with any combination of the following enhancements:
 
  * ``IOMAP_ATOMIC``: This write is being issued with torn-write
    protection.
-   Only a single bio can be created for the write, and the write must
-   not be split into multiple I/O requests, i.e. flag REQ_ATOMIC must be
-   set.
+   Torn-write protection may be provided based on HW-offload or by a
+   software mechanism provided by the filesystem.
+
+   For HW-offload based support, only a single bio can be created for the
+   write, and the write must not be split into multiple I/O requests, i.e.
+   flag REQ_ATOMIC must be set.
    The file range to write must be aligned to satisfy the requirements
    of both the filesystem and the underlying block device's atomic
    commit capabilities.
    If filesystem metadata updates are required (e.g. unwritten extent
-   conversion or copy on write), all updates for the entire file range
+   conversion or copy-on-write), all updates for the entire file range
    must be committed atomically as well.
-   Only one space mapping is allowed per untorn write.
-   Untorn writes must be aligned to, and must not be longer than, a
-   single file block.
+   Untorn-writes may be longer than a single file block. In all cases,
+   the mapping start disk block must have at least the same alignment as
+   the write offset.
+   The filesystems must set IOMAP_F_ATOMIC_BIO to inform iomap core of an
+   untorn-write based on HW-offload.
+
+   For untorn-writes based on a software mechanism provided by the
+   filesystem, all the disk block alignment and single bio restrictions
+   which apply for HW-offload based untorn-writes do not apply.
+   The mechanism would typically be used as a fallback for when
+   HW-offload based untorn-writes may not be issued, e.g. the range of the
+   write covers multiple extents, meaning that it is not possible to issue
+   a single bio.
+   All filesystem metadata updates for the entire file range must be
+   committed atomically as well.
 
 Callers commonly hold ``i_rwsem`` in shared or exclusive mode before
 calling this function.
