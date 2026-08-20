@@ -19,10 +19,8 @@ struct nf_queue_entry {
 	struct net_device	*physout;
 #endif
 	struct nf_hook_state	state;
-	u16			size; /* sizeof(entry) + saved route keys */
-#ifndef __GENKSYMS__
 	bool			nf_ct_is_unconfirmed;
-#endif
+	u16			size; /* sizeof(entry) + saved route keys */
 
 	/* extra space to store route keys */
 };

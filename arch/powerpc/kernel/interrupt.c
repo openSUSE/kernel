@@ -97,7 +97,7 @@ notrace unsigned long syscall_exit_prepare(unsigned long r3,
 	regs->result = r3;
 
 	/* Clear exit_flags so only flags set during this exit are visible */
-	clear_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL);
+	current->thread_info.exit_flags = 0;
 
 	ti_flags = read_thread_flags();
 	if (unlikely(r3 >= (unsigned long)-MAX_ERRNO) && is_not_scv) {
@@ -134,8 +134,7 @@ again:
 
 	/* Restore user access locks last */
 	kuap_user_restore(regs);
-	if (test_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL))
-		ret |= _TIF_RESTOREALL;
+	ret |= current->thread_info.exit_flags;
 #ifdef CONFIG_PPC64
 	regs->exit_result = ret;
 #endif
@@ -146,7 +145,7 @@ again:
 #ifdef CONFIG_PPC64
 notrace unsigned long syscall_exit_restart(unsigned long r3, struct pt_regs *regs)
 {
-	unsigned long ret = 0;
+	unsigned long ret;
 
 	/*
 	 * This is called when detecting a soft-pending interrupt as well as
@@ -172,8 +171,9 @@ again:
 	}
 
 	kuap_user_restore(regs);
-	if (test_and_clear_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL))
-		regs->exit_result |= _TIF_RESTOREALL;
+	ret = current_thread_info()->exit_flags & _TIF_RESTOREALL;
+	current_thread_info()->exit_flags &= ~_TIF_RESTOREALL;
+	regs->exit_result |= ret;
 
 	return ret;
 }
@@ -181,7 +181,7 @@ again:
 
 notrace unsigned long interrupt_exit_user_prepare(struct pt_regs *regs)
 {
-	unsigned long ret = 0;
+	unsigned long ret;
 
 	BUG_ON(regs_is_unrecoverable(regs));
 	BUG_ON(regs_irqs_disabled(regs));
@@ -193,7 +193,7 @@ notrace unsigned long interrupt_exit_user_prepare(struct pt_regs *regs)
 	kuap_assert_locked();
 
 	/* Clear exit_flags so only flags set during this exit are visible */
-	clear_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL);
+	current_thread_info()->exit_flags = 0;
 
 	local_irq_disable();
 again:
@@ -208,8 +208,7 @@ again:
 
 	/* Restore user access locks last */
 	kuap_user_restore(regs);
-	if (test_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL))
-		ret = _TIF_RESTOREALL;
+	ret = current_thread_info()->exit_flags & _TIF_RESTOREALL;
 #ifdef CONFIG_PPC64
 	regs->exit_result = ret;
 #endif

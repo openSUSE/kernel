@@ -25,7 +25,7 @@ notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 	 * unambiguous out-of-band signal.  The field is not initialised by
 	 * the entry assembly.
 	 */
-	clear_thread_local_flags(_TLF_SYSCALL_RET_SET);
+	clear_thread_entry_flags(-1);
 	r0 = syscall_enter_from_user_mode(regs, r0);
 	add_random_kstack_offset();
 
@@ -37,7 +37,7 @@ notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 	 * using r0 == -1 as the skip sentinel when the user themselves
 	 * called syscall(-1).
 	 */
-	if (unlikely(test_and_clear_thread_local_flags(_TLF_SYSCALL_RET_SET)))
+	if (unlikely(test_and_clear_thread_entry_flags(_TEF_SYSCALL_RET_SET)))
 		return syscall_get_error(current, regs);
 
 	if (unlikely(r0 >= NR_syscalls)) {
