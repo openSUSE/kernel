@@ -119,6 +119,7 @@ void arch_setup_new_exec(void);
 #endif
 #define TIF_POLLING_NRFLAG	19	/* true if poll_idle() is polling TIF_NEED_RESCHED */
 #define TIF_32BIT		20	/* 32 bit binary */
+#define TIF_SYSCALL_RET		21	/* syscall error value set */
 
 /* as above, but as bit values */
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
@@ -164,7 +165,6 @@ void arch_setup_new_exec(void);
 #define _TLF_RUNLATCH		(1 << TLF_RUNLATCH)
 /* Upstream these syscall flags are in a different field that cannot be added without breaking ABI */
 #define _TLF_SYSCALL_EXIT_RESTOREALL	BIT(29)
-#define _TLF_SYSCALL_RET_SET	BIT(30)
 
 #ifndef __ASSEMBLER__
 
