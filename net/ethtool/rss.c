@@ -93,8 +93,10 @@ rss_prepare_data(const struct ethnl_req_info *req_base,
 	rxfh.rss_context = request->rss_context;
 
 	ret = ops->get_rxfh(dev, &rxfh);
-	if (ret)
+	if (ret) {
+		kfree(data->indir_table);
 		goto out_ops;
+	}
 
 	data->hfunc = rxfh.hfunc;
 	data->input_xfrm = rxfh.input_xfrm;
