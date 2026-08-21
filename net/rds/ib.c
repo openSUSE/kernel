@@ -343,6 +343,10 @@ static int rds_ib_laddr_check(struct net *net, __be32 addr)
 	struct rdma_cm_id *cm_id;
 	struct sockaddr_in sin;
 
+	/* RDS/IB is restricted to the initial network namespace */
+	if (!net_eq(net, &init_net))
+		return -EPROTOTYPE;
+
 	/* Create a CMA ID and try to bind it. This catches both
 	 * IB and iWARP capable NICs.
 	 */
