@@ -1042,17 +1042,33 @@ void emergency_remount(void)
 	}
 }
 
+static inline bool super_get_active(struct super_block *sb)
+{
+	bool active = false;
+
+	down_write(&sb->s_umount);
+	if (sb->s_flags & SB_BORN)
+		active = atomic_inc_not_zero(&sb->s_active);
+	up_write(&sb->s_umount);
+	return active;
+}
+
 static void do_thaw_all_callback(struct super_block *sb)
 {
+	if (!super_get_active(sb))
+		return;
+
+	/* thaw_bdev() acquires s_umount so it must not be held here */
+	if (IS_ENABLED(CONFIG_BLOCK))
+		while (sb->s_bdev && !thaw_bdev(sb->s_bdev))
+			pr_warn("Emergency Thaw on %pg\n", sb->s_bdev);
+
 	down_write(&sb->s_umount);
-	if (sb->s_root && sb->s_flags & SB_BORN) {
-		if (IS_ENABLED(CONFIG_BLOCK))
-			while (sb->s_bdev && !thaw_bdev(sb->s_bdev))
-				pr_warn("Emergency Thaw on %pg\n", sb->s_bdev);
+	if (sb->s_root && (sb->s_flags & SB_BORN))
 		thaw_super_locked(sb);
-	} else {
+	else
 		up_write(&sb->s_umount);
-	}
+	deactivate_super(sb);
 }
 
 static void do_thaw_all(struct work_struct *work)
