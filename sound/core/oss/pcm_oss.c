@@ -3084,6 +3084,7 @@ static void snd_pcm_oss_proc_write(struct snd_info_entry *entry,
 				     setup1->next; setup1 = setup1->next);
 				setup1->next = setup;
 			}
+			mutex_unlock(&pstr->oss.setup_mutex);
 			continue;
 		}
 		*setup = template;
