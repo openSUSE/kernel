@@ -162,7 +162,7 @@ err:
 	put_device(dev);
 	return ERR_PTR(rc);
 }
-EXPORT_SYMBOL_FOR_MODULES(__devm_cxl_add_nvdimm_bridge, "cxl_pmem");
+EXPORT_SYMBOL_NS_GPL(__devm_cxl_add_nvdimm_bridge, CXL);
 
 static void cxl_nvdimm_release(struct device *dev)
 {

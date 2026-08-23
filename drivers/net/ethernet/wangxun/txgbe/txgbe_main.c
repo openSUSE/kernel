@@ -745,6 +745,7 @@ static void txgbe_remove(struct pci_dev *pdev)
 
 	netdev = wx->netdev;
 	unregister_netdev(netdev);
+	txgbe_fdir_filter_exit(wx);
 
 	txgbe_remove_phy(txgbe);
 	txgbe_free_misc_irq(txgbe);
