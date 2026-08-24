@@ -2992,7 +2992,8 @@ int arm_smmu_set_pasid(struct arm_smmu_master *master,
 		       struct arm_smmu_domain *smmu_domain, ioasid_t pasid,
 		       struct arm_smmu_cd *cd)
 {
-	struct iommu_domain *sid_domain = iommu_get_domain_for_dev(master->dev);
+	struct iommu_domain *sid_domain =
+		iommu_driver_get_domain_for_dev(master->dev);
 	struct arm_smmu_attach_state state = {
 		.master = master,
 		/*
@@ -3062,7 +3063,7 @@ static void arm_smmu_remove_dev_pasid(struct device *dev, ioasid_t pasid,
 	 */
 	if (!arm_smmu_ssids_in_use(&master->cd_table)) {
 		struct iommu_domain *sid_domain =
-			iommu_get_domain_for_dev(master->dev);
+			iommu_driver_get_domain_for_dev(master->dev);
 		bool ats_always_on = master->ats_always_on &&
 				     sid_domain->type != IOMMU_DOMAIN_BLOCKED;
 		bool downgrade = sid_domain->type == IOMMU_DOMAIN_IDENTITY ||
