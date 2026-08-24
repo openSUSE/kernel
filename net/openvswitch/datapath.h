@@ -99,7 +99,7 @@ struct datapath {
  * when a packet is received by OVS.
  * @mru: The maximum received fragement size; 0 if the packet is not
  * @acts_origlen: The netlink size of the flow actions applied to this skb.
- * @cutlen: The number of bytes from the packet end to be removed.
+ * @cutlen: The number of bytes in the packet to preserve on output.
  * fragmented.
  */
 struct ovs_skb_cb {
