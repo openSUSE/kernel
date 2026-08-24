@@ -47,8 +47,6 @@
 #include <linux/memcontrol.h>
 #include <linux/bpf-cgroup.h>
 #include <linux/siphash.h>
-#include <linux/build_bug.h>
-#include <linux/stddef.h>
 
 extern struct inet_hashinfo tcp_hashinfo;
 
@@ -970,9 +968,7 @@ struct tcp_skb_cb {
 		 * 	  tcp_gso_segs/size are used in write queue only,
 		 *	  cf tcp_skb_pcount()/tcp_skb_mss()
 		 */
-#ifndef __GENKSYMS__
 		u32		tcp_tw_isn;
-#endif
 		struct {
 			u16	tcp_gso_segs;
 			u16	tcp_gso_size;
@@ -1009,55 +1005,6 @@ struct tcp_skb_cb {
 		} header;	/* For incoming skbs */
 	};
 };
-
-struct __orig_tcp_skb_cb {
-	__u32		seq;		/* Starting sequence number	*/
-	__u32		end_seq;	/* SEQ + FIN + SYN + datalen	*/
-	union {
-		/* Notes :
-		 *	tcp_tw_isn is used in input path only
-		 *	(isn chosen by tcp_timewait_state_process())
-		 * 	  tcp_gso_segs/size are used in write queue only,
-		 *	  cf tcp_skb_pcount()/tcp_skb_mss()
-		 */
-		struct {
-			u16	tcp_gso_segs;
-			u16	tcp_gso_size;
-		};
-	};
-	__u8		tcp_flags;	/* TCP header flags. (tcp[13])	*/
-
-	__u8		sacked;		/* State flags for SACK.	*/
-	__u8		ip_dsfield;	/* IPv4 tos or IPv6 dsfield	*/
-	__u8		txstamp_ack:1,	/* Record TX timestamp for ack? */
-			eor:1,		/* Is skb MSG_EOR marked? */
-			has_rxtstamp:1,	/* SKB has a RX timestamp	*/
-			unused:5;
-	__u32		ack_seq;	/* Sequence number ACK'd	*/
-	union {
-		struct {
-			/* There is space for up to 24 bytes */
-			__u32 is_app_limited:1, /* cwnd not fully used? */
-			      delivered_ce:20,
-			      unused:11;
-			/* pkts S/ACKed so far upon tx of skb, incl retrans: */
-			__u32 delivered;
-			/* start of send pipeline phase */
-			u64 first_tx_mstamp;
-			/* when we reached the "delivered" count */
-			u64 delivered_mstamp;
-		} tx;   /* only used for outgoing skbs */
-		union {
-			struct inet_skb_parm	h4;
-#if IS_ENABLED(CONFIG_IPV6)
-			struct inet6_skb_parm	h6;
-#endif
-		} header;	/* For incoming skbs */
-	};
-};
-
-suse_kabi_static_assert(offsetof(struct tcp_skb_cb, tcp_gso_segs) ==
-		offsetof(struct __orig_tcp_skb_cb, tcp_gso_segs));
 
 #define TCP_SKB_CB(__skb)	((struct tcp_skb_cb *)&((__skb)->cb[0]))
 

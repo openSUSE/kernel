@@ -23,8 +23,6 @@
 
 #include "ptrace-decl.h"
 
-struct user_pt_regs * upr;
-
 /*
  * Called by kernel/ptrace.c when detaching..
  *
@@ -121,7 +119,7 @@ long arch_ptrace(struct task_struct *child, long request,
 	case PTRACE_GETREGS:	/* Get all pt_regs from the child. */
 		return copy_regset_to_user(child, &user_ppc_native_view,
 					   REGSET_GPR,
-					   0, sizeof(struct user_pt_regs) - sizeof(upr->__pt_regs_pad),
+					   0, sizeof(struct user_pt_regs),
 					   datavp);
 
 #ifdef CONFIG_PPC64
@@ -130,7 +128,7 @@ long arch_ptrace(struct task_struct *child, long request,
 	case PTRACE_SETREGS:	/* Set all gp regs in the child. */
 		return copy_regset_from_user(child, &user_ppc_native_view,
 					     REGSET_GPR,
-					     0, sizeof(struct user_pt_regs) - sizeof(upr->__pt_regs_pad),
+					     0, sizeof(struct user_pt_regs),
 					     datavp);
 
 	case PTRACE_GETFPREGS: /* Get the child FPU state (FPR0...31 + FPSCR) */
@@ -295,13 +293,13 @@ void __init pt_regs_check(void)
 	CHECK_REG(PT_RESULT, result);
 	#undef CHECK_REG
 
-	BUILD_BUG_ON(PT_REGS_COUNT != (sizeof(struct user_pt_regs) - sizeof(upr->__pt_regs_pad)) / sizeof(unsigned long));
+	BUILD_BUG_ON(PT_REGS_COUNT != sizeof(struct user_pt_regs) / sizeof(unsigned long));
 
 	/*
 	 * PT_DSCR isn't a real reg, but it's important that it doesn't overlap the
 	 * real registers.
 	 */
-	BUILD_BUG_ON(PT_DSCR < (sizeof(struct user_pt_regs) - sizeof(upr->__pt_regs_pad)) / sizeof(unsigned long));
+	BUILD_BUG_ON(PT_DSCR < sizeof(struct user_pt_regs) / sizeof(unsigned long));
 
 	// ptrace_get/put_fpr() rely on PPC32 and VSX being incompatible
 	BUILD_BUG_ON(IS_ENABLED(CONFIG_PPC32) && IS_ENABLED(CONFIG_VSX));

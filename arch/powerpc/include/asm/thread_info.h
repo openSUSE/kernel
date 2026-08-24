@@ -57,6 +57,7 @@ struct thread_info {
 #ifdef CONFIG_SMP
 	unsigned int	cpu;
 #endif
+	unsigned long	exit_flags;		/* Exit Flags for entry/exit */
 	unsigned long	syscall_work;		/* SYSCALL_WORK_ flags */
 	unsigned long	local_flags;		/* private flags for thread */
 #ifdef CONFIG_LIVEPATCH_64
@@ -163,16 +164,8 @@ void arch_setup_new_exec(void);
 #define _TLF_SLEEPING		(1 << TLF_SLEEPING)
 #define _TLF_LAZY_MMU		(1 << TLF_LAZY_MMU)
 #define _TLF_RUNLATCH		(1 << TLF_RUNLATCH)
-/* Upstream these syscall flags are in a different field that cannot be added without breaking ABI */
-#define _TLF_SYSCALL_EXIT_RESTOREALL	BIT(29)
 
 #ifndef __ASSEMBLER__
-
-static inline void set_thread_local_flags(unsigned int flags)
-{
-	struct thread_info *ti = current_thread_info();
-	ti->local_flags |= flags;
-}
 
 static inline void clear_thread_local_flags(unsigned int flags)
 {
@@ -184,16 +177,6 @@ static inline bool test_thread_local_flags(unsigned int flags)
 {
 	struct thread_info *ti = current_thread_info();
 	return (ti->local_flags & flags) != 0;
-}
-
-static inline bool test_and_clear_thread_local_flags(unsigned int flags)
-{
-	struct thread_info *ti = current_thread_info();
-	bool ret = (ti->local_flags & flags) != 0;
-
-	ti->local_flags &= ~flags;
-
-	return ret;
 }
 
 #ifdef CONFIG_COMPAT
