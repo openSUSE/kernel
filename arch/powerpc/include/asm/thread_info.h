@@ -57,8 +57,6 @@ struct thread_info {
 #ifdef CONFIG_SMP
 	unsigned int	cpu;
 #endif
-	unsigned long	entry_flags;		/* Entry flags for entry/exit */
-	unsigned long	exit_flags;		/* Exit Flags for entry/exit */
 	unsigned long	syscall_work;		/* SYSCALL_WORK_ flags */
 	unsigned long	local_flags;		/* private flags for thread */
 #ifdef CONFIG_LIVEPATCH_64
@@ -121,6 +119,7 @@ void arch_setup_new_exec(void);
 #endif
 #define TIF_POLLING_NRFLAG	19	/* true if poll_idle() is polling TIF_NEED_RESCHED */
 #define TIF_32BIT		20	/* 32 bit binary */
+#define TIF_SYSCALL_RET		21	/* syscall error value set */
 
 /* as above, but as bit values */
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
@@ -164,8 +163,16 @@ void arch_setup_new_exec(void);
 #define _TLF_SLEEPING		(1 << TLF_SLEEPING)
 #define _TLF_LAZY_MMU		(1 << TLF_LAZY_MMU)
 #define _TLF_RUNLATCH		(1 << TLF_RUNLATCH)
+/* Upstream these syscall flags are in a different field that cannot be added without breaking ABI */
+#define _TLF_SYSCALL_EXIT_RESTOREALL	BIT(29)
 
 #ifndef __ASSEMBLER__
+
+static inline void set_thread_local_flags(unsigned int flags)
+{
+	struct thread_info *ti = current_thread_info();
+	ti->local_flags |= flags;
+}
 
 static inline void clear_thread_local_flags(unsigned int flags)
 {
@@ -179,30 +186,12 @@ static inline bool test_thread_local_flags(unsigned int flags)
 	return (ti->local_flags & flags) != 0;
 }
 
-/*
- * _TEF_SYSCALL_RET_SET: seccomp or ptrace called syscall_set_return_value()
- * and wants the syscall skipped; regs->gpr[3] already holds the return value.
- */
-#define _TEF_SYSCALL_RET_SET BIT(0)
-
-static inline void set_thread_entry_flags(unsigned int flags)
+static inline bool test_and_clear_thread_local_flags(unsigned int flags)
 {
 	struct thread_info *ti = current_thread_info();
-	ti->entry_flags |= flags;
-}
+	bool ret = (ti->local_flags & flags) != 0;
 
-static inline void clear_thread_entry_flags(unsigned int flags)
-{
-	struct thread_info *ti = current_thread_info();
-	ti->entry_flags &= ~flags;
-}
-
-static inline bool test_and_clear_thread_entry_flags(unsigned int flags)
-{
-	struct thread_info *ti = current_thread_info();
-	bool ret = (ti->entry_flags & flags) != 0;
-
-	ti->entry_flags &= ~flags;
+	ti->local_flags &= ~flags;
 
 	return ret;
 }

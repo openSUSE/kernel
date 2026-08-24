@@ -910,12 +910,12 @@ static struct freq_attr *hwp_cpufreq_attrs[] = {
 	[HWP_CPUFREQ_ATTR_COUNT] = NULL,
 };
 
+static bool no_cas __ro_after_init;
+
 static u8 hybrid_get_cpu_type(unsigned int cpu)
 {
 	return cpu_data(cpu).topo.intel_type;
 }
-
-static bool no_cas __ro_after_init;
 
 static struct cpudata *hybrid_max_perf_cpu __read_mostly;
 /*

@@ -374,7 +374,7 @@ static int mms114_setup_regs(struct mms114_data *data)
 	if (error < 0)
 		return error;
 
-	val = props->max_x & 0xff;
+	val = props->max_y & 0xff;
 	error = mms114_write_reg(data, MMS114_Y_RESOLUTION, val);
 	if (error < 0)
 		return error;
