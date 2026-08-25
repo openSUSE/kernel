@@ -28,8 +28,8 @@ struct sk_buff *validate_xmit_xfrm(struct sk_buff *skb, netdev_features_t featur
 	int err;
 	unsigned long flags;
 	struct xfrm_state *x;
-	struct sk_buff *skb2;
 	struct softnet_data *sd;
+	struct sk_buff *skb2, *pskb = NULL;
 	netdev_features_t esp_features = features;
 	struct xfrm_offload *xo = xfrm_offload(skb);
 
@@ -117,14 +117,14 @@ struct sk_buff *validate_xmit_xfrm(struct sk_buff *skb, netdev_features_t featur
 		} else {
 			if (skb == skb2)
 				skb = nskb;
-
-			if (!skb)
-				return NULL;
+			else
+				pskb->next = nskb;
 
 			goto skip_push;
 		}
 
 		skb_push(skb2, skb2->data - skb_mac_header(skb2));
+		pskb = skb2;
 
 skip_push:
 		skb2 = nskb;
