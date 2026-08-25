@@ -368,6 +368,12 @@ static bool drm_dp_sideband_msg_build(struct drm_dp_sideband_msg_rx *msg,
 		msg->curchunk_idx = min(msg->curchunk_len, (u8)(replybuflen - hdrlen));
 		memcpy(&msg->chunk[0], replybuf + hdrlen, msg->curchunk_idx);
 	} else {
+		/* curchunk_len must be >= 1 (min 1 CRC byte) and fit in chunk[] */
+		if (!msg->curchunk_len ||
+		    msg->curchunk_len > ARRAY_SIZE(msg->chunk) ||
+		    msg->curchunk_idx + replybuflen > ARRAY_SIZE(msg->chunk))
+			return false;
+
 		memcpy(&msg->chunk[msg->curchunk_idx], replybuf, replybuflen);
 		msg->curchunk_idx += replybuflen;
 	}
@@ -375,6 +381,9 @@ static bool drm_dp_sideband_msg_build(struct drm_dp_sideband_msg_rx *msg,
 	if (msg->curchunk_idx >= msg->curchunk_len) {
 		/* do CRC */
 		crc4 = drm_dp_msg_data_crc4(msg->chunk, msg->curchunk_len - 1);
+		/* Guard against accumulated msg[] overflow */
+		if (msg->curlen + msg->curchunk_len - 1 > ARRAY_SIZE(msg->msg))
+			return false;
 		/* copy chunk into bigger msg */
 		memcpy(&msg->msg[msg->curlen], msg->chunk, msg->curchunk_len - 1);
 		msg->curlen += msg->curchunk_len - 1;
