@@ -388,9 +388,10 @@ static int ghes_read_estatus(struct ghes *ghes, int silent)
 	ghes_copy_tofrom_phys(ghes->estatus + 1,
 			      buf_paddr + sizeof(*ghes->estatus),
 			      len - sizeof(*ghes->estatus), 1);
-	if (cper_estatus_check(ghes->estatus) && !silent && printk_ratelimit()) {
-		pr_warning(FW_WARN GHES_PFX
-			   "Failed to read error status block!\n");
+        if (cper_estatus_check(ghes->estatus)) {
+                if (!silent && printk_ratelimit())
+			pr_warning(FW_WARN GHES_PFX
+				   "Failed to read error status block!\n");
 		return -EIO;
 	}
 
