@@ -340,7 +340,7 @@ struct batadv_orig_node {
 	unsigned long capa_initialized;
 	atomic_t last_ttvn;
 	unsigned char *tt_buff;
-	s16 tt_buff_len;
+	u16 tt_buff_len;
 	spinlock_t tt_buff_lock; /* protects tt_buff & tt_buff_len */
 	/* prevents from changing the table while reading it */
 	spinlock_t tt_lock;
