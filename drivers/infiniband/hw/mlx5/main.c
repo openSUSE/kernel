@@ -2072,7 +2072,7 @@ err:
 	if (!dyn_uar)
 		return err;
 
-	mlx5_cmd_free_uar(dev->mdev, idx);
+	mlx5_cmd_free_uar(dev->mdev, uar_index);
 
 free_bfreg:
 	mlx5_ib_free_bfreg(dev, bfregi, bfreg_dyn_idx);
