@@ -656,6 +656,8 @@ static long isst_if_core_power_state(void __user *argp)
 #define SST_CLOS_CONFIG_MAX_START	16
 #define SST_CLOS_CONFIG_MAX_WIDTH	8
 
+#define SST_MAX_CLOS			3
+
 static long isst_if_clos_param(void __user *argp)
 {
 	struct tpmi_per_power_domain_info *power_domain_info;
@@ -663,6 +665,9 @@ static long isst_if_clos_param(void __user *argp)
 
 	if (copy_from_user(&clos_param, argp, sizeof(clos_param)))
 		return -EFAULT;
+
+	if (clos_param.clos > SST_MAX_CLOS)
+		return -EINVAL;
 
 	power_domain_info = get_instance(clos_param.socket_id, clos_param.power_domain_id);
 	if (!power_domain_info)
@@ -710,6 +715,8 @@ static long isst_if_clos_param(void __user *argp)
 #define SST_CLOS_ASSOC_CPUS_PER_REG	16
 #define SST_CLOS_ASSOC_BITS_PER_CPU	4
 
+#define SST_CLOS_ASSOC_MAX_LOGICAL_CPU	63
+
 static long isst_if_clos_assoc(void __user *argp)
 {
 	struct isst_if_clos_assoc_cmds assoc_cmds;
@@ -736,7 +743,13 @@ static long isst_if_clos_assoc(void __user *argp)
 		if (copy_from_user(&clos_assoc, ptr, sizeof(clos_assoc)))
 			return -EFAULT;
 
-		if (clos_assoc.socket_id > topology_max_packages())
+		if (clos_assoc.clos > SST_MAX_CLOS)
+			return -EINVAL;
+
+		if (clos_assoc.socket_id >= topology_max_packages())
+			return -EINVAL;
+
+		if (clos_assoc.logical_cpu > SST_CLOS_ASSOC_MAX_LOGICAL_CPU)
 			return -EINVAL;
 
 		cpu = clos_assoc.logical_cpu;
@@ -754,6 +767,8 @@ static long isst_if_clos_assoc(void __user *argp)
 		pkg_id = clos_assoc.socket_id;
 
 		sst_inst = isst_common.sst_inst[pkg_id];
+		if (!sst_inst)
+			return -EINVAL;
 
 		punit_id = map_partition_power_domain_id(sst_inst, punit_id, &part);
 		if (punit_id < 0)
@@ -851,6 +866,7 @@ static long isst_if_clos_assoc(void __user *argp)
 
 #define SST_PP_FEATURE_STATE_START	8
 #define SST_PP_FEATURE_STATE_WIDTH	8
+#define SST_PP_FEATURE_STATE_VALID_MASK	GENMASK(1, 0)
 
 #define SST_BF_FEATURE_SUPPORTED_START	12
 #define SST_BF_FEATURE_SUPPORTED_WIDTH	1
@@ -1000,6 +1016,9 @@ static int isst_if_set_perf_feature(void __user *argp)
 
 	if (power_domain_info->write_blocked)
 		return -EPERM;
+
+	if (perf_feature.feature & ~SST_PP_FEATURE_STATE_VALID_MASK)
+		return -EINVAL;
 
 	_write_pp_info("perf_feature", perf_feature.feature, SST_PP_CONTROL_OFFSET,
 		       SST_PP_FEATURE_STATE_START, SST_PP_FEATURE_STATE_WIDTH,
@@ -1204,6 +1223,12 @@ static int isst_if_get_perf_level_mask(void __user *argp)
 	if (!power_domain_info)
 		return -EINVAL;
 
+	if (cpumask.level > power_domain_info->max_level)
+		return -EINVAL;
+
+	if (!(power_domain_info->pp_header.level_en_mask & BIT(cpumask.level)))
+		return -EINVAL;
+
 	_read_pp_level_info("mask", mask, cpumask.level, SST_PP_INFO_2_OFFSET,
 			    SST_PP_RSLVD_CORE_MASK_START, SST_PP_RSLVD_CORE_MASK_WIDTH,
 			    SST_MUL_FACTOR_NONE)
@@ -1286,6 +1311,9 @@ static int isst_if_get_base_freq_mask(void __user *argp)
 
 	power_domain_info = get_instance(cpumask.socket_id, cpumask.power_domain_id);
 	if (!power_domain_info)
+		return -EINVAL;
+
+	if (cpumask.level > power_domain_info->max_level)
 		return -EINVAL;
 
 	if (!(power_domain_info->pp_header.level_en_mask & BIT(cpumask.level)))
