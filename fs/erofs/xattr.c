@@ -47,6 +47,7 @@ static int erofs_init_inode_xattrs(struct inode *inode)
 	if (wait_on_bit_lock(&vi->flags, EROFS_I_BL_XATTR_BIT, TASK_KILLABLE))
 		return -ERESTARTSYS;
 
+	it.buf = __EROFS_BUF_INITIALIZER;
 	/* someone has initialized xattrs for us? */
 	if (test_bit(EROFS_I_EA_INITED_BIT, &vi->flags))
 		goto out_unlock;
@@ -76,7 +77,6 @@ static int erofs_init_inode_xattrs(struct inode *inode)
 		goto out_unlock;
 	}
 
-	it.buf = __EROFS_BUF_INITIALIZER;
 	erofs_init_metabuf(&it.buf, sb);
 	it.pos = erofs_iloc(inode) + vi->inode_isize;
 
