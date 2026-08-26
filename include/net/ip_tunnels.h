@@ -114,8 +114,21 @@ struct ip_tunnel_info {
 #endif
 	u8			options_len;
 	u8			mode;
+#ifndef __GENKSYMS__
 	u8			options[] __aligned_largest __counted_by(options_len);
+#endif
 };
+
+struct __orig_ip_tunnel_info {
+	struct ip_tunnel_key	key;
+	struct ip_tunnel_encap	encap;
+#ifdef CONFIG_DST_CACHE
+	struct dst_cache	dst_cache;
+#endif
+	u8			options_len;
+	u8			mode;
+};
+suse_kabi_static_assert(sizeof(struct ip_tunnel_info) == sizeof(struct __orig_ip_tunnel_info));
 
 /* 6rd prefix/relay information */
 #ifdef CONFIG_IPV6_SIT_6RD
