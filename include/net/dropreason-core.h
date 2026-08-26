@@ -92,7 +92,6 @@
 	FN(PACKET_SOCK_ERROR)		\
 	FN(TC_CHAIN_NOTFOUND)		\
 	FN(TC_RECLASSIFY_LOOP)		\
-	FN(RECURSION_LIMIT)		\
 	FNe(MAX)
 
 /**
@@ -419,13 +418,21 @@ enum skb_drop_reason {
 	 * iterations.
 	 */
 	SKB_DROP_REASON_TC_RECLASSIFY_LOOP,
-	/** @SKB_DROP_REASON_RECURSION_LIMIT: Dead loop on virtual device. */
-	SKB_DROP_REASON_RECURSION_LIMIT,
 	/**
 	 * @SKB_DROP_REASON_MAX: the maximum of core drop reasons, which
 	 * shouldn't be used as a real 'reason' - only for tracing code gen
 	 */
 	SKB_DROP_REASON_MAX,
+#ifndef __GENKSYMS__
+        /**
+	 * @SKB_DROP_REASON_RECURSION_LIMIT: Dead loop on virtual device.
+	 *
+	 * In order to prevent kABI breakage, but keeping the sources as is,
+	 * keep the newly introduced RECURSION_LIMIT enum entry, but
+	 * define it to an existing value.
+	 */
+        SKB_DROP_REASON_RECURSION_LIMIT = SKB_DROP_REASON_NOT_SPECIFIED,
+#endif
 
 	/**
 	 * @SKB_DROP_REASON_SUBSYS_MASK: subsystem mask in drop reasons,
