@@ -1405,10 +1405,12 @@ static int tipc_recvmsg(struct socket *sock, struct msghdr *m,
 	if (unlikely(flags & MSG_PEEK))
 		goto exit;
 
-	if (!skb_cb->bytes_read)
-		tsk_advance_rx_queue(sk);
+	if (skb_cb->bytes_read)
+		goto exit;
 
-	if (likely(!connected) || skb_cb->bytes_read)
+	tsk_advance_rx_queue(sk);
+
+	if (likely(!connected))
 		goto exit;
 
 	/* Send connection flow control ack when applicable */
