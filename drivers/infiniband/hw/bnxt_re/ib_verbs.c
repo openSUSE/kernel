@@ -4905,6 +4905,8 @@ static int UVERBS_HANDLER(BNXT_RE_METHOD_GET_TOGGLE_MEM)(struct uverbs_attr_bund
 			return -EINVAL;
 
 		addr = (u64)cq->uctx_cq_page;
+		if (!addr)
+			return -EOPNOTSUPP;
 		break;
 	case BNXT_RE_SRQ_TOGGLE_MEM:
 		srq = bnxt_re_search_for_srq(rdev, res_id);
@@ -4912,6 +4914,8 @@ static int UVERBS_HANDLER(BNXT_RE_METHOD_GET_TOGGLE_MEM)(struct uverbs_attr_bund
 			return -EINVAL;
 
 		addr = (u64)srq->uctx_srq_page;
+		if (!addr)
+			return -EOPNOTSUPP;
 		break;
 
 	default:
