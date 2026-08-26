@@ -1131,7 +1131,7 @@ found:
 	kleave(" = {%d}", key->serial);
 	ret = make_key_ref(key, is_key_possessed(keyring_ref));
 unlock:
-	rcu_read_lock();
+	rcu_read_unlock();
 	return ret;
 }
 
