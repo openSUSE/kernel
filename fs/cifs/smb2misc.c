@@ -31,7 +31,8 @@
 #include "smb2glob.h"
 
 
-static unsigned int __smb2_calc_size(void *buf, bool *have_data);
+static unsigned int __smb2_calc_size(void *buf, bool *have_data,
+                                     bool *data_area_overlap);
 
 static int
 check_smb2_hdr(struct smb2_sync_hdr *shdr, __u64 mid)
@@ -158,6 +159,7 @@ smb2_check_message(char *buf, unsigned int len, struct TCP_Server_Info *server)
 	__u32 calc_len; /* calculated length */
 	__u64 mid;
 	bool have_data;
+	bool data_area_overlap;
 
 	/*
 	 * Add function to do table lookup of StructureSize by command
@@ -239,7 +241,12 @@ smb2_check_message(char *buf, unsigned int len, struct TCP_Server_Info *server)
 	}
 
 	have_data = false;
-	calc_len = __smb2_calc_size(buf, &have_data);
+	data_area_overlap = false;
+	calc_len = __smb2_calc_size(buf, &have_data, &data_area_overlap);
+
+	/* Reject responses whose data area overlaps the fixed area. */
+	if (data_area_overlap)
+		return 1;
 
 	/* For SMB2_IOCTL, OutputOffset and OutputLength are optional, so might
 	 * be 0, and not a real miscalculation */
@@ -428,14 +435,15 @@ smb2_get_data_area_len(int *off, int *len, struct smb2_sync_hdr *shdr)
 }
 
 /*
- * Calculate the size of the SMB message based on the fixed header
- * portion, the number of word parameters and the data portion of the message.
- * If have_data is non-NULL, it is set to true when a non-empty data area was
- * found (data_length > 0), allowing callers to distinguish the implied bcc[0]
- * case (no data area) from an overreported data length.
+ * Calculate the size of the SMB message based on the fixed header, fixed
+ * parameter area, and variable data area.
+ *
+ * If have_data is not NULL, it is set when a non-empty data area is found.
+ * If data_area_overlap is not NULL, it is set when the data area overlaps
+ * the fixed area.
  */
 static unsigned int
-__smb2_calc_size(void *buf, bool *have_data)
+__smb2_calc_size(void *buf, bool *have_data, bool *data_area_overlap)
 {
 	struct smb2_sync_pdu *pdu = (struct smb2_sync_pdu *)buf;
 	struct smb2_sync_hdr *shdr = &pdu->sync_hdr;
@@ -443,6 +451,11 @@ __smb2_calc_size(void *buf, bool *have_data)
 	int data_length = 0; /* the length of the variable length data area */
 	/* Structure Size has already been checked to make sure it is 64 */
 	int len = le16_to_cpu(shdr->StructureSize);
+
+	if (have_data)
+		*have_data = false;
+	if (data_area_overlap)
+		*data_area_overlap = false;
 
 	/*
 	 * StructureSize2, ie length of fixed parameter area has already
@@ -466,7 +479,10 @@ __smb2_calc_size(void *buf, bool *have_data)
 		if (offset + 1 < len) {
 			cifs_dbg(VFS, "data area offset %d overlaps SMB2 header %d\n",
 				 offset + 1, len);
+			if (data_area_overlap)
+				*data_area_overlap = true;
 			data_length = 0;
+			goto calc_size_exit;
 		} else {
 			len = offset + data_length;
 		}
@@ -481,7 +497,7 @@ calc_size_exit:
 unsigned int
 smb2_calc_size(void *buf)
 {
-	return __smb2_calc_size(buf, NULL);
+	return __smb2_calc_size(buf, NULL, NULL);
 }
 
 /* Note: caller must free return buffer */
