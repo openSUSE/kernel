@@ -321,7 +321,6 @@ struct pch_vbus_gpio_data {
  * @lock:		protects all state
  * @stall:		stall requested
  * @prot_stall:		protcol stall requested
- * @registered:		driver registered with system
  * @suspended:		driver in suspended state
  * @connected:		gadget driver associated
  * @vbus_session:	required vbus_session state

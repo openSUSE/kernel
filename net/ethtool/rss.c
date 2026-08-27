@@ -81,8 +81,7 @@ rss_prepare_data(const struct ethnl_req_info *req_base,
 		goto out_ops;
 	}
 
-	if (data->indir_size)
-		data->indir_table = (u32 *)rss_config;
+	data->indir_table = (u32 *)rss_config;
 	if (data->hkey_size)
 		data->hkey = rss_config + indir_bytes;
 
