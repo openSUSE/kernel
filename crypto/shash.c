@@ -263,12 +263,13 @@ int crypto_shash_import_core(struct shash_desc *desc, const void *in)
 	if (crypto_shash_get_flags(tfm) & CRYPTO_TFM_NEED_KEY)
 		return -ENOKEY;
 
-	plen = crypto_shash_blocksize(tfm) + 1;
-	descsize = crypto_shash_descsize(tfm);
 	ss = crypto_shash_statesize(tfm);
-	buf[descsize - 1] = 0;
-	if (crypto_shash_block_only(tfm))
+	if (crypto_shash_block_only(tfm)) {
+		plen = crypto_shash_blocksize(tfm) + 1;
 		ss -= plen;
+		descsize = crypto_shash_descsize(tfm);
+		buf[descsize - 1] = 0;
+	}
 	import = crypto_shash_alg(tfm)->import;
 	if (!import) {
 		memcpy(buf, in, ss);
