@@ -3945,6 +3945,11 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 	count = old_eof - off;
 	eof = cpu_to_le64(old_eof + len);
 
+	/* SET_ZERO_DATA creates a hole only in a sparse file. */
+	rc = smb2_set_sparse(xid, tcon, cfile, inode, true);
+	if (rc)
+		goto out;
+
 	filemap_invalidate_lock(inode->i_mapping);
 	rc = filemap_write_and_wait_range(inode->i_mapping, off, old_eof + len - 1);
 	if (rc < 0)
