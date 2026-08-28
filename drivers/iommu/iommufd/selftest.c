@@ -156,7 +156,7 @@ struct selftest_obj {
 };
 
 static int mock_domain_nop_attach(struct iommu_domain *domain,
-				  struct device *dev)
+				  struct device *dev, struct iommu_domain *old)
 {
 	struct mock_dev *mdev = container_of(dev, struct mock_dev, dev);
 
