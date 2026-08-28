@@ -673,14 +673,18 @@ static int hws_bwc_matcher_move(struct mlx5hws_bwc_matcher *bwc_matcher)
 	ret = mlx5hws_matcher_resize_set_target(old_matcher, new_matcher);
 	if (ret) {
 		mlx5hws_err(ctx, "Rehash error: failed setting resize target\n");
+		mlx5hws_matcher_destroy(new_matcher);
 		return ret;
 	}
 
 	ret = hws_bwc_matcher_move_all(bwc_matcher);
-	if (ret) {
+	if (ret)
 		mlx5hws_err(ctx, "Rehash error: moving rules failed\n");
-		return -ENOMEM;
-	}
+
+	/* Error during rehash can't be rolled back.
+	 * The best option here is to allow the rehash to complete and remove
+	 * the old matcher - can't leave the matcher in the 'in_resize' state.
+	 */
 
 	bwc_matcher->matcher = new_matcher;
 	mlx5hws_matcher_destroy(old_matcher);
