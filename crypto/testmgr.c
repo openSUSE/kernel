@@ -5261,6 +5261,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-224)",
+		.generic_driver = "hmac(sha3-224-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 0,
 		.suite = {
@@ -5268,6 +5269,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-256)",
+		.generic_driver = "hmac(sha3-256-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5275,6 +5277,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-384)",
+		.generic_driver = "hmac(sha3-384-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5282,6 +5285,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-512)",
+		.generic_driver = "hmac(sha3-512-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5577,6 +5581,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-224",
+		.generic_driver = "sha3-224-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 0,
 		.suite = {
@@ -5584,6 +5589,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-256",
+		.generic_driver = "sha3-256-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5591,6 +5597,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-384",
+		.generic_driver = "sha3-384-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5598,6 +5605,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-512",
+		.generic_driver = "sha3-512-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
