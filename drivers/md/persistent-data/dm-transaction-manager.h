@@ -34,7 +34,6 @@ void dm_tm_destroy(struct dm_transaction_manager *tm);
  * to clones.
  */
 struct dm_transaction_manager *dm_tm_create_non_blocking_clone(struct dm_transaction_manager *real);
-
 /*
  * We use a 2-phase commit here.
  *
@@ -105,6 +104,13 @@ void dm_tm_dec(struct dm_transaction_manager *tm, dm_block_t b);
 
 int dm_tm_ref(struct dm_transaction_manager *tm, dm_block_t b,
 	      uint32_t *result);
+
+/*
+ * Finds out if a given block is shared (ie. has a reference count higher
+ * than one).
+ */
+int dm_tm_block_is_shared(struct dm_transaction_manager *tm, dm_block_t b,
+			  int *result);
 
 struct dm_block_manager *dm_tm_get_bm(struct dm_transaction_manager *tm);
 
