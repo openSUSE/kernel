@@ -943,11 +943,8 @@ int crypto_shash_finup(struct shash_desc *desc, const u8 *data,
  * Return: 0 if the message digest update was successful; < 0 if an error
  *	   occurred
  */
-static inline int crypto_shash_update(struct shash_desc *desc, const u8 *data,
-				      unsigned int len)
-{
-	return crypto_shash_finup(desc, data, len, NULL);
-}
+int crypto_shash_update(struct shash_desc *desc, const u8 *data,
+				      unsigned int len);
 
 /**
  * crypto_shash_final() - calculate message digest
@@ -963,10 +960,7 @@ static inline int crypto_shash_update(struct shash_desc *desc, const u8 *data,
  * Return: 0 if the message digest creation was successful; < 0 if an error
  *	   occurred
  */
-static inline int crypto_shash_final(struct shash_desc *desc, u8 *out)
-{
-	return crypto_shash_finup(desc, NULL, 0, out);
-}
+int crypto_shash_final(struct shash_desc *desc, u8 *out);
 
 static inline void shash_desc_zero(struct shash_desc *desc)
 {
