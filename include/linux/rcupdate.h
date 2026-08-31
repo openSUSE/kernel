@@ -1090,7 +1090,7 @@ static inline notrace void rcu_read_unlock_sched_notrace(void)
 /**
  * kfree_rcu() - kfree an object after a grace period.
  * @ptr:	pointer to kfree
- * @rcu_head:	the name of the struct rcu_head within the type of @ptr.
+ * @rhf:	the name of the struct rcu_head within the type of @ptr.
  *
  * Many rcu callbacks functions just call kfree() on the base structure.
  * These functions are trivial, but their size adds up, and furthermore
@@ -1113,8 +1113,13 @@ static inline notrace void rcu_read_unlock_sched_notrace(void)
  * The BUILD_BUG_ON check must not involve any function calls, hence the
  * checks are done in macros here.
  */
-#define kfree_rcu(ptr, rcu_head)					\
-	__kfree_rcu(&((ptr)->rcu_head), offsetof(typeof(*(ptr)), rcu_head))
+#define kfree_rcu(ptr, rhf)						\
+do {									\
+	typeof (ptr) ___p = (ptr);					\
+									\
+	if (___p)							\
+		__kfree_rcu(&((___p)->rhf), offsetof(typeof(*(ptr)), rhf)); \
+} while (0)
 
 #ifdef CONFIG_TINY_RCU
 static inline int rcu_needs_cpu(u64 basemono, u64 *nextevt)
