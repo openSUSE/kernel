@@ -3421,16 +3421,19 @@ int iommu_attach_device_pasid(struct iommu_domain *domain,
 	/* Caller must be a probed driver on dev */
 	struct iommu_group *group = dev->iommu_group;
 	struct group_device *device;
+	const struct iommu_ops *ops;
 	int ret;
-
-	if (!domain->ops->set_dev_pasid)
-		return -EOPNOTSUPP;
 
 	if (!group)
 		return -ENODEV;
 
-	if (!dev_has_iommu(dev) ||
-	    !domain_iommu_ops_compatible(dev_iommu_ops(dev), domain) ||
+	ops = dev_iommu_ops(dev);
+
+	if (!domain->ops->set_dev_pasid ||
+	    !ops->remove_dev_pasid)
+		return -EOPNOTSUPP;
+
+	if (!domain_iommu_ops_compatible(dev_iommu_ops(dev), domain) ||
 	    pasid == IOMMU_NO_PASID)
 		return -EINVAL;
 
