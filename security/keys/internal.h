@@ -192,6 +192,7 @@ static inline int key_permission(const key_ref_t key_ref, unsigned perm)
  * Authorisation record for request_key().
  */
 struct request_key_auth {
+	refcount_t              usage;
 	struct key		*target_key;
 	struct key		*dest_keyring;
 	const struct cred	*cred;
@@ -205,6 +206,8 @@ extern struct key *request_key_auth_new(struct key *target,
 					const void *callout_info,
 					size_t callout_len,
 					struct key *dest_keyring);
+struct request_key_auth *request_key_auth_get(struct key *authkey);
+void request_key_auth_put(struct request_key_auth *rka);
 
 extern struct key *key_get_instantiation_authkey(key_serial_t target_id);
 
