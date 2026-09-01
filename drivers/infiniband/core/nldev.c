@@ -524,7 +524,7 @@ static int fill_res_mr_entry(struct sk_buff *msg, struct netlink_callback *cb,
 			     struct rdma_restrack_entry *res, uint32_t port)
 {
 	struct ib_mr *mr = container_of(res, struct ib_mr, res);
-	struct rdma_restrack_root *resroot = &mr->pd->device->res;
+	struct rdma_restrack_root *resroot = &mr->device->res;
 	struct nlattr *entry_attr;
 
 	entry_attr = nla_nest_start(msg, RDMA_NLDEV_ATTR_RES_MR_ENTRY);
