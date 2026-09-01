@@ -6229,7 +6229,14 @@ struct wireless_dev {
 
 	struct list_head pmsr_list;
 	spinlock_t pmsr_lock;
-	struct wiphy_work pmsr_free_wk;
+#ifdef __GENKSYMS__
+	struct work_struct pmsr_free_wk; /* FIXME: for SLE kABI */
+#else
+	union {
+		struct wiphy_work pmsr_free_wk;
+		struct work_struct __orig_pmsr_free_wk;
+	};
+#endif
 
 	unsigned long unprot_beacon_reported;
 
@@ -6277,6 +6284,129 @@ struct wireless_dev {
 	} links[IEEE80211_MLD_MAX_NUM_LINKS];
 	u16 valid_links;
 };
+
+/* FIXME: kABI sanity checks */
+struct __orig_wireless_dev {
+	struct wiphy *wiphy;
+	enum nl80211_iftype iftype;
+
+	/* the remainder of this struct should be private to cfg80211 */
+	struct list_head list;
+	struct net_device *netdev;
+
+	u32 identifier;
+
+	struct list_head mgmt_registrations;
+	u8 mgmt_registrations_need_update:1;
+
+	struct mutex mtx; // FIXME: kABI placeholder
+
+	bool use_4addr, is_running, registered, registering;
+
+	u8 address[ETH_ALEN] __aligned(sizeof(u16));
+
+	/* currently used for IBSS and SME - might be rearranged later */
+	struct cfg80211_conn *conn;
+	struct cfg80211_cached_keys *connect_keys;
+	enum ieee80211_bss_type conn_bss_type;
+	u32 conn_owner_nlportid;
+
+	struct work_struct disconnect_wk;
+	u8 disconnect_bssid[ETH_ALEN];
+
+	struct list_head event_list;
+	spinlock_t event_lock;
+
+	u8 connected:1;
+
+	bool ps;
+	int ps_timeout;
+
+	u32 ap_unexpected_nlportid;
+
+	u32 owner_nlportid;
+	bool nl_owner_dead;
+
+	/* FIXME: need to rework radar detection for MLO */
+	bool cac_started;
+	unsigned long cac_start_time;
+	unsigned int cac_time_ms;
+
+#ifdef CONFIG_CFG80211_WEXT
+	/* wext data */
+	struct {
+		struct cfg80211_ibss_params ibss;
+		struct cfg80211_connect_params connect;
+		struct cfg80211_cached_keys *keys;
+		const u8 *ie;
+		size_t ie_len;
+		u8 bssid[ETH_ALEN];
+		u8 prev_bssid[ETH_ALEN];
+		u8 ssid[IEEE80211_MAX_SSID_LEN];
+		s8 default_key, default_mgmt_key;
+		bool prev_bssid_valid;
+	} wext;
+#endif
+
+	struct wiphy_work cqm_rssi_work;
+	struct cfg80211_cqm_config __rcu *cqm_config;
+
+	struct list_head pmsr_list;
+	spinlock_t pmsr_lock;
+	struct work_struct pmsr_free_wk; /* FIXME: for SLE kABI */
+
+	unsigned long unprot_beacon_reported;
+
+	union {
+		struct {
+			u8 connected_addr[ETH_ALEN] __aligned(2);
+			u8 ssid[IEEE80211_MAX_SSID_LEN];
+			u8 ssid_len;
+		} client;
+		struct {
+			int beacon_interval;
+			struct cfg80211_chan_def preset_chandef;
+			struct cfg80211_chan_def chandef;
+			u8 id[IEEE80211_MAX_SSID_LEN];
+			u8 id_len, id_up_len;
+		} mesh;
+		struct {
+			struct cfg80211_chan_def preset_chandef;
+			u8 ssid[IEEE80211_MAX_SSID_LEN];
+			u8 ssid_len;
+		} ap;
+		struct {
+			struct cfg80211_internal_bss *current_bss;
+			struct cfg80211_chan_def chandef;
+			int beacon_interval;
+			u8 ssid[IEEE80211_MAX_SSID_LEN];
+			u8 ssid_len;
+		} ibss;
+		struct {
+			struct cfg80211_chan_def chandef;
+		} ocb;
+	} u;
+
+	struct {
+		u8 addr[ETH_ALEN] __aligned(2);
+		union {
+			struct {
+				unsigned int beacon_interval;
+				struct cfg80211_chan_def chandef;
+			} ap;
+			struct {
+				struct cfg80211_internal_bss *current_bss;
+			} client;
+		};
+	} links[IEEE80211_MLD_MAX_NUM_LINKS];
+	u16 valid_links;
+};
+
+suse_kabi_static_assert(sizeof(struct wireless_dev) == sizeof(struct __orig_wireless_dev));
+suse_kabi_static_assert(offsetof(struct wireless_dev, pmsr_free_wk) ==
+			offsetof(struct __orig_wireless_dev, pmsr_free_wk));
+suse_kabi_static_assert(offsetof(struct wireless_dev, unprot_beacon_reported) ==
+			offsetof(struct __orig_wireless_dev, unprot_beacon_reported));
 
 static inline const u8 *wdev_address(struct wireless_dev *wdev)
 {
