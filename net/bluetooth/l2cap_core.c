@@ -680,7 +680,7 @@ void l2cap_chan_del(struct l2cap_chan *chan, int err)
 	chan->ops->teardown(chan, err);
 
 	if (!test_and_set_bit(FLAG_DEL, &chan->flags)) {
-		struct amp_mgr *mgr = chan->conn->hcon->amp_mgr;
+		struct amp_mgr *mgr = chan->conn ? chan->conn->hcon->amp_mgr : NULL;
 		/* Delete from channel list */
 		list_del(&chan->list);
 
