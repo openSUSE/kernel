@@ -1348,6 +1348,15 @@ out_cleanup:
 }
 EXPORT_SYMBOL_GPL(__v4l2_async_register_subdev_sensor);
 
+/* FIXME: for kABI workaround, provide the original version */
+#undef v4l2_async_register_subdev_sensor
+int __must_check v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
+{
+	pr_warn("Unfixed v4l2_async_register_subdev_sensor is used\n");
+	return __v4l2_async_register_subdev_sensor(sd, NULL);
+}
+EXPORT_SYMBOL_GPL(v4l2_async_register_subdev_sensor);
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sakari Ailus <sakari.ailus@linux.intel.com>");
 MODULE_AUTHOR("Sylwester Nawrocki <s.nawrocki@samsung.com>");
