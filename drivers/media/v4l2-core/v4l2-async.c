@@ -932,6 +932,15 @@ static void __exit v4l2_async_exit(void)
 subsys_initcall(v4l2_async_init);
 module_exit(v4l2_async_exit);
 
+/* FIXME: for kABI workaround, provide the original version */
+#undef v4l2_async_register_subdev
+int v4l2_async_register_subdev(struct v4l2_subdev *sd)
+{
+	pr_warn("Unfixed v4l2_async_register_subdev is used\n");
+	return __v4l2_async_register_subdev(sd, NULL);
+}
+EXPORT_SYMBOL(v4l2_async_register_subdev);
+
 MODULE_AUTHOR("Guennadi Liakhovetski <g.liakhovetski@gmx.de>");
 MODULE_AUTHOR("Sakari Ailus <sakari.ailus@linux.intel.com>");
 MODULE_AUTHOR("Ezequiel Garcia <ezequiel@collabora.com>");
