@@ -776,6 +776,16 @@ static int gve_create_rings(struct gve_priv *priv)
 	return 0;
 }
 
+static void gve_rx_starvation_timer(struct timer_list *t)
+{
+	struct gve_rx_ring *rx = from_timer(rx, t, starvation_timer);
+	struct gve_priv *priv = rx->gve;
+	struct gve_notify_block *block;
+
+	block = &priv->ntfy_blocks[rx->ntfy_id];
+	napi_schedule(&block->napi);
+}
+
 static void add_napi_init_xdp_sync_stats(struct gve_priv *priv,
 					 int (*napi_poll)(struct napi_struct *napi,
 							  int budget))
@@ -810,9 +820,11 @@ static void add_napi_init_sync_stats(struct gve_priv *priv,
 	/* Add rx napi  & init sync stats*/
 	for (i = 0; i < priv->rx_cfg.num_queues; i++) {
 		int ntfy_idx = gve_rx_idx_to_ntfy(priv, i);
+		struct gve_rx_ring *rx = &priv->rx[i];
 
 		u64_stats_init(&priv->rx[i].statss);
 		priv->rx[i].ntfy_id = ntfy_idx;
+		timer_setup(&rx->starvation_timer, gve_rx_starvation_timer, 0);
 		gve_add_napi(priv, ntfy_idx, napi_poll);
 	}
 }
@@ -978,6 +990,7 @@ static void gve_free_rings(struct gve_priv *priv)
 	if (priv->rx) {
 		for (i = 0; i < priv->rx_cfg.num_queues; i++) {
 			ntfy_idx = gve_rx_idx_to_ntfy(priv, i);
+			timer_shutdown_sync(&priv->rx[i].starvation_timer);
 			gve_remove_napi(priv, ntfy_idx);
 		}
 		gve_rx_free_rings(priv);
