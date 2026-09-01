@@ -168,12 +168,7 @@ static inline unsigned int crypto_sig_digestsize(struct crypto_sig *tfm)
  *
  * @tfm:	signature tfm handle allocated with crypto_alloc_sig()
  */
-static inline unsigned int crypto_sig_maxsize(struct crypto_sig *tfm)
-{
-	struct sig_alg *alg = crypto_sig_alg(tfm);
-
-	return alg->max_size(tfm);
-}
+unsigned int crypto_sig_maxsize(struct crypto_sig *tfm);
 
 /**
  * crypto_sig_sign() - Invoke signing operation
@@ -188,14 +183,9 @@ static inline unsigned int crypto_sig_maxsize(struct crypto_sig *tfm)
  *
  * Return: zero on success; error code in case of error
  */
-static inline int crypto_sig_sign(struct crypto_sig *tfm,
+int crypto_sig_sign(struct crypto_sig *tfm,
 				  const void *src, unsigned int slen,
-				  void *dst, unsigned int dlen)
-{
-	struct sig_alg *alg = crypto_sig_alg(tfm);
-
-	return alg->sign(tfm, src, slen, dst, dlen);
-}
+				  void *dst, unsigned int dlen);
 
 /**
  * crypto_sig_verify() - Invoke signature verification
@@ -211,14 +201,9 @@ static inline int crypto_sig_sign(struct crypto_sig *tfm,
  *
  * Return: zero on verification success; error code in case of error.
  */
-static inline int crypto_sig_verify(struct crypto_sig *tfm,
+int crypto_sig_verify(struct crypto_sig *tfm,
 				    const void *src, unsigned int slen,
-				    const void *digest, unsigned int dlen)
-{
-	struct sig_alg *alg = crypto_sig_alg(tfm);
-
-	return alg->verify(tfm, src, slen, digest, dlen);
-}
+				    const void *digest, unsigned int dlen);
 
 /**
  * crypto_sig_set_pubkey() - Invoke set public key operation
@@ -233,13 +218,8 @@ static inline int crypto_sig_verify(struct crypto_sig *tfm,
  *
  * Return: zero on success; error code in case of error
  */
-static inline int crypto_sig_set_pubkey(struct crypto_sig *tfm,
-					const void *key, unsigned int keylen)
-{
-	struct sig_alg *alg = crypto_sig_alg(tfm);
-
-	return alg->set_pub_key(tfm, key, keylen);
-}
+int crypto_sig_set_pubkey(struct crypto_sig *tfm,
+					const void *key, unsigned int keylen);
 
 /**
  * crypto_sig_set_privkey() - Invoke set private key operation
@@ -254,11 +234,6 @@ static inline int crypto_sig_set_pubkey(struct crypto_sig *tfm,
  *
  * Return: zero on success; error code in case of error
  */
-static inline int crypto_sig_set_privkey(struct crypto_sig *tfm,
-					 const void *key, unsigned int keylen)
-{
-	struct sig_alg *alg = crypto_sig_alg(tfm);
-
-	return alg->set_priv_key(tfm, key, keylen);
-}
+int crypto_sig_set_privkey(struct crypto_sig *tfm,
+					 const void *key, unsigned int keylen);
 #endif
