@@ -349,8 +349,6 @@ static void nvmet_tcp_free_cmd_buffers(struct nvmet_tcp_cmd *cmd)
 	cmd->req.sg = NULL;
 }
 
-static void nvmet_tcp_fatal_error(struct nvmet_tcp_queue *queue);
-
 static int nvmet_tcp_build_pdu_iovec(struct nvmet_tcp_cmd *cmd)
 {
 	struct bio_vec *iov = cmd->iov;
@@ -394,22 +392,26 @@ static int nvmet_tcp_build_pdu_iovec(struct nvmet_tcp_cmd *cmd)
 	return 0;
 }
 
-static void nvmet_tcp_fatal_error(struct nvmet_tcp_queue *queue)
-{
-	queue->rcv_state = NVMET_TCP_RECV_ERR;
-	if (queue->nvme_sq.ctrl)
-		nvmet_ctrl_fatal_error(queue->nvme_sq.ctrl);
-	else
-		kernel_sock_shutdown(queue->sock, SHUT_RDWR);
-}
-
 static void nvmet_tcp_socket_error(struct nvmet_tcp_queue *queue, int status)
 {
+	/*
+	 * Keep rcv_state at RECV_ERR even for the internal -ESHUTDOWN path.
+	 * nvmet_tcp_handle_icreq() can return -ESHUTDOWN after the ICReq has
+	 * already been consumed and queue teardown has started.
+	 *
+	 * If nvmet_tcp_data_ready() or nvmet_tcp_write_space() queues
+	 * nvmet_tcp_io_work() again before nvmet_tcp_release_queue_work()
+	 * cancels it, the queue must not keep that old receive state.
+	 * Otherwise the next nvmet_tcp_io_work() run can reach
+	 * nvmet_tcp_done_recv_pdu() and try to handle the same ICReq again.
+	 *
+	 * That is why queue->rcv_state needs to be updated before we return.
+	 */
 	queue->rcv_state = NVMET_TCP_RECV_ERR;
-	if (status == -EPIPE || status == -ECONNRESET)
+	if (status == -EPIPE || status == -ECONNRESET || !queue->nvme_sq.ctrl)
 		kernel_sock_shutdown(queue->sock, SHUT_RDWR);
 	else
-		nvmet_tcp_fatal_error(queue);
+		nvmet_ctrl_fatal_error(queue->nvme_sq.ctrl);
 }
 
 static int nvmet_tcp_map_data(struct nvmet_tcp_cmd *cmd)
@@ -886,7 +888,6 @@ static int nvmet_tcp_handle_icreq(struct nvmet_tcp_queue *queue)
 	if (le32_to_cpu(icreq->hdr.plen) != sizeof(struct nvme_tcp_icreq_pdu)) {
 		pr_err("bad nvme-tcp pdu length (%d)\n",
 			le32_to_cpu(icreq->hdr.plen));
-		nvmet_tcp_fatal_error(queue);
 		return -EPROTO;
 	}
 
@@ -921,11 +922,24 @@ static int nvmet_tcp_handle_icreq(struct nvmet_tcp_queue *queue)
 	iov.iov_len = sizeof(*icresp);
 	ret = kernel_sendmsg(queue->sock, &msg, &iov, 1, iov.iov_len);
 	if (ret < 0) {
+		spin_lock_bh(&queue->state_lock);
+		if (queue->state == NVMET_TCP_Q_DISCONNECTING) {
+			spin_unlock_bh(&queue->state_lock);
+			return -ESHUTDOWN;
+		}
 		queue->state = NVMET_TCP_Q_FAILED;
+		spin_unlock_bh(&queue->state_lock);
 		return ret; /* queue removal will cleanup */
 	}
 
+	spin_lock_bh(&queue->state_lock);
+	if (queue->state == NVMET_TCP_Q_DISCONNECTING) {
+		spin_unlock_bh(&queue->state_lock);
+		/* Tell nvmet_tcp_socket_error() teardown is in progress. */
+		return -ESHUTDOWN;
+	}
 	queue->state = NVMET_TCP_Q_LIVE;
+	spin_unlock_bh(&queue->state_lock);
 	nvmet_prepare_receive_pdu(queue);
 	return 0;
 }
@@ -952,7 +966,6 @@ static int nvmet_tcp_handle_req_failure(struct nvmet_tcp_queue *queue,
 	ret = nvmet_tcp_map_data(cmd);
 	if (unlikely(ret)) {
 		pr_err("queue %d: failed to map data\n", queue->idx);
-		nvmet_tcp_fatal_error(queue);
 		return -EPROTO;
 	}
 
@@ -1025,7 +1038,6 @@ static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue)
 
 err_proto:
 	/* FIXME: use proper transport errors */
-	nvmet_tcp_fatal_error(queue);
 	return -EPROTO;
 }
 
@@ -1040,7 +1052,6 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 		if (hdr->type != nvme_tcp_icreq) {
 			pr_err("unexpected pdu type (%d) before icreq\n",
 				hdr->type);
-			nvmet_tcp_fatal_error(queue);
 			return -EPROTO;
 		}
 		return nvmet_tcp_handle_icreq(queue);
@@ -1049,7 +1060,6 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 	if (unlikely(hdr->type == nvme_tcp_icreq)) {
 		pr_err("queue %d: received icreq pdu in state %d\n",
 			queue->idx, queue->state);
-		nvmet_tcp_fatal_error(queue);
 		return -EPROTO;
 	}
 
@@ -1066,7 +1076,6 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 		pr_err("queue %d: out of commands (%d) send_list_len: %d, opcode: %d",
 			queue->idx, queue->nr_cmds, queue->send_list_len,
 			nvme_cmd->common.opcode);
-		nvmet_tcp_fatal_error(queue);
 		return -ENOMEM;
 	}
 
@@ -1088,9 +1097,9 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 	if (unlikely(ret)) {
 		pr_err("queue %d: failed to map data\n", queue->idx);
 		if (nvmet_tcp_has_inline_data(queue->cmd))
-			nvmet_tcp_fatal_error(queue);
-		else
-			nvmet_req_complete(req, ret);
+			return -EPROTO;
+
+		nvmet_req_complete(req, ret);
 		ret = -EAGAIN;
 		goto out;
 	}
@@ -1213,7 +1222,6 @@ recv:
 
 		if (unlikely(!nvmet_tcp_pdu_valid(hdr->type))) {
 			pr_err("unexpected pdu type %d\n", hdr->type);
-			nvmet_tcp_fatal_error(queue);
 			return -EIO;
 		}
 
@@ -1227,16 +1235,12 @@ recv:
 	}
 
 	if (queue->hdr_digest &&
-	    nvmet_tcp_verify_hdgst(queue, &queue->pdu, hdr->hlen)) {
-		nvmet_tcp_fatal_error(queue); /* fatal */
+	    nvmet_tcp_verify_hdgst(queue, &queue->pdu, hdr->hlen))
 		return -EPROTO;
-	}
 
 	if (queue->data_digest &&
-	    nvmet_tcp_check_ddgst(queue, &queue->pdu)) {
-		nvmet_tcp_fatal_error(queue); /* fatal */
+	    nvmet_tcp_check_ddgst(queue, &queue->pdu))
 		return -EPROTO;
-	}
 
 	return nvmet_tcp_done_recv_pdu(queue);
 }
@@ -1319,9 +1323,9 @@ static int nvmet_tcp_try_recv_ddgst(struct nvmet_tcp_queue *queue)
 			queue->idx, cmd->req.cmd->common.command_id,
 			queue->pdu.cmd.hdr.type, le32_to_cpu(cmd->recv_ddgst),
 			le32_to_cpu(cmd->exp_ddgst));
-		nvmet_req_uninit(&cmd->req);
+		if (!(cmd->flags & NVMET_TCP_F_INIT_FAILED))
+			nvmet_req_uninit(&cmd->req);
 		nvmet_tcp_free_cmd_buffers(cmd);
-		nvmet_tcp_fatal_error(queue);
 		ret = -EPROTO;
 		goto out;
 	}
