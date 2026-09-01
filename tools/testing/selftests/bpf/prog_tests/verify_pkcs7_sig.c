@@ -261,7 +261,7 @@ void test_verify_pkcs7_sig(void)
 	char *tmp_dir;
 	struct test_verify_pkcs7_sig *skel = NULL;
 	struct bpf_map *map;
-	struct data data;
+	struct data data = {};
 	int ret, zero = 0;
 
 	/* Trigger creation of session keyring. */
