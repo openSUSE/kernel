@@ -462,6 +462,17 @@ void sas_resume_ha(struct sas_ha_struct *ha)
 }
 EXPORT_SYMBOL(sas_resume_ha);
 
+/*
+ * Originally, a no-sync variant, which does not call sas_drain_ha().
+ *
+ * Removed upstream, but kept here for kabi compatibility.
+ */
+void sas_resume_ha_no_sync(struct sas_ha_struct *ha)
+{
+	sas_resume_ha(ha);
+}
+EXPORT_SYMBOL(sas_resume_ha_no_sync);
+
 void sas_suspend_ha(struct sas_ha_struct *ha)
 {
 	int i;
