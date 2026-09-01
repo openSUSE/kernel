@@ -14,8 +14,6 @@
 
 #include <sound/soc.h>
 
-#include "mpc5200_dma.h"
-
 #define DRV_NAME "pcm030-audio-fabric"
 
 struct pcm030_audio_data {
