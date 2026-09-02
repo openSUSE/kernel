@@ -516,28 +516,10 @@ static int rpcrdma_encode_reply_chunk(struct rpcrdma_xprt *r_xprt,
 	return 0;
 }
 
-static void rpcrdma_sendctx_done(struct kref *kref)
-{
-	struct rpcrdma_req *req =
-		container_of(kref, struct rpcrdma_req, rl_kref);
-	struct rpcrdma_rep *rep = req->rl_reply;
-
-	rpcrdma_complete_rqst(rep);
-	rep->rr_rxprt->rx_stats.reply_waits_for_send++;
-}
-
-/**
- * rpcrdma_sendctx_unmap - DMA-unmap Send buffer
- * @sc: sendctx containing SGEs to unmap
- *
- */
-void rpcrdma_sendctx_unmap(struct rpcrdma_sendctx *sc)
+static void rpcrdma_sendctx_dma_unmap(struct rpcrdma_sendctx *sc)
 {
 	struct rpcrdma_regbuf *rb = sc->sc_req->rl_sendbuf;
 	struct ib_sge *sge;
-
-	if (!sc->sc_unmap_count)
-		return;
 
 	/* The first two SGEs contain the transport header and
 	 * the inline buffer. These are always left mapped so
@@ -547,8 +529,29 @@ void rpcrdma_sendctx_unmap(struct rpcrdma_sendctx *sc)
 	     ++sge, --sc->sc_unmap_count)
 		ib_dma_unmap_page(rdmab_device(rb), sge->addr, sge->length,
 				  DMA_TO_DEVICE);
+}
 
-	kref_put(&sc->sc_req->rl_kref, rpcrdma_sendctx_done);
+/**
+ * rpcrdma_sendctx_unmap - DMA-unmap Send buffer and release Send owner
+ * @sc: sendctx containing SGEs to unmap
+ *
+ */
+void rpcrdma_sendctx_unmap(struct rpcrdma_sendctx *sc)
+{
+	struct rpcrdma_req *req = sc->sc_req;
+
+	rpcrdma_sendctx_dma_unmap(sc);
+	sc->sc_req = NULL;
+	rpcrdma_req_put(req);
+}
+
+/* No Send was posted. Release DMA mappings prepared for this
+ * sendctx, but leave the request reference count alone.
+ */
+static void rpcrdma_sendctx_cancel(struct rpcrdma_sendctx *sc)
+{
+	rpcrdma_sendctx_dma_unmap(sc);
+	sc->sc_req = NULL;
 }
 
 /* Prepare an SGE for the RPC-over-RDMA transport header.
@@ -740,8 +743,6 @@ static bool rpcrdma_prepare_noch_mapped(struct rpcrdma_xprt *r_xprt,
 					      tail->iov_len))
 			return false;
 
-	if (req->rl_sendctx->sc_unmap_count)
-		kref_get(&req->rl_kref);
 	return true;
 }
 
@@ -771,7 +772,6 @@ static bool rpcrdma_prepare_readch(struct rpcrdma_xprt *r_xprt,
 		len -= len & 3;
 		if (!rpcrdma_prepare_tail_iov(req, xdr, page_base, len))
 			return false;
-		kref_get(&req->rl_kref);
 	}
 
 	return true;
@@ -800,7 +800,6 @@ inline int rpcrdma_prepare_send_sges(struct rpcrdma_xprt *r_xprt,
 		goto out_nosc;
 	req->rl_sendctx->sc_unmap_count = 0;
 	req->rl_sendctx->sc_req = req;
-	kref_init(&req->rl_kref);
 	req->rl_wr.wr_cqe = &req->rl_sendctx->sc_cqe;
 	req->rl_wr.sg_list = req->rl_sendctx->sc_sges;
 	req->rl_wr.num_sge = 0;
@@ -828,10 +827,14 @@ inline int rpcrdma_prepare_send_sges(struct rpcrdma_xprt *r_xprt,
 		goto out_unmap;
 	}
 
+	/* The Send-side owner releases this reference when the
+	 * Send has completed.
+	 */
+	kref_get(&req->rl_kref);
 	return 0;
 
 out_unmap:
-	rpcrdma_sendctx_unmap(req->rl_sendctx);
+	rpcrdma_sendctx_cancel(req->rl_sendctx);
 out_nosc:
 	trace_xprtrdma_prepsend_failed(&req->rl_slot, ret);
 	return ret;
@@ -1411,14 +1414,6 @@ out_badheader:
 	goto out;
 }
 
-static void rpcrdma_reply_done(struct kref *kref)
-{
-	struct rpcrdma_req *req =
-		container_of(kref, struct rpcrdma_req, rl_kref);
-
-	rpcrdma_complete_rqst(req->rl_reply);
-}
-
 /**
  * rpcrdma_reply_handler - Process received RPC/RDMA messages
  * @rep: Incoming rpcrdma_rep object to process
@@ -1494,7 +1489,7 @@ void rpcrdma_reply_handler(struct rpcrdma_rep *rep)
 		frwr_unmap_async(r_xprt, req);
 		/* LocalInv completion will complete the RPC */
 	else
-		kref_put(&req->rl_kref, rpcrdma_reply_done);
+		rpcrdma_complete_rqst(rep);
 
 out_post:
 	rpcrdma_post_recvs(r_xprt,

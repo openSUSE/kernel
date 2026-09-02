@@ -1358,6 +1358,9 @@ group_extend_out:
 			return -EOPNOTSUPP;
 		}
 
+		if (file_inode(filp)->i_sb != file_inode(fd_file(donor))->i_sb)
+			return -EXDEV;
+
 		err = mnt_want_write_file(filp);
 		if (err)
 			return err;
