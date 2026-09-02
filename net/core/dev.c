@@ -3794,49 +3794,52 @@ EXPORT_SYMBOL_GPL(validate_xmit_skb_list);
 static void qdisc_pkt_len_init(struct sk_buff *skb)
 {
 	const struct skb_shared_info *shinfo = skb_shinfo(skb);
+	unsigned int hdr_len;
+	u16 gso_segs;
 
 	qdisc_skb_cb(skb)->pkt_len = skb->len;
+	if (!shinfo->gso_size)
+		return;
+	gso_segs = shinfo->gso_segs;
 
 	/* To get more precise estimation of bytes sent on wire,
 	 * we add to pkt_len the headers size of all segments
 	 */
-	if (shinfo->gso_size && skb_transport_header_was_set(skb)) {
-		u16 gso_segs = shinfo->gso_segs;
-		unsigned int hdr_len;
+	if (unlikely(!skb_transport_header_was_set(skb)))
+		return;
 
-		/* mac layer + network layer */
-		if (!skb->encapsulation)
-			hdr_len = skb_transport_offset(skb);
-		else
-			hdr_len = skb_inner_transport_offset(skb);
+	/* mac layer + network layer */
+	if (!skb->encapsulation)
+		hdr_len = skb_transport_offset(skb);
+	else
+		hdr_len = skb_inner_transport_offset(skb);
 
-		/* + transport layer */
-		if (likely(shinfo->gso_type & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6))) {
-			const struct tcphdr *th;
-			struct tcphdr _tcphdr;
+	/* + transport layer */
+	if (likely(shinfo->gso_type & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6))) {
+		const struct tcphdr *th;
+		struct tcphdr _tcphdr;
 
-			th = skb_header_pointer(skb, hdr_len,
-						sizeof(_tcphdr), &_tcphdr);
-			if (likely(th))
-				hdr_len += __tcp_hdrlen(th);
-		} else if (shinfo->gso_type & SKB_GSO_UDP_L4) {
-			struct udphdr _udphdr;
+		th = skb_header_pointer(skb, hdr_len,
+					sizeof(_tcphdr), &_tcphdr);
+		if (likely(th))
+			hdr_len += __tcp_hdrlen(th);
+	} else if (shinfo->gso_type & SKB_GSO_UDP_L4) {
+		struct udphdr _udphdr;
 
-			if (skb_header_pointer(skb, hdr_len,
-					       sizeof(_udphdr), &_udphdr))
-				hdr_len += sizeof(struct udphdr);
-		}
-
-		if (unlikely(shinfo->gso_type & SKB_GSO_DODGY)) {
-			int payload = skb->len - hdr_len;
-
-			/* Malicious packet. */
-			if (payload <= 0)
-				return;
-			gso_segs = DIV_ROUND_UP(payload, shinfo->gso_size);
-		}
-		qdisc_skb_cb(skb)->pkt_len += (gso_segs - 1) * hdr_len;
+		if (skb_header_pointer(skb, hdr_len,
+				       sizeof(_udphdr), &_udphdr))
+			hdr_len += sizeof(struct udphdr);
 	}
+
+	if (unlikely(shinfo->gso_type & SKB_GSO_DODGY)) {
+		int payload = skb->len - hdr_len;
+
+		/* Malicious packet. */
+		if (payload <= 0)
+			return;
+		gso_segs = DIV_ROUND_UP(payload, shinfo->gso_size);
+	}
+	qdisc_skb_cb(skb)->pkt_len += (gso_segs - 1) * hdr_len;
 }
 
 static int dev_qdisc_enqueue(struct sk_buff *skb, struct Qdisc *q,
