@@ -148,6 +148,11 @@ enum OID {
 	/* Extended key purpose OIDs [RFC 5280] */
 	OID_codeSigning,		/* 1.3.6.1.5.5.7.3.3 */
 
+	/* NIST FIPS-204 ML-DSA */
+	OID_id_ml_dsa_44,			/* 2.16.840.1.101.3.4.3.17 */
+	OID_id_ml_dsa_65,			/* 2.16.840.1.101.3.4.3.18 */
+	OID_id_ml_dsa_87,			/* 2.16.840.1.101.3.4.3.19 */
+
 	OID__NR
 };
 
