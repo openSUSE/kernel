@@ -263,7 +263,7 @@ static inline void arch_interrupt_exit_prepare(struct pt_regs *regs)
 	}
 
 	/* irqentry_exit expects to be called with interrupts disabled */
-	local_irq_disable();
+	irq_soft_mask_set(IRQS_ALL_DISABLED);
 }
 
 static inline void arch_interrupt_async_enter_prepare(struct pt_regs *regs)
