@@ -796,6 +796,7 @@ static void armv8pmu_disable_user_access(void)
 static void armv8pmu_enable_user_access(struct arm_pmu *cpu_pmu)
 {
 	int i;
+	u64 userenr = ARMV8_PMU_USERENR_ER | ARMV8_PMU_USERENR_UEN;
 	struct pmu_hw_events *cpuc = this_cpu_ptr(cpu_pmu->hw_events);
 
 	if (is_pmuv3p9(cpu_pmu->pmuver)) {
@@ -818,7 +819,10 @@ static void armv8pmu_enable_user_access(struct arm_pmu *cpu_pmu)
 		}
 	}
 
-	update_pmuserenr(ARMV8_PMU_USERENR_ER | ARMV8_PMU_USERENR_CR | ARMV8_PMU_USERENR_UEN);
+	if (!cpu_pmu->avoid_pmccntr)
+		userenr |= ARMV8_PMU_USERENR_CR;
+
+	update_pmuserenr(userenr);
 }
 
 static void armv8pmu_enable_event(struct perf_event *event)
@@ -1246,7 +1250,8 @@ static int __armv8_pmuv3_map_event(struct perf_event *event,
 		if (!(event->attach_state & PERF_ATTACH_TASK))
 			return -EINVAL;
 		if (armv8pmu_event_is_64bit(event) &&
-		    (hw_event_id != ARMV8_PMUV3_PERFCTR_CPU_CYCLES) &&
+		    (hw_event_id != ARMV8_PMUV3_PERFCTR_CPU_CYCLES ||
+		     armpmu->avoid_pmccntr) &&
 		    !armv8pmu_has_long_event(armpmu))
 			return -EOPNOTSUPP;
 
@@ -1301,8 +1306,12 @@ static int armv8_vulcan_map_event(struct perf_event *event)
  */
 static struct midr_range armv8pmu_avoid_pmccntr_cpus[] = {
 	/*
-	 * The PMCCNTR_EL0 in Olympus CPU may still increment while in WFI/WFE state.
-	 * This is an implementation specific behavior and not an erratum.
+	 * NVIDIA Olympus may expose different WFI/WFE behaviour between the
+	 * PMCCNTR_EL0 and the CPU_CYCLES event on programmable counters.
+	 * While the CPU is in WFI/WFE state, the PMCCNTR_EL0 may still increment
+	 * but the programmable counter may not. This is an implementation specific
+	 * behavior and not an erratum. Perf assumes those two paths are
+	 * interchangeable, so avoid using PMCCNTR_EL0 for CPU_CYCLES event.
 	 *
 	 * From ARM DDI0487 D14.4:
 	 *   It is IMPLEMENTATION SPECIFIC whether CPU_CYCLES and PMCCNTR count
