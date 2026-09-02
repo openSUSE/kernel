@@ -392,7 +392,7 @@ static bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
 					     vhdr->ImageLength,
 					     GFP_KERNEL);
 
-			if (!check_atom_bios(adev, vhdr->ImageLength)) {
+			if (!check_atom_bios(adev->bios, vhdr->ImageLength)) {
 				kfree(adev->bios);
 				goto out;
 			}
