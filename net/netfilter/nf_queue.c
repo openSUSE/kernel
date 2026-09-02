@@ -49,6 +49,8 @@ void nf_queue_entry_release_refs(struct nf_queue_entry *entry)
 	struct nf_hook_state *state = &entry->state;
 
 	/* Release those devices we held, or Alexey will kill me. */
+	if (entry->skb_dev)
+		dev_put(entry->skb_dev);
 	if (state->in)
 		dev_put(state->in);
 	if (state->out)
@@ -78,6 +80,8 @@ bool __nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 	if (state->sk && !atomic_inc_not_zero(&state->sk->sk_refcnt))
 		return false;
 
+	if (entry->skb_dev)
+		dev_hold(entry->skb_dev);
 	if (state->in)
 		dev_hold(state->in);
 	if (state->out)
@@ -171,6 +175,7 @@ static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 
 	*entry = (struct nf_queue_entry) {
 		.skb	= skb,
+		.skb_dev = skb->dev,
 		.state	= *state,
 		.hook	= hook_entry,
 		.size	= sizeof(*entry) + afinfo->route_key_size,
