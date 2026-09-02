@@ -39,6 +39,9 @@ static ssize_t mana_dbg_q_read(struct file *filp, char __user *buf, size_t count
 {
 	struct gdma_queue *gdma_q = filp->private_data;
 
+	if (gdma_q->mem_info.nr_pages)
+		return mana_gd_read_ring(gdma_q, buf, count, pos);
+
 	return simple_read_from_buffer(buf, count, pos, gdma_q->queue_mem_ptr,
 				       gdma_q->queue_size);
 }
@@ -758,6 +761,25 @@ static void *mana_get_rxbuf_pre(struct mana_rxq *rxq, dma_addr_t *da)
 	return va;
 }
 
+static bool
+mana_use_single_rxbuf_per_page(struct mana_port_context *apc, u32 mtu)
+{
+	/* On some platforms with 4K PAGE_SIZE, page_pool fragment allocation
+	 * in the RX refill path (~2kB buffer) can cause significant throughput
+	 * regression under high connection counts. Allow user to force one RX
+	 * buffer per page via ethtool private flag to bypass the fragment
+	 * path.
+	 */
+	if (apc->priv_flags & BIT(MANA_PRIV_FLAG_USE_FULL_PAGE_RXBUF))
+		return true;
+
+	/* For xdp and jumbo frames make sure only one packet fits per page. */
+	if (mtu + MANA_RXBUF_PAD > PAGE_SIZE / 2 || mana_xdp_get(apc))
+		return true;
+
+	return false;
+}
+
 /* Get RX buffer's data size, alloc size, XDP headroom based on MTU */
 static void mana_get_rxbuf_cfg(struct mana_port_context *apc,
 			       int mtu, u32 *datasize, u32 *alloc_size,
@@ -768,8 +790,7 @@ static void mana_get_rxbuf_cfg(struct mana_port_context *apc,
 	/* Calculate datasize first (consistent across all cases) */
 	*datasize = mtu + ETH_HLEN;
 
-	/* For xdp and jumbo frames make sure only one packet fits per page */
-	if (mtu + MANA_RXBUF_PAD > PAGE_SIZE / 2 || mana_xdp_get(apc)) {
+	if (mana_use_single_rxbuf_per_page(apc, mtu)) {
 		if (mana_xdp_get(apc)) {
 			*headroom = XDP_PACKET_HEADROOM;
 			*alloc_size = PAGE_SIZE;
@@ -894,6 +915,17 @@ static void mana_tx_timeout(struct net_device *netdev, unsigned int txqueue)
 	struct mana_port_context *apc = netdev_priv(netdev);
 	struct mana_context *ac = apc->ac;
 	struct gdma_context *gc = ac->gdma_dev->gdma_context;
+
+	/* Debug knob for bringup/qualification: when set, log the timeout and
+	 * skip the reset so the failing state is preserved for telemetry.
+	 * Disabled by default; production behaviour is unchanged.
+	 */
+	if (READ_ONCE(apc->tx_timeout_skip_reset)) {
+		netdev_warn(netdev,
+			    "TX timeout on queue %u: reset skipped (tx_timeout_skip_reset enabled)\n",
+			    txqueue);
+		return;
+	}
 
 	/* Already in service, hence tx queue reset is not required.*/
 	if (test_bit(GC_IN_SERVICE, &gc->flags))
@@ -1234,6 +1266,9 @@ int mana_gd_query_device_cfg(struct gdma_context *gc, u32 proto_major_ver,
 		return err;
 	}
 
+	gc->cqe8_coalescing_sup = !!(resp.pf_cap_flags1 &
+				     MANA_PF_FLAG_1_CQE_8_COALESCING_SUPPORTED);
+
 	*max_num_vports = resp.max_num_vports;
 
 	if (resp.hdr.response.msg_version >= GDMA_MESSAGE_V2) {
@@ -1419,7 +1454,11 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 	mana_gd_init_req_hdr(&req->hdr, MANA_CONFIG_VPORT_RX, req_buf_size,
 			     sizeof(resp));
 
-	req->hdr.req.msg_version = GDMA_MESSAGE_V2;
+	/* Request & response versions can be different.
+	 * HW can handle newer msg versions, by skipping
+	 * new fields.
+	 */
+	req->hdr.req.msg_version = GDMA_MESSAGE_V5;
 	req->hdr.resp.msg_version = GDMA_MESSAGE_V2;
 
 	req->vport = apc->port_handle;
@@ -1433,8 +1472,13 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 	req->update_indir_tab = update_tab;
 	req->default_rxobj = apc->default_rxobj;
 
-	if (rx != TRI_STATE_FALSE)
+	/* Request-msg v5 requires this field */
+	req->rss_hash_types = MANA_HASH_ENABLE_SUPPORTED;
+
+	if (rx != TRI_STATE_FALSE) {
 		req->cqe_coalescing_enable = apc->cqe_coalescing_enable;
+		req->cqe8_coalescing_enable = apc->cqe8_coalescing_enable;
+	}
 
 	if (update_key)
 		memcpy(&req->hashkey, apc->hashkey, MANA_HASH_KEY_SIZE);
@@ -2040,16 +2084,14 @@ static struct sk_buff *mana_build_skb(struct mana_rxq *rxq, void *buf_va,
 
 static void mana_rx_skb(void *buf_va, bool from_pool,
 			struct mana_rxcomp_oob *cqe, struct mana_rxq *rxq,
-			int i)
+			u32 pkt_len, u32 pkt_hash)
 {
 	struct mana_stats_rx *rx_stats = &rxq->stats;
 	struct net_device *ndev = rxq->ndev;
-	uint pkt_len = cqe->ppi[i].pkt_len;
 	u16 rxq_idx = rxq->rxq_idx;
 	struct napi_struct *napi;
 	struct xdp_buff xdp = {};
 	struct sk_buff *skb;
-	u32 hash_value;
 	u32 act;
 
 	rxq->rx_cq.work_done++;
@@ -2088,12 +2130,10 @@ static void mana_rx_skb(void *buf_va, bool from_pool,
 	}
 
 	if (cqe->rx_hashtype != 0 && (ndev->features & NETIF_F_RXHASH)) {
-		hash_value = cqe->ppi[i].pkt_hash;
-
 		if (cqe->rx_hashtype & MANA_HASH_L4)
-			skb_set_hash(skb, hash_value, PKT_HASH_TYPE_L4);
+			skb_set_hash(skb, pkt_hash, PKT_HASH_TYPE_L4);
 		else
-			skb_set_hash(skb, hash_value, PKT_HASH_TYPE_L3);
+			skb_set_hash(skb, pkt_hash, PKT_HASH_TYPE_L3);
 	}
 
 	if (cqe->rx_vlantag_present) {
@@ -2234,6 +2274,43 @@ static void mana_refill_rx_oob(struct device *dev, struct mana_rxq *rxq,
 	rxoob->dma_sync_offset = dma_sync_offset;
 }
 
+static void mana_process_one_rx_pkt(struct device *dev, struct mana_rxq *rxq,
+				    struct mana_rxcomp_oob *oob,
+				    u32 pktlen, u32 pkt_hash)
+{
+	struct mana_recv_buf_oob *rxbuf_oob;
+	struct net_device *ndev = rxq->ndev;
+	void *old_buf = NULL;
+	bool old_fp;
+
+	rxbuf_oob = &rxq->rx_oobs[rxq->buf_index];
+	WARN_ON_ONCE(rxbuf_oob->wqe_inf.wqe_size_in_bu != 1);
+
+	if (unlikely(pktlen > rxq->datasize)) {
+		/* Increase it even if mana_rx_skb() isn't called. */
+		rxq->rx_cq.work_done++;
+
+		++ndev->stats.rx_dropped;
+		netdev_warn_once(ndev,
+				 "Dropped oversized RX packet: len=%u, datasize=%u\n",
+				 pktlen, rxq->datasize);
+
+		/* Reuse the RX buffer since rxbuf_oob is unchanged. */
+	} else {
+		mana_refill_rx_oob(dev, rxq, rxbuf_oob, pktlen,
+				   &old_buf, &old_fp);
+
+		/* Unsuccessful refill will have old_buf == NULL.
+		 * In this case, mana_rx_skb() will drop the packet.
+		 */
+		mana_rx_skb(old_buf, old_fp, oob, rxq, pktlen, pkt_hash);
+	}
+
+	mana_move_wq_tail(rxq->gdma_rq, rxbuf_oob->wqe_inf.wqe_size_in_bu);
+
+	mana_post_pkt_rxq(rxq);
+}
+
 static void mana_process_rx_cqe(struct mana_rxq *rxq, struct mana_cq *cq,
 				struct gdma_comp *cqe)
 {
@@ -2243,10 +2320,10 @@ static void mana_process_rx_cqe(struct mana_rxq *rxq, struct mana_cq *cq,
 	struct mana_recv_buf_oob *rxbuf_oob;
 	struct mana_port_context *apc;
 	struct device *dev = gc->dev;
+	bool coalesced_8 = false;
 	bool coalesced = false;
-	void *old_buf = NULL;
-	u32 curr, pktlen;
-	bool old_fp;
+	u32 pktlen;
+	int pkt_i;
 	int i;
 
 	apc = netdev_priv(ndev);
@@ -2269,6 +2346,11 @@ static void mana_process_rx_cqe(struct mana_rxq *rxq, struct mana_cq *cq,
 		coalesced = true;
 		break;
 
+	case CQE_RX_COALESCED_8:
+		coalesced = true;
+		coalesced_8 = true;
+		break;
+
 	case CQE_RX_OBJECT_FENCE:
 		complete(&rxq->fence_event);
 		return;
@@ -2280,54 +2362,48 @@ static void mana_process_rx_cqe(struct mana_rxq *rxq, struct mana_cq *cq,
 		return;
 	}
 
+	pkt_i = 0;
 	for (i = 0; i < MANA_RXCOMP_OOB_NUM_PPI; i++) {
-		old_buf = NULL;
-		pktlen = oob->ppi[i].pkt_len;
+		u32 pkt_hash;
+
+		if (coalesced_8) {
+			/* 8-pkt mode: 2 packets per PPI entry */
+			pktlen = oob->ppi[i].pkt_len0;
+			pkt_hash = oob->ppi[i].pkt_hash0;
+		} else {
+			pktlen = oob->ppi[i].pkt_len;
+			pkt_hash = oob->ppi[i].pkt_hash;
+		}
 		if (pktlen == 0)
 			break;
 
-		curr = rxq->buf_index;
-		rxbuf_oob = &rxq->rx_oobs[curr];
-		WARN_ON_ONCE(rxbuf_oob->wqe_inf.wqe_size_in_bu != 1);
-
-		if (unlikely(pktlen > rxq->datasize)) {
-			/* Increase it even if mana_rx_skb() isn't called. */
-			rxq->rx_cq.work_done++;
-
-			++ndev->stats.rx_dropped;
-			netdev_warn_once(ndev,
-				"Dropped oversized RX packet: len=%u, datasize=%u\n",
-				pktlen, rxq->datasize);
-
-			/* Reuse the RX buffer since rxbuf_oob is unchanged. */
-		} else {
-
-			mana_refill_rx_oob(dev, rxq, rxbuf_oob, pktlen,
-					   &old_buf, &old_fp);
-
-			/* Unsuccessful refill will have old_buf == NULL.
-			 * In this case, mana_rx_skb() will drop the packet.
-			 */
-			mana_rx_skb(old_buf, old_fp, oob, rxq, i);
-		}
-
-		mana_move_wq_tail(rxq->gdma_rq,
-				  rxbuf_oob->wqe_inf.wqe_size_in_bu);
-
-		mana_post_pkt_rxq(rxq);
+		mana_process_one_rx_pkt(dev, rxq, oob, pktlen, pkt_hash);
+		pkt_i++;
 
 		if (!coalesced)
 			break;
+
+		/* Process 2nd packet from the same PPI in 8-pkt mode */
+		if (coalesced_8) {
+			pktlen = oob->ppi[i].pkt_len1;
+			pkt_hash = oob->ppi[i].pkt_hash1;
+			if (pktlen == 0)
+				break;
+
+			mana_process_one_rx_pkt(dev, rxq, oob, pktlen,
+						pkt_hash);
+			pkt_i++;
+		}
 	}
 
 	/* Collect coalesced CQE count based on packets processed.
-	 * Coalesced CQEs have at least 2 packets, so index is i - 2.
+	 * Coalesced CQEs have at least 2 packets, so index is pkt_i - 2.
 	 */
-	if (i > 1) {
+	if (pkt_i > 1) {
 		u64_stats_update_begin(&rxq->stats.syncp);
-		rxq->stats.coalesced_cqe[i - 2]++;
+		rxq->stats.coalesced_cqe[pkt_i - 2]++;
 		u64_stats_update_end(&rxq->stats.syncp);
-	} else if (!i && !pktlen) {
+	} else if (!pkt_i && !pktlen) {
 		u64_stats_update_begin(&rxq->stats.syncp);
 		rxq->stats.pkt_len0_err++;
 		u64_stats_update_end(&rxq->stats.syncp);
@@ -3502,6 +3578,9 @@ static int mana_init_port(struct net_device *ndev)
 			   &apc->steer_cqe_coalescing);
 	debugfs_create_u32("current_speed", 0400, apc->mana_port_debugfs,
 			   &apc->speed);
+	debugfs_create_bool("tx_timeout_skip_reset", 0600,
+			    apc->mana_port_debugfs,
+			    &apc->tx_timeout_skip_reset);
 	return 0;
 
 reset_apc:
@@ -3765,6 +3844,7 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 	apc->port_idx = port_idx;
 	apc->link_cfg_error = 1;
 	apc->cqe_coalescing_enable = 0;
+	apc->cqe8_coalescing_enable = 0;
 
 	/* Initialize interrupt moderation settings if supported by HW */
 	if (gc->pf_cap_flags1 & GDMA_PF_CAP_FLAG_1_DYN_INTERRUPT_MODERATION) {

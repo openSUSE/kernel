@@ -751,6 +751,7 @@ static struct irq_domain *hv_msi_gic_irq_domain;
 static struct irq_chip hv_arm64_msi_irq_chip = {
 	.name = "MSI",
 	.irq_set_affinity = irq_chip_set_affinity_parent,
+	.irq_retrigger = irq_chip_retrigger_hierarchy,
 	.irq_eoi = irq_chip_eoi_parent,
 	.irq_mask = irq_chip_mask_parent,
 	.irq_unmask = irq_chip_unmask_parent
@@ -2062,6 +2063,7 @@ static struct irq_chip hv_msi_irq_chip = {
 	.name			= "Hyper-V PCIe MSI",
 	.irq_compose_msi_msg	= hv_compose_msi_msg,
 	.irq_set_affinity	= irq_chip_set_affinity_parent,
+	.irq_retrigger		= irq_chip_retrigger_hierarchy,
 #ifdef CONFIG_X86
 	.irq_ack		= irq_chip_ack_parent,
 #elif defined(CONFIG_ARM64)
