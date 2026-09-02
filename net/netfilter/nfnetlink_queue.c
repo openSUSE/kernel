@@ -729,7 +729,7 @@ nf_queue_entry_dup(struct nf_queue_entry *e)
 	if (__nf_queue_entry_get_refs(entry))
 		return entry;
 
-	kfree(entry);
+	nf_queue_entry_free(entry);
 	return NULL;
 }
 
@@ -757,7 +757,7 @@ static void nf_bridge_adjust_segmented_data(struct sk_buff *skb)
 static void free_entry(struct nf_queue_entry *entry)
 {
 	nf_queue_entry_release_refs(entry);
-	kfree(entry);
+	nf_queue_entry_free(entry);
 }
 
 static int
@@ -925,7 +925,8 @@ nfqnl_set_mode(struct nfqnl_instance *queue,
 static int
 dev_cmp(struct nf_queue_entry *entry, unsigned long ifindex)
 {
-	if (entry->skb_dev && entry->skb_dev->ifindex == ifindex)
+	if (nf_queue_entry_skbdev(entry) &&
+	    nf_queue_entry_skbdev(entry)->ifindex == ifindex)
 		return 1;
 	if (entry->state.in)
 		if (entry->state.in->ifindex == ifindex)
