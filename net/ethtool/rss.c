@@ -81,8 +81,7 @@ rss_prepare_data(const struct ethnl_req_info *req_base,
 		goto out_ops;
 	}
 
-	if (data->indir_size)
-		data->indir_table = (u32 *)rss_config;
+	data->indir_table = (u32 *)rss_config;
 	if (data->hkey_size)
 		data->hkey = rss_config + indir_bytes;
 
@@ -93,8 +92,10 @@ rss_prepare_data(const struct ethnl_req_info *req_base,
 	rxfh.rss_context = request->rss_context;
 
 	ret = ops->get_rxfh(dev, &rxfh);
-	if (ret)
+	if (ret) {
+		kfree(data->indir_table);
 		goto out_ops;
+	}
 
 	data->hfunc = rxfh.hfunc;
 	data->input_xfrm = rxfh.input_xfrm;

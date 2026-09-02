@@ -2452,10 +2452,16 @@ static long unix_stream_data_wait(struct sock *sk, long timeo,
 	for (;;) {
 		prepare_to_wait(sk_sleep(sk), &wait, state);
 
+		spin_lock(&sk->sk_receive_queue.lock);
 		tail = skb_peek_tail(&sk->sk_receive_queue);
 		if (tail != last ||
-		    (tail && tail->len != last_len) ||
-		    sk->sk_err ||
+		    (tail && tail->len != last_len)) {
+			spin_unlock(&sk->sk_receive_queue.lock);
+			break;
+		}
+		spin_unlock(&sk->sk_receive_queue.lock);
+
+		if (sk->sk_err ||
 		    (sk->sk_shutdown & RCV_SHUTDOWN) ||
 		    signal_pending(current) ||
 		    !timeo)
@@ -3484,6 +3490,7 @@ static int bpf_iter_unix_seq_show(struct seq_file *seq, void *v)
 		return 0;
 
 	lock_sock(sk);
+	unix_state_lock(sk);
 
 	if (unlikely(sock_flag(sk, SOCK_DEAD))) {
 		ret = SEQ_SKIP;
@@ -3495,6 +3502,7 @@ static int bpf_iter_unix_seq_show(struct seq_file *seq, void *v)
 	prog = bpf_iter_get_info(&meta, false);
 	ret = unix_prog_seq_show(prog, &meta, v, uid);
 unlock:
+	unix_state_unlock(sk);
 	release_sock(sk);
 	return ret;
 }

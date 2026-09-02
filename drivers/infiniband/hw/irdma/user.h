@@ -382,7 +382,6 @@ struct irdma_qp_uk_init_info {
 	u8 sq_shift;
 	u8 rq_shift;
 	int abi_ver;
-	bool legacy_mode;
 };
 
 struct irdma_cq_uk_init_info {

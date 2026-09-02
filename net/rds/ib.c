@@ -415,6 +415,10 @@ static int rds_ib_laddr_check(struct net *net, const struct in6_addr *addr,
 	struct sockaddr *sa;
 	bool isv4;
 
+	/* RDS/IB is restricted to the initial network namespace */
+	if (!net_eq(net, &init_net))
+		return -EPROTOTYPE;
+
 	isv4 = ipv6_addr_v4mapped(addr);
 	/* Create a CMA ID and try to bind it. This catches both
 	 * IB and iWARP capable NICs.
@@ -431,6 +435,10 @@ static int rds_ib_laddr_check(struct net *net, const struct in6_addr *addr,
 		sa = (struct sockaddr *)&sin;
 	} else {
 #if IS_ENABLED(CONFIG_IPV6)
+		if (!ipv6_mod_enabled()) {
+			ret = -EADDRNOTAVAIL;
+			goto out;
+		}
 		memset(&sin6, 0, sizeof(sin6));
 		sin6.sin6_family = AF_INET6;
 		sin6.sin6_addr = *addr;

@@ -265,7 +265,9 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
 				      struct request_sock *req,
 				      struct sock *child);
 void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
-				   unsigned long timeout);
+                                   unsigned long timeout);
+bool __inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
+                                     unsigned long timeout);
 struct sock *inet_csk_complete_hashdance(struct sock *sk, struct sock *child,
 					 struct request_sock *req,
 					 bool own_req);

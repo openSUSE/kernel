@@ -28,7 +28,7 @@
 #define DATA(offset)		(KEXEC_CONTROL_CODE_MAX_SIZE+(offset))
 
 /* Minimal CPU state */
-#define RSP			DATA(0x0)
+#define PRIVATE_RSP			DATA(0x0)
 #define CR0			DATA(0x8)
 #define CR3			DATA(0x10)
 #define CR4			DATA(0x18)
@@ -63,7 +63,7 @@ SYM_CODE_START_NOALIGN(relocate_kernel)
 	pushf
 
 	movq	PTR(VA_CONTROL_PAGE)(%rsi), %r11
-	movq	%rsp, RSP(%r11)
+	movq	%rsp, PRIVATE_RSP(%r11)
 	movq	%cr0, %rax
 	movq	%rax, CR0(%r11)
 	movq	%cr3, %rax
@@ -233,7 +233,7 @@ SYM_CODE_END(identity_mapped)
 SYM_CODE_START_LOCAL_NOALIGN(virtual_mapped)
 	UNWIND_HINT_END_OF_STACK
 	ANNOTATE_NOENDBR // RET target, above
-	movq	RSP(%r8), %rsp
+	movq	PRIVATE_RSP(%r8), %rsp
 	movq	CR4(%r8), %rax
 	movq	%rax, %cr4
 	movq	CR3(%r8), %rax
