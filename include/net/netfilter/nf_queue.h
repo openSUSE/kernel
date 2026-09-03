@@ -20,6 +20,31 @@ struct nf_queue_entry {
 
 #define nf_queue_entry_reroute(x) ((void *)x + sizeof(struct nf_queue_entry))
 
+struct nf_queue_entry_kabi_wrapper {
+	struct net_device	*skb_dev;
+	struct nf_queue_entry	entry;
+};
+
+/* make sure allocated size matches what was expected without the wrapper */
+static_assert(sizeof(struct nf_queue_entry_kabi_wrapper) ==
+	      sizeof(struct net_device *) + sizeof(struct nf_queue_entry));
+
+static inline struct net_device *nf_queue_entry_skbdev(const struct nf_queue_entry *e)
+{
+	const struct nf_queue_entry_kabi_wrapper *wrapper =
+		container_of(e, const struct nf_queue_entry_kabi_wrapper, entry);
+
+	return wrapper->skb_dev;
+}
+
+static inline void nf_queue_entry_free(struct nf_queue_entry *entry)
+{
+	struct nf_queue_entry_kabi_wrapper *wrapper =
+		container_of(entry, struct nf_queue_entry_kabi_wrapper, entry);
+
+	kfree(wrapper);
+}
+
 /* Packet queuing */
 struct nf_queue_handler {
 	int		(*outfn)(struct nf_queue_entry *entry,
