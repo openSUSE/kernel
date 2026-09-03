@@ -745,6 +745,7 @@ err_free:
 	return ret;
 }
 
+void rdma_restrack_sync(struct rdma_restrack_entry *res);
 ssize_t ib_uverbs_rereg_mr(struct ib_uverbs_file *file,
 			   const char __user *buf, int in_len,
 			   int out_len)
@@ -812,7 +813,8 @@ ssize_t ib_uverbs_rereg_mr(struct ib_uverbs_file *file,
 	if (!ret) {
 		if (cmd.flags & IB_MR_REREG_PD) {
 			atomic_inc(&pd->usecnt);
-			mr->pd = pd;
+			WRITE_ONCE(mr->pd, pd);
+			rdma_restrack_sync(&mr->res);
 			atomic_dec(&old_pd->usecnt);
 		}
 	} else {

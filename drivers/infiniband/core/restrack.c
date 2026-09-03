@@ -218,6 +218,49 @@ int rdma_restrack_put(struct rdma_restrack_entry *res)
 }
 EXPORT_SYMBOL(rdma_restrack_put);
 
+/**
+ * rdma_restrack_sync() - Fence concurrent netlink dumps on an entry
+ * @res:  resource entry
+ *
+ * After this returns any concurrent netlink dump threads will see the current
+ * value of the object. This is useful if the object has to be changed and there
+ * is not locking to protect the nl side. Eg for mr->pd. This effectively
+ * destroys the object from a kref/xarray perspective and then immediately
+ * restores it. The kref is acting like a lock to barrier concurrent nl threads.
+ * Callers must ensure rdma_restrack_del() is not concurrently called.
+ */
+void rdma_restrack_sync(struct rdma_restrack_entry *res)
+{
+	struct task_struct *task;
+	struct ib_device *dev;
+
+	if (!res->valid)
+		return;
+
+	dev = res_to_dev(res);
+	if (WARN_ON(!dev))
+		return;
+
+	down_write(&dev->res.rwsem);
+	hash_del(&res->node);
+	up_write(&dev->res.rwsem);
+
+	task = res->task;
+	if (task)
+		get_task_struct(task);
+	rdma_restrack_put(res);
+	wait_for_completion(&res->comp);
+	reinit_completion(&res->comp);
+	if (task)
+		res->task = task;
+	kref_init(&res->kref);
+
+	down_write(&dev->res.rwsem);
+	hash_add(dev->res.hash, &res->node, res->type);
+	up_write(&dev->res.rwsem);
+}
+EXPORT_SYMBOL(rdma_restrack_sync);
+
 void rdma_restrack_del(struct rdma_restrack_entry *res)
 {
 	struct ib_device *dev;
