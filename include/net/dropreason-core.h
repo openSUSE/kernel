@@ -351,6 +351,15 @@ enum skb_drop_reason {
 	 */
 	SKB_DROP_REASON_MAX,
 
+#ifndef __GENKSYMS__
+	/**
+	 * SKB_DROP_REASON_SKB_BAD_GSO: malicious gso packet.
+	 * To avoid kABI breakage, this is defined as an alias for
+	 * SKB_DROP_REASON_NOT_SPECIFIED rather than a new drop reason.
+	 */
+	SKB_DROP_REASON_SKB_BAD_GSO = SKB_DROP_REASON_NOT_SPECIFIED,
+#endif
+
 	/**
 	 * @SKB_DROP_REASON_SUBSYS_MASK: subsystem mask in drop reasons,
 	 * see &enum skb_drop_reason_subsys
