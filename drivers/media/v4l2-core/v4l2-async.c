@@ -797,7 +797,7 @@ v4l2_async_connection_unique(struct v4l2_subdev *sd)
 }
 EXPORT_SYMBOL_GPL(v4l2_async_connection_unique);
 
-int v4l2_async_register_subdev(struct v4l2_subdev *sd)
+int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
 {
 	struct v4l2_async_notifier *subdev_notifier;
 	struct v4l2_async_notifier *notifier;
@@ -820,6 +820,8 @@ int v4l2_async_register_subdev(struct v4l2_subdev *sd)
 		dev_warn(sd->dev, "sub-device fwnode is an endpoint!\n");
 		return -EINVAL;
 	}
+
+	sd->owner = module;
 
 	mutex_lock(&list_lock);
 
@@ -868,9 +870,11 @@ err_unbind_one:
 err_unlock:
 	mutex_unlock(&list_lock);
 
+	sd->owner = NULL;
+
 	return ret;
 }
-EXPORT_SYMBOL(v4l2_async_register_subdev);
+EXPORT_SYMBOL(__v4l2_async_register_subdev);
 
 void v4l2_async_unregister_subdev(struct v4l2_subdev *sd)
 {
@@ -985,6 +989,15 @@ static void __exit v4l2_async_exit(void)
 
 subsys_initcall(v4l2_async_init);
 module_exit(v4l2_async_exit);
+
+/* FIXME: for kABI workaround, provide the original version */
+#undef v4l2_async_register_subdev
+int v4l2_async_register_subdev(struct v4l2_subdev *sd)
+{
+	pr_warn("Unfixed v4l2_async_register_subdev is used\n");
+	return __v4l2_async_register_subdev(sd, NULL);
+}
+EXPORT_SYMBOL(v4l2_async_register_subdev);
 
 MODULE_AUTHOR("Guennadi Liakhovetski <g.liakhovetski@gmx.de>");
 MODULE_AUTHOR("Sakari Ailus <sakari.ailus@linux.intel.com>");
