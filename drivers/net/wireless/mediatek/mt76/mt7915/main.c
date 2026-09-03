@@ -228,7 +228,7 @@ static int mt7915_add_interface(struct ieee80211_hw *hw,
 	idx = get_omac_idx(vif->type, phy->omac_mask);
 	if (idx < 0) {
 		ret = -ENOSPC;
-		goto err;
+		goto out;
 	}
 	mvif->mt76.omac_idx = idx;
 	mvif->phy = phy;
@@ -275,17 +275,7 @@ static int mt7915_add_interface(struct ieee80211_hw *hw,
 	mt7915_mcu_add_sta(dev, vif, NULL, true);
 	rcu_assign_pointer(dev->mt76.wcid[idx], &mvif->sta.wcid);
 
-	mutex_unlock(&dev->mt76.mutex);
-
-	return 0;
-
-err:
-	dev->mt76.vif_mask &= ~BIT_ULL(mvif->mt76.idx);
-	phy->omac_mask &= ~BIT_ULL(mvif->mt76.omac_idx);
-	mt7915_mcu_add_dev_info(phy, vif, false);
 out:
-	if (phy->monitor_vif == vif)
-		phy->monitor_vif = NULL;
 	mutex_unlock(&dev->mt76.mutex);
 
 	return ret;
