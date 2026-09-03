@@ -86,7 +86,7 @@
 #define PAGE_READONLY	__pgprot(_PAGE_BASE | _PAGE_RO)
 #define PAGE_READONLY_X	__pgprot(_PAGE_BASE | _PAGE_RO | _PAGE_EXEC)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 static inline pte_t pte_wrprotect(pte_t pte)
 {
 	return __pte(pte_val(pte) | _PAGE_RO);

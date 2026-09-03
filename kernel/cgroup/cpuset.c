@@ -48,6 +48,10 @@
 #include <linux/workqueue.h>
 #include <linux/union_find.h>
 
+/* This is pre-split kernel, define the macro so that backported code works
+ * with fewer adjustements. */
+#define CONFIG_CPUSETS_V1 1
+
 DEFINE_STATIC_KEY_FALSE(cpusets_pre_enable_key);
 DEFINE_STATIC_KEY_FALSE(cpusets_enabled_key);
 

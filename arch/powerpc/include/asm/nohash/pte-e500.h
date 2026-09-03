@@ -98,7 +98,7 @@
 #define PAGE_READONLY	__pgprot(_PAGE_BASE | _PAGE_USER)
 #define PAGE_READONLY_X	__pgprot(_PAGE_BASE | _PAGE_USER | _PAGE_BAP_UX)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 static inline pte_t pte_mkprivileged(pte_t pte)
 {
 	return __pte((pte_val(pte) & ~_PAGE_USER) | _PAGE_PRIVILEGED);
@@ -122,7 +122,7 @@ static inline pte_t pte_mkexec(pte_t pte)
 }
 #define pte_mkexec pte_mkexec
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* __KERNEL__ */
 #endif /*  _ASM_POWERPC_NOHASH_PTE_E500_H */

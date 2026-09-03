@@ -8,7 +8,7 @@
 
 #ifdef CONFIG_BUG
 
-#ifdef __ASSEMBLY__
+#ifdef __ASSEMBLER__
 #include <asm/asm-offsets.h>
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 .macro __EMIT_BUG_ENTRY addr,file,line,flags
@@ -44,7 +44,7 @@
 	__EMIT_BUG_ENTRY \addr,\file,\line,\flags
 .endm
 
-#else /* !__ASSEMBLY__ */
+#else /* !__ASSEMBLER__ */
 /* _EMIT_BUG_ENTRY expects args %0,%1,%2,%3 to be FILE, LINE, flags and
    sizeof(struct bug_entry), respectively */
 #ifdef CONFIG_DEBUG_BUGVERBOSE
@@ -145,12 +145,12 @@ __label_warn_on:						\
 
 #endif /* __ASSEMBLY __ */
 #else
-#ifdef __ASSEMBLY__
+#ifdef __ASSEMBLER__
 .macro EMIT_BUG_ENTRY addr,file,line,flags
 .endm
 .macro EMIT_WARN_ENTRY addr,file,line,flags
 .endm
-#else /* !__ASSEMBLY__ */
+#else /* !__ASSEMBLER__ */
 #define _EMIT_BUG_ENTRY
 #define _EMIT_WARN_ENTRY
 #endif
@@ -158,7 +158,7 @@ __label_warn_on:						\
 
 #include <asm-generic/bug.h>
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 struct pt_regs;
 void hash__do_page_fault(struct pt_regs *);
@@ -170,7 +170,7 @@ void die_mce(const char *str, struct pt_regs *regs, long err);
 extern bool die_will_crash(void);
 extern void panic_flush_kmsg_start(void);
 extern void panic_flush_kmsg_end(void);
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_BUG_H */

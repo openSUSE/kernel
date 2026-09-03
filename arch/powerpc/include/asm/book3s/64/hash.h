@@ -111,7 +111,7 @@
 #define H_PMD_BAD_BITS		(PTE_TABLE_SIZE-1)
 #define H_PUD_BAD_BITS		(PMD_TABLE_SIZE-1)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 static inline int get_region_id(unsigned long ea)
 {
 	int region_id;
@@ -257,6 +257,6 @@ int hash__remove_section_mapping(unsigned long start, unsigned long end);
 
 void hash__kernel_map_pages(struct page *page, int numpages, int enable);
 
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_BOOK3S_64_HASH_H */

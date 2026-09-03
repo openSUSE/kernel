@@ -230,7 +230,7 @@
 #define MAS2_M_IF_NEEDED	0
 #endif
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #include <asm/bug.h>
 
 extern unsigned int tlbcam_index;
@@ -319,6 +319,6 @@ extern int book3e_htw_mode;
 
 #endif
 
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 #endif /* _ASM_POWERPC_MMU_BOOK3E_H_ */

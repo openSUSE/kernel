@@ -4,7 +4,7 @@
 /*
  * hash 4k can't share hugetlb and also doesn't support THP
  */
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #ifdef CONFIG_HUGETLB_PAGE
 static inline int pmd_huge(pmd_t pmd)
 {
@@ -62,6 +62,6 @@ static inline int get_hugepd_cache_index(int index)
 
 #endif /* CONFIG_HUGETLB_PAGE */
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /*_ASM_POWERPC_BOOK3S_64_PGTABLE_4K_H */

@@ -9,13 +9,13 @@
 
 #include <linux/stringify.h>
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 /* Performance Monitor Registers */
 #define mfpmr(rn)	({unsigned int rval; \
 			asm volatile("mfpmr %0," __stringify(rn) \
 				     : "=r" (rval)); rval;})
 #define mtpmr(rn, v)	asm volatile("mtpmr " __stringify(rn) ",%0" : : "r" (v))
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 /* Freescale Book E Performance Monitor APU Registers */
 #define PMRN_PMC0	0x010	/* Performance Monitor Counter 0 */

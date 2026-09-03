@@ -254,7 +254,14 @@ static int ks_sa_rng_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, ks_sa_rng);
 
-	return devm_hwrng_register(&pdev->dev, &ks_sa_rng->rng);
+	ret = devm_hwrng_register(dev, &ks_sa_rng->rng);
+	if (ret) {
+		pm_runtime_put_sync(dev);
+		pm_runtime_disable(dev);
+		return ret;
+	}
+
+	return 0;
 }
 
 static int ks_sa_rng_remove(struct platform_device *pdev)

@@ -79,6 +79,7 @@ xe-y += xe_bb.o \
 	xe_module.o \
 	xe_oa.o \
 	xe_observation.o \
+	xe_pagefault.o \
 	xe_pat.o \
 	xe_pci.o \
 	xe_pcode.o \

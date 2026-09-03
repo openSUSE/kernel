@@ -27,7 +27,6 @@
 
 #include <linux/linkage.h>
 #include <asm/frame.h>
-#include <asm/nospec-branch.h>
 
 /*
  * The following macros are used to move an (un)aligned 16 byte value to/from
@@ -796,7 +795,7 @@ ALL_F:      .octa 0xffffffffffffffffffffffffffffffff
 
 .if (\i == 5) || (\i == 6) || (\i == 7)
 
-	MOVADQ		ONE(%RIP),\TMP1
+	MOVADQ		ONE(%rip),\TMP1
 	MOVADQ		0(%arg1),\TMP2
 .irpc index, \i_seq
 	paddd		\TMP1, \XMM0                 # INCR Y0
@@ -868,7 +867,7 @@ ALL_F:      .octa 0xffffffffffffffffffffffffffffffff
 * Precomputations for HashKey parallel with encryption of first 4 blocks.
 * Haskey_i_k holds XORed values of the low and high parts of the Haskey_i
 */
-	MOVADQ	   ONE(%RIP),\TMP1
+	MOVADQ	   ONE(%rip),\TMP1
 	paddd	   \TMP1, \XMM0              # INCR Y0
 	MOVADQ	   \XMM0, \XMM1
 	pshufb  %xmm14, \XMM1        # perform a 16 byte swap

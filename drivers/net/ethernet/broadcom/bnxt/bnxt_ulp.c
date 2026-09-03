@@ -463,6 +463,20 @@ void bnxt_rdma_aux_device_init(struct bnxt *bp)
 		goto exit;
 	}
 
+	edev = kzalloc(sizeof(*edev), GFP_KERNEL);
+	if (!edev)
+		goto aux_priv_free;
+
+	aux_priv->edev = edev;
+
+	ulp = kzalloc(sizeof(*ulp), GFP_KERNEL);
+	if (!ulp)
+		goto edev_free;
+
+	edev->ulp_tbl = ulp;
+	bp->edev = edev;
+	bnxt_set_edev_info(edev, bp);
+
 	aux_dev = &aux_priv->aux_dev;
 	aux_dev->id = aux_priv->id;
 	aux_dev->name = "rdma";
@@ -470,36 +484,26 @@ void bnxt_rdma_aux_device_init(struct bnxt *bp)
 	aux_dev->dev.release = bnxt_aux_dev_release;
 
 	rc = auxiliary_device_init(aux_dev);
-	if (rc) {
-		ida_free(&bnxt_aux_dev_ids, aux_priv->id);
-		kfree(aux_priv);
-		goto exit;
-	}
+	if (rc)
+		goto ulp_free;
+
 	bp->aux_priv = aux_priv;
 
 	/* From this point, all cleanup will happen via the .release callback &
 	 * any error unwinding will need to include a call to
 	 * auxiliary_device_uninit.
 	 */
-	edev = kzalloc(sizeof(*edev), GFP_KERNEL);
-	if (!edev)
-		goto aux_dev_uninit;
-
-	aux_priv->edev = edev;
-
-	ulp = kzalloc(sizeof(*ulp), GFP_KERNEL);
-	if (!ulp)
-		goto aux_dev_uninit;
-
-	edev->ulp_tbl = ulp;
-	bp->edev = edev;
-	bnxt_set_edev_info(edev, bp);
 	bp->ulp_num_msix_want = bnxt_set_dflt_ulp_msix(bp);
 
 	return;
 
-aux_dev_uninit:
-	auxiliary_device_uninit(aux_dev);
+ulp_free:
+	kfree(ulp);
+edev_free:
+	kfree(edev);
+aux_priv_free:
+	ida_free(&bnxt_aux_dev_ids, aux_priv->id);
+	kfree(aux_priv);
 exit:
 	bp->flags &= ~BNXT_FLAG_ROCE_CAP;
 }
