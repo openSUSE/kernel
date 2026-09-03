@@ -33,6 +33,7 @@
 #include <crypto/akcipher.h>
 #include <crypto/kpp.h>
 #include <crypto/acompress.h>
+#include <crypto/sig.h>
 #include <crypto/internal/cipher.h>
 #include <crypto/internal/simd.h>
 
@@ -131,6 +132,11 @@ struct akcipher_test_suite {
 	unsigned int count;
 };
 
+struct sig_test_suite {
+	const struct sig_testvec *vecs;
+	unsigned int count;
+};
+
 struct kpp_test_suite {
 	const struct kpp_testvec *vecs;
 	unsigned int count;
@@ -151,6 +157,7 @@ struct alg_test_desc {
 		struct cprng_test_suite cprng;
 		struct drbg_test_suite drbg;
 		struct akcipher_test_suite akcipher;
+		struct sig_test_suite sig;
 		struct kpp_test_suite kpp;
 	} suite;
 };
@@ -4337,6 +4344,113 @@ static int alg_test_akcipher(const struct alg_test_desc *desc,
 	return err;
 }
 
+static int test_sig_one(struct crypto_sig *tfm, const struct sig_testvec *vecs)
+{
+	u8 *ptr, *key __free(kfree);
+	int err, sig_size;
+
+	key = kmalloc(vecs->key_len + 2 * sizeof(u32) + vecs->param_len,
+		      GFP_KERNEL);
+	if (!key)
+		return -ENOMEM;
+
+	/* ecrdsa expects additional parameters appended to the key */
+	memcpy(key, vecs->key, vecs->key_len);
+	ptr = key + vecs->key_len;
+	ptr = test_pack_u32(ptr, vecs->algo);
+	ptr = test_pack_u32(ptr, vecs->param_len);
+	memcpy(ptr, vecs->params, vecs->param_len);
+
+	if (vecs->public_key_vec)
+		err = crypto_sig_set_pubkey(tfm, key, vecs->key_len);
+	else
+		err = crypto_sig_set_privkey(tfm, key, vecs->key_len);
+	if (err)
+		return err;
+
+	/*
+	 * Run asymmetric signature verification first
+	 * (which does not require a private key)
+	 */
+	err = crypto_sig_verify(tfm, vecs->c, vecs->c_size,
+				vecs->m, vecs->m_size);
+	if (err) {
+		pr_err("alg: sig: verify test failed: err %d\n", err);
+		return err;
+	}
+
+	/*
+	 * Don't invoke sign test (which requires a private key)
+	 * for vectors with only a public key.
+	 */
+	if (vecs->public_key_vec)
+		return 0;
+
+	sig_size = crypto_sig_keysize(tfm);
+	if (sig_size < vecs->c_size) {
+		pr_err("alg: sig: invalid maxsize %u\n", sig_size);
+		return -EINVAL;
+	}
+
+	u8 *sig __free(kfree) = kzalloc(sig_size, GFP_KERNEL);
+	if (!sig)
+		return -ENOMEM;
+
+	/* Run asymmetric signature generation */
+	err = crypto_sig_sign(tfm, vecs->m, vecs->m_size, sig, sig_size);
+	if (err) {
+		pr_err("alg: sig: sign test failed: err %d\n", err);
+		return err;
+	}
+
+	/* Verify that generated signature equals cooked signature */
+	if (memcmp(sig, vecs->c, vecs->c_size) ||
+	    memchr_inv(sig + vecs->c_size, 0, sig_size - vecs->c_size)) {
+		pr_err("alg: sig: sign test failed: invalid output\n");
+		hexdump(sig, sig_size);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int test_sig(struct crypto_sig *tfm, const char *alg,
+		    const struct sig_testvec *vecs, unsigned int tcount)
+{
+	const char *algo = crypto_tfm_alg_driver_name(crypto_sig_tfm(tfm));
+	int ret, i;
+
+	for (i = 0; i < tcount; i++) {
+		ret = test_sig_one(tfm, vecs++);
+		if (ret) {
+			pr_err("alg: sig: test %d failed for %s: err %d\n",
+			       i + 1, algo, ret);
+			return ret;
+		}
+	}
+	return 0;
+}
+
+static int alg_test_sig(const struct alg_test_desc *desc, const char *driver,
+			u32 type, u32 mask)
+{
+	struct crypto_sig *tfm;
+	int err = 0;
+
+	tfm = crypto_alloc_sig(driver, type, mask);
+	if (IS_ERR(tfm)) {
+		pr_err("alg: sig: Failed to load tfm for %s: %ld\n",
+		       driver, PTR_ERR(tfm));
+		return PTR_ERR(tfm);
+	}
+	if (desc->suite.sig.vecs)
+		err = test_sig(tfm, desc->alg, desc->suite.sig.vecs,
+			       desc->suite.sig.count);
+
+	crypto_free_sig(tfm);
+	return err;
+}
+
 static int alg_test_null(const struct alg_test_desc *desc,
 			     const char *driver, u32 type, u32 mask)
 {
@@ -5109,36 +5223,36 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "ecdsa-nist-p192",
-		.test = alg_test_akcipher,
+		.test = alg_test_sig,
 		.suite = {
-			.akcipher = __VECS(ecdsa_nist_p192_tv_template)
+			.sig = __VECS(ecdsa_nist_p192_tv_template)
 		}
 	}, {
 		.alg = "ecdsa-nist-p256",
-		.test = alg_test_akcipher,
+		.test = alg_test_sig,
 		.fips_allowed = 1,
 		.suite = {
-			.akcipher = __VECS(ecdsa_nist_p256_tv_template)
+			.sig = __VECS(ecdsa_nist_p256_tv_template)
 		}
 	}, {
 		.alg = "ecdsa-nist-p384",
-		.test = alg_test_akcipher,
+		.test = alg_test_sig,
 		.fips_allowed = 1,
 		.suite = {
-			.akcipher = __VECS(ecdsa_nist_p384_tv_template)
+			.sig = __VECS(ecdsa_nist_p384_tv_template)
 		}
 	}, {
 		.alg = "ecdsa-nist-p521",
-		.test = alg_test_akcipher,
+		.test = alg_test_sig,
 		.fips_allowed = 1,
 		.suite = {
-			.akcipher = __VECS(ecdsa_nist_p521_tv_template)
+			.sig = __VECS(ecdsa_nist_p521_tv_template)
 		}
 	}, {
 		.alg = "ecrdsa",
-		.test = alg_test_akcipher,
+		.test = alg_test_sig,
 		.suite = {
-			.akcipher = __VECS(ecrdsa_tv_template)
+			.sig = __VECS(ecrdsa_tv_template)
 		}
 	}, {
 		.alg = "essiv(authenc(hmac(sha256),cbc(aes)),sha256)",
@@ -5261,6 +5375,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-224)",
+		.generic_driver = "hmac(sha3-224-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 0,
 		.suite = {
@@ -5268,6 +5383,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-256)",
+		.generic_driver = "hmac(sha3-256-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5275,6 +5391,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-384)",
+		.generic_driver = "hmac(sha3-384-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5282,6 +5399,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "hmac(sha3-512)",
+		.generic_driver = "hmac(sha3-512-lib)",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5436,34 +5554,44 @@ static const struct alg_test_desc alg_test_descs[] = {
 			.cipher = __VECS(fcrypt_pcbc_tv_template)
 		}
 	}, {
-		.alg = "pkcs1pad(rsa,sha224)",
+		.alg = "pkcs1(rsa,none)",
+		.test = alg_test_sig,
+		.suite = {
+			.sig = __VECS(pkcs1_rsa_none_tv_template)
+		}
+	}, {
+		.alg = "pkcs1(rsa,sha224)",
 		.test = alg_test_null,
 		.fips_allowed = 0,
 	}, {
-		.alg = "pkcs1pad(rsa,sha256)",
-		.test = alg_test_akcipher,
+		.alg = "pkcs1(rsa,sha256)",
+		.test = alg_test_sig,
 		.fips_allowed = 1,
 		.suite = {
-			.akcipher = __VECS(pkcs1pad_rsa_tv_template)
+			.sig = __VECS(pkcs1_rsa_tv_template)
 		}
 	}, {
-		.alg = "pkcs1pad(rsa,sha3-256)",
+		.alg = "pkcs1(rsa,sha3-256)",
 		.test = alg_test_null,
 		.fips_allowed = 1,
 	}, {
-		.alg = "pkcs1pad(rsa,sha3-384)",
+		.alg = "pkcs1(rsa,sha3-384)",
 		.test = alg_test_null,
 		.fips_allowed = 1,
 	}, {
-		.alg = "pkcs1pad(rsa,sha3-512)",
+		.alg = "pkcs1(rsa,sha3-512)",
 		.test = alg_test_null,
 		.fips_allowed = 1,
 	}, {
-		.alg = "pkcs1pad(rsa,sha384)",
+		.alg = "pkcs1(rsa,sha384)",
 		.test = alg_test_null,
 		.fips_allowed = 1,
 	}, {
-		.alg = "pkcs1pad(rsa,sha512)",
+		.alg = "pkcs1(rsa,sha512)",
+		.test = alg_test_null,
+		.fips_allowed = 1,
+	}, {
+		.alg = "pkcs1pad(rsa)",
 		.test = alg_test_null,
 		.fips_allowed = 1,
 	}, {
@@ -5577,6 +5705,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-224",
+		.generic_driver = "sha3-224-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 0,
 		.suite = {
@@ -5584,6 +5713,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-256",
+		.generic_driver = "sha3-256-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5591,6 +5721,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-384",
+		.generic_driver = "sha3-384-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5598,6 +5729,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "sha3-512",
+		.generic_driver = "sha3-512-lib",
 		.test = alg_test_hash,
 		.fips_allowed = 1,
 		.suite = {
@@ -5658,6 +5790,33 @@ static const struct alg_test_desc alg_test_descs[] = {
 		.test = alg_test_hash,
 		.suite = {
 			.hash = __VECS(wp512_tv_template)
+		}
+	}, {
+		.alg = "x962(ecdsa-nist-p192)",
+		.test = alg_test_sig,
+		.suite = {
+			.sig = __VECS(x962_ecdsa_nist_p192_tv_template)
+		}
+	}, {
+		.alg = "x962(ecdsa-nist-p256)",
+		.test = alg_test_sig,
+		.fips_allowed = 1,
+		.suite = {
+			.sig = __VECS(x962_ecdsa_nist_p256_tv_template)
+		}
+	}, {
+		.alg = "x962(ecdsa-nist-p384)",
+		.test = alg_test_sig,
+		.fips_allowed = 1,
+		.suite = {
+			.sig = __VECS(x962_ecdsa_nist_p384_tv_template)
+		}
+	}, {
+		.alg = "x962(ecdsa-nist-p521)",
+		.test = alg_test_sig,
+		.fips_allowed = 1,
+		.suite = {
+			.sig = __VECS(x962_ecdsa_nist_p521_tv_template)
 		}
 	}, {
 		.alg = "xcbc(aes)",
