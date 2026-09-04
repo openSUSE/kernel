@@ -314,6 +314,12 @@ void v4l2_async_nf_cleanup(struct v4l2_async_notifier *notifier);
 	__v4l2_async_register_subdev(sd, THIS_MODULE)
 int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module);
 
+/*
+ * FIXME: declaration of old API function, only for kABI;
+ * the actual call is replaced in below with different arguments!
+ */
+int __must_check v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd);
+
 /**
  * v4l2_async_register_subdev_sensor - registers a sensor sub-device to the
  *				       asynchronous sub-device framework and
@@ -333,8 +339,10 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module);
  * An error is returned if the module is no longer loaded on any attempts
  * to register it.
  */
+#define v4l2_async_register_subdev_sensor(sd) \
+	__v4l2_async_register_subdev_sensor(sd, THIS_MODULE)
 int __must_check
-v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd);
+__v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd, struct module *module);
 
 /**
  * v4l2_async_unregister_subdev - unregisters a sub-device to the asynchronous
