@@ -60,6 +60,7 @@ static void nf_queue_entry_release_refs(struct nf_queue_entry *entry)
 	struct nf_hook_state *state = &entry->state;
 
 	/* Release those devices we held, or Alexey will kill me. */
+	dev_put(nf_queue_entry_skbdev(entry));
 	dev_put(state->in);
 	dev_put(state->out);
 	if (state->sk)
@@ -73,8 +74,11 @@ static void nf_queue_entry_release_refs(struct nf_queue_entry *entry)
 
 void nf_queue_entry_free(struct nf_queue_entry *entry)
 {
+	struct nf_queue_entry_kabi_wrapper *wrapper =
+		container_of(entry, struct nf_queue_entry_kabi_wrapper, entry);
+
 	nf_queue_entry_release_refs(entry);
-	kfree(entry);
+	kfree(wrapper);
 }
 EXPORT_SYMBOL_GPL(nf_queue_entry_free);
 
@@ -101,6 +105,7 @@ bool nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 	if (state->sk && !refcount_inc_not_zero(&state->sk->sk_refcnt))
 		return false;
 
+	dev_hold(nf_queue_entry_skbdev(entry));
 	dev_hold(state->in);
 	dev_hold(state->out);
 
@@ -156,6 +161,7 @@ static void nf_ip6_saveroute(const struct sk_buff *skb,
 static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 		      unsigned int index, unsigned int queuenum)
 {
+	struct nf_queue_entry_kabi_wrapper *wrapper;
 	struct nf_queue_entry *entry = NULL;
 	const struct nf_queue_handler *qh;
 	unsigned int route_key_size;
@@ -190,12 +196,13 @@ static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 		}
 	}
 
-	entry = kmalloc(sizeof(*entry) + route_key_size, GFP_ATOMIC);
-	if (!entry)
+	wrapper = kmalloc(sizeof(*wrapper) + route_key_size, GFP_ATOMIC);
+	if (!wrapper)
 		return -ENOMEM;
+	entry = &wrapper->entry;
 
 	if (skb_dst(skb) && !skb_dst_force(skb)) {
-		kfree(entry);
+		kfree(wrapper);
 		return -ENETDOWN;
 	}
 
@@ -205,11 +212,11 @@ static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 		.hook_index = index,
 		.size	= sizeof(*entry) + route_key_size,
 	};
-
+	wrapper->skb_dev = skb->dev;
 	__nf_queue_entry_init_physdevs(entry);
 
 	if (!nf_queue_entry_get_refs(entry)) {
-		kfree(entry);
+		kfree(wrapper);
 		return -ENOTCONN;
 	}
 
