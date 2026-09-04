@@ -474,6 +474,9 @@ enum vcpu_sysreg {
 	ACTLR_EL2,	/* Auxiliary Control Register (EL2) */
 	CPTR_EL2,	/* Architectural Feature Trap Register (EL2) */
 	HACR_EL2,	/* Hypervisor Auxiliary Control Register */
+#ifdef __GENKSYMS__
+	ZCR_EL2,	/* SVE Control Register (EL2) */
+#endif
 	TTBR0_EL2,	/* Translation Table Base Register 0 (EL2) */
 	TTBR1_EL2,	/* Translation Table Base Register 1 (EL2) */
 	TCR_EL2,	/* Translation Control Register (EL2) */
@@ -503,7 +506,9 @@ enum vcpu_sysreg {
 	TCR2_EL2,	/* Extended Translation Control Register (EL2) */
 	MDCR_EL2,	/* Monitor Debug Configuration Register (EL2) */
 	CNTHCTL_EL2,	/* Counter-timer Hypervisor Control register */
+#ifndef __GENKSYMS__
 	ZCR_EL2,	/* SVE Control Register (EL2) */
+#endif
 
 	/* Any VNCR-capable reg goes after this point */
 	MARKER(__VNCR_START__),
