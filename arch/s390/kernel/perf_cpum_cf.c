@@ -17,6 +17,7 @@
 #include <linux/notifier.h>
 #include <linux/init.h>
 #include <linux/export.h>
+#include <linux/nospec.h>
 #include <asm/ctl_reg.h>
 #include <asm/irq.h>
 #include <asm/cpu_mcf.h>
@@ -364,6 +365,7 @@ static int __hw_perf_event_init(struct perf_event *event)
 		if (!attr->exclude_user && attr->exclude_kernel) {
 			if (ev >= ARRAY_SIZE(cpumf_generic_events_user))
 				return -EOPNOTSUPP;
+			ev = array_index_nospec(ev, ARRAY_SIZE(cpumf_generic_events_user));
 			ev = cpumf_generic_events_user[ev];
 
 		/* No support for kernel space counters only */
@@ -374,6 +376,7 @@ static int __hw_perf_event_init(struct perf_event *event)
 		} else {
 			if (ev >= ARRAY_SIZE(cpumf_generic_events_basic))
 				return -EOPNOTSUPP;
+			ev = array_index_nospec(ev, ARRAY_SIZE(cpumf_generic_events_basic));
 			ev = cpumf_generic_events_basic[ev];
 		}
 		break;
