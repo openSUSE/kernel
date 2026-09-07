@@ -2458,10 +2458,16 @@ static long unix_stream_data_wait(struct sock *sk, long timeo,
 	for (;;) {
 		prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 
+		spin_lock(&sk->sk_receive_queue.lock);
 		tail = skb_peek_tail(&sk->sk_receive_queue);
 		if (tail != last ||
-		    (tail && tail->len != last_len) ||
-		    sk->sk_err ||
+		    (tail && tail->len != last_len)) {
+			spin_unlock(&sk->sk_receive_queue.lock);
+			break;
+		}
+		spin_unlock(&sk->sk_receive_queue.lock);
+
+		if (sk->sk_err ||
 		    (sk->sk_shutdown & RCV_SHUTDOWN) ||
 		    signal_pending(current) ||
 		    !timeo)
