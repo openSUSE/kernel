@@ -18,6 +18,8 @@
 
 static const struct proto_ops iso_sock_ops;
 
+static DEFINE_SPINLOCK(__suse_proto_lock);
+
 static struct bt_sock_list iso_sk_list = {
 	.lock = __RW_LOCK_UNLOCKED(iso_sk_list.lock)
 };
@@ -110,7 +112,7 @@ static void iso_conn_free(struct kref *ref)
 		iso_pi(conn->sk)->conn = NULL;
 
 	if (conn->hcon) {
-		spin_lock(&conn->hcon->proto_lock);
+		spin_lock(&__suse_proto_lock);
 
 		/* Check we are not racing with iso_conn_add */
 		if (conn->hcon->iso_data == conn) {
@@ -119,7 +121,7 @@ static void iso_conn_free(struct kref *ref)
 				hci_conn_drop(conn->hcon);
 		}
 
-		spin_unlock(&conn->hcon->proto_lock);
+		spin_unlock(&__suse_proto_lock);
 	}
 
 	/* Ensure no more work items will run since hci_conn has been dropped */
@@ -229,7 +231,7 @@ static struct iso_conn *iso_conn_add(struct hci_conn *hcon)
 {
 	struct iso_conn *conn;
 
-	spin_lock(&hcon->proto_lock);
+	spin_lock(&__suse_proto_lock);
 
 	conn = iso_conn_hold_unless_zero(hcon->iso_data);
 	if (conn) {
@@ -239,13 +241,13 @@ static struct iso_conn *iso_conn_add(struct hci_conn *hcon)
 			iso_conn_unlock(conn);
 		}
 		iso_conn_put(conn);
-		spin_unlock(&hcon->proto_lock);
+		spin_unlock(&__suse_proto_lock);
 		return conn;
 	}
 
 	conn = kzalloc(sizeof(*conn), GFP_KERNEL);
 	if (!conn) {
-		spin_unlock(&hcon->proto_lock);
+		spin_unlock(&__suse_proto_lock);
 		return NULL;
 	}
 
@@ -257,7 +259,7 @@ static struct iso_conn *iso_conn_add(struct hci_conn *hcon)
 	conn->hcon = hcon;
 	conn->tx_sn = 0;
 
-	spin_unlock(&hcon->proto_lock);
+	spin_unlock(&__suse_proto_lock);
 
 	BT_DBG("hcon %p conn %p", hcon, conn);
 
@@ -302,9 +304,9 @@ static void iso_conn_del(struct hci_conn *hcon, int err)
 	struct iso_conn *conn;
 	struct sock *sk;
 
-	spin_lock(&hcon->proto_lock);
+	spin_lock(&__suse_proto_lock);
 	conn = iso_conn_hold_unless_zero(hcon->iso_data);
-	spin_unlock(&hcon->proto_lock);
+	spin_unlock(&__suse_proto_lock);
 	if (!conn)
 		return;
 
@@ -328,12 +330,12 @@ static void iso_conn_del(struct hci_conn *hcon, int err)
 
 done:
 	/* No sk access to conn->hcon any more (lock_sock + hdev->lock) */
-	spin_lock(&hcon->proto_lock);
+	spin_lock(&__suse_proto_lock);
 	iso_conn_lock(conn);
 	conn->hcon = NULL;
 	hcon->iso_data = NULL;
 	iso_conn_unlock(conn);
-	spin_unlock(&hcon->proto_lock);
+	spin_unlock(&__suse_proto_lock);
 
 	iso_conn_put(conn);
 }
