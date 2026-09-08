@@ -9,7 +9,6 @@
 #include <linux/cleanup.h>
 #include <linux/kgdb.h>
 #include <linux/mmap_lock.h>
-#include <linux/printk.h>
 
 #include <asm/text-patching.h>
 #include <asm/insn.h>
@@ -2579,69 +2578,6 @@ static void poke_vmalloc_pages(struct page **pages, void *addr,
 	}
 }
 
-static void dump_pte(void *paddr)
-{
-	unsigned long addr = (unsigned long)paddr;
-	pgd_t *pgd = pgd_offset_k(addr);
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-	pte_t *ptep, pte;
-
-	if (core_kernel_text(addr)) {
-		pr_err("%s: address %px is in core kernel text\n", __func__, paddr);
-		return;
-	}
-
-	if (pgd_none(*pgd)) {
-		pr_err("%s: PGD is none\n", __func__);
-		return;
-	}
-
-	p4d = p4d_offset(pgd, addr);
-	if (p4d_none(*p4d)) {
-		pr_err("%s: P4D is none\n", __func__);
-		return;
-	}
-	if (p4d_leaf(*p4d)) {
-		pr_err("%s: P4D is leaf: %px\n", __func__,
-		       p4d_page(*p4d) + ((addr & ~P4D_MASK) >> PAGE_SHIFT));
-		return;
-	}
-
-	pud = pud_offset(p4d, addr);
-	if (pud_none(*pud)) {
-		pr_err("%s: PUD is none\n", __func__);
-		return;
-	}
-	if (pud_leaf(*pud)) {
-		pr_err("%s: PUD is leaf: %px\n", __func__,
-		       pud_page(*pud) + ((addr & ~PUD_MASK) >> PAGE_SHIFT));
-		return;
-	}
-
-	pmd = pmd_offset(pud, addr);
-	if (pmd_none(*pmd)) {
-		pr_err("%s: PMD is none\n", __func__);
-		return;
-	}
-	if (pmd_leaf(*pmd)) {
-		pr_err("%s: PMD is leaf: %px\n", __func__,
-		       pmd_page(*pmd) + ((addr & ~PMD_MASK) >> PAGE_SHIFT));
-		return;
-	}
-
-	ptep = pte_offset_kernel(pmd, addr);
-	pte = ptep_get(ptep);
-	if (!pte_present(pte)) {
-		pr_err("%s: PTE is non-present\n", __func__);
-		return;
-	}
-
-	pr_err("%s: PTE value: 0x%llx, flags: 0x%llx\n",
-	       __func__, (u64)pte_val(pte), (u64)pte_flags(pte));
-}
-
 static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t len)
 {
 	bool cross_page_boundary = offset_in_page(addr) + len > PAGE_SIZE;
@@ -2670,16 +2606,7 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 	 * If something went wrong, crash and burn since recovery paths are not
 	 * implemented.
 	 */
-	if (!pages[0] || (cross_page_boundary && !pages[1])) {
-		pr_err("%s: failed to get page for %px-%px (%pS): cross=%d core=%d pages=%px/%px page=%px\n",
-		       __func__, addr, addr + len - 1, addr, cross_page_boundary,
-		       core_kernel_text((unsigned long)addr),
-		       pages[0], pages[1], vmalloc_to_page(addr));
-		print_hex_dump(KERN_ERR, "op: ", DUMP_PREFIX_NONE, 16, 1, src, len, true);
-		dump_pte(addr);
-		pr_err("vmalloc_to_page=%px\n", vmalloc_to_page(addr));
-		BUG();
-	}
+	BUG_ON(!pages[0] || (cross_page_boundary && !pages[1]));
 
 	/*
 	 * Map the page without the global bit, as TLB flushing is done with
