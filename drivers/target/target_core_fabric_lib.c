@@ -399,6 +399,7 @@ static bool iscsi_parse_pr_out_transport_id(
 			*p = tolower(*p);
 			p++;
 		}
+		strscpy(i_str, &buf[4], TRANSPORT_IQN_LEN);
 	} else {
 		*port_nexus_ptr = NULL;
 
