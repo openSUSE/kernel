@@ -117,6 +117,8 @@ int snd_seq_fifo_event_in(struct snd_seq_fifo *f,
 			  struct snd_seq_event *event)
 {
 	struct snd_seq_event_cell *cell;
+	struct snd_seq_pool *pool;
+	bool linked;
 	unsigned long flags;
 	int err;
 
@@ -124,7 +126,9 @@ int snd_seq_fifo_event_in(struct snd_seq_fifo *f,
 		return -EINVAL;
 
 	snd_use_lock_use(&f->use_lock);
-	err = snd_seq_event_dup(f->pool, event, &cell, 1, NULL, NULL); /* always non-blocking */
+retry:
+	pool = READ_ONCE(f->pool);
+	err = snd_seq_event_dup(pool, event, &cell, 1, NULL, NULL); /* always non-blocking */
 	if (err < 0) {
 		if ((err == -ENOMEM) || (err == -EAGAIN))
 			atomic_inc(&f->overflow);
@@ -133,15 +137,25 @@ int snd_seq_fifo_event_in(struct snd_seq_fifo *f,
 	}
 		
 	/* append new cells to fifo */
+	linked = false;
 	spin_lock_irqsave(&f->lock, flags);
-	if (f->tail != NULL)
-		f->tail->next = cell;
-	f->tail = cell;
-	if (f->head == NULL)
-		f->head = cell;
-	cell->next = NULL;
-	f->cells++;
+	if (cell->pool == f->pool) {
+		if (f->tail)
+			f->tail->next = cell;
+		f->tail = cell;
+		if (!f->head)
+			f->head = cell;
+		cell->next = NULL;
+		f->cells++;
+		linked = true;
+	}
 	spin_unlock_irqrestore(&f->lock, flags);
+
+	if (!linked) {
+		/* Retry against the replacement pool after resize publishes it. */
+		snd_seq_cell_free(cell);
+		goto retry;
+	}
 
 	/* wakeup client */
 	if (waitqueue_active(&f->input_sleep))
@@ -213,16 +227,22 @@ int snd_seq_fifo_cell_out(struct snd_seq_fifo *f,
 void snd_seq_fifo_cell_putback(struct snd_seq_fifo *f,
 			       struct snd_seq_event_cell *cell)
 {
+	bool linked = false;
 	unsigned long flags;
 
 	if (cell) {
 		spin_lock_irqsave(&f->lock, flags);
-		cell->next = f->head;
-		f->head = cell;
-		if (!f->tail)
-			f->tail = cell;
-		f->cells++;
+		if (cell->pool == f->pool) {
+			cell->next = f->head;
+			f->head = cell;
+			if (!f->tail)
+				f->tail = cell;
+			f->cells++;
+			linked = true;
+		}
 		spin_unlock_irqrestore(&f->lock, flags);
+		if (!linked)
+			snd_seq_cell_free(cell);
 	}
 }
 
@@ -258,7 +278,7 @@ int snd_seq_fifo_resize(struct snd_seq_fifo *f, int poolsize)
 	oldpool = f->pool;
 	oldhead = f->head;
 	/* exchange pools */
-	f->pool = newpool;
+	WRITE_ONCE(f->pool, newpool);
 	f->head = NULL;
 	f->tail = NULL;
 	f->cells = 0;
