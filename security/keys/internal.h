@@ -137,11 +137,11 @@ struct keyring_search_context {
 
 extern bool key_default_cmp(const struct key *key,
 			    const struct key_match_data *match_data);
-extern key_ref_t keyring_search_aux(key_ref_t keyring_ref,
+extern key_ref_t keyring_search_rcu(key_ref_t keyring_ref,
 				    struct keyring_search_context *ctx);
 
-extern key_ref_t search_my_process_keyrings(struct keyring_search_context *ctx);
-extern key_ref_t search_process_keyrings(struct keyring_search_context *ctx);
+extern key_ref_t search_cred_keyrings_rcu(struct keyring_search_context *ctx);
+extern key_ref_t search_process_keyrings_rcu(struct keyring_search_context *ctx);
 
 extern struct key *find_keyring_by_name(const char *name, bool uid_keyring);
 
@@ -192,6 +192,8 @@ static inline int key_permission(const key_ref_t key_ref, unsigned perm)
  * Authorisation record for request_key().
  */
 struct request_key_auth {
+	struct rcu_head         rcu;
+	refcount_t              usage;
 	struct key		*target_key;
 	struct key		*dest_keyring;
 	const struct cred	*cred;
@@ -205,6 +207,8 @@ extern struct key *request_key_auth_new(struct key *target,
 					const void *callout_info,
 					size_t callout_len,
 					struct key *dest_keyring);
+struct request_key_auth *request_key_auth_get(struct key *authkey);
+void request_key_auth_put(struct request_key_auth *rka);
 
 extern struct key *key_get_instantiation_authkey(key_serial_t target_id);
 

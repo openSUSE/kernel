@@ -145,12 +145,10 @@ static int call_sbin_request_key(struct key_construction *cons,
 		prkey = cred->process_keyring->serial;
 	sprintf(keyring_str[1], "%d", prkey);
 
-	rcu_read_lock();
-	session = rcu_dereference(cred->session_keyring);
+	session = cred->session_keyring;
 	if (!session)
 		session = cred->user->session_keyring;
 	sskey = session->serial;
-	rcu_read_unlock();
 
 	sprintf(keyring_str[2], "%d", sskey);
 
@@ -298,10 +296,7 @@ static int construct_get_dest_keyring(struct key **_dest_keyring)
 				break;
 
 		case KEY_REQKEY_DEFL_SESSION_KEYRING:
-			rcu_read_lock();
-			dest_keyring = key_get(
-				rcu_dereference(cred->session_keyring));
-			rcu_read_unlock();
+			dest_keyring = key_get(cred->session_keyring);
 
 			if (dest_keyring)
 				break;
@@ -404,7 +399,9 @@ static int construct_alloc_key(struct keyring_search_context *ctx,
 	 */
 	mutex_lock(&key_construction_mutex);
 
-	key_ref = search_process_keyrings(ctx);
+	rcu_read_lock();
+	key_ref = search_process_keyrings_rcu(ctx);
+	rcu_read_unlock();
 	if (!IS_ERR(key_ref))
 		goto key_already_present;
 
@@ -589,7 +586,9 @@ struct key *request_key_and_link(struct key_type *type,
 	}
 
 	/* search all the process keyrings for a key */
-	key_ref = search_process_keyrings(&ctx);
+	rcu_read_lock();
+	key_ref = search_process_keyrings_rcu(&ctx);
+	rcu_read_unlock();
 
 	if (!IS_ERR(key_ref)) {
 		key = key_ref_to_ptr(key_ref);

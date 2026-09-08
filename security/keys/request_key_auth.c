@@ -28,6 +28,7 @@ static void request_key_auth_describe(const struct key *, struct seq_file *);
 static void request_key_auth_revoke(struct key *);
 static void request_key_auth_destroy(struct key *);
 static long request_key_auth_read(const struct key *, char __user *, size_t);
+static void request_key_auth_rcu_disposal(struct rcu_head *);
 
 /*
  * The request-key authorisation key type definition.
@@ -59,7 +60,7 @@ static void request_key_auth_free_preparse(struct key_preparsed_payload *prep)
 static int request_key_auth_instantiate(struct key *key,
 					struct key_preparsed_payload *prep)
 {
-	key->payload.data[0] = (struct request_key_auth *)prep->data;
+	rcu_assign_keypointer(key, (struct request_key_auth *)prep->data);
 	return 0;
 }
 
@@ -69,7 +70,7 @@ static int request_key_auth_instantiate(struct key *key,
 static void request_key_auth_describe(const struct key *key,
 				      struct seq_file *m)
 {
-	struct request_key_auth *rka = key->payload.data[0];
+	struct request_key_auth *rka = dereference_key_rcu(key);
 
 	if (!rka)
 		return;
@@ -87,7 +88,7 @@ static void request_key_auth_describe(const struct key *key,
 static long request_key_auth_read(const struct key *key,
 				  char __user *buffer, size_t buflen)
 {
-	struct request_key_auth *rka = key->payload.data[0];
+	struct request_key_auth *rka = dereference_key_locked(key);
 	size_t datalen;
 	long ret;
 
@@ -109,23 +110,6 @@ static long request_key_auth_read(const struct key *key,
 	return ret;
 }
 
-/*
- * Handle revocation of an authorisation token key.
- *
- * Called with the key sem write-locked.
- */
-static void request_key_auth_revoke(struct key *key)
-{
-	struct request_key_auth *rka = key->payload.data[0];
-
-	kenter("{%d}", key->serial);
-
-	if (rka->cred) {
-		put_cred(rka->cred);
-		rka->cred = NULL;
-	}
-}
-
 static void free_request_key_auth(struct request_key_auth *rka)
 {
 	if (!rka)
@@ -139,15 +123,69 @@ static void free_request_key_auth(struct request_key_auth *rka)
 }
 
 /*
+ * Take a reference to the request-key authorisation payload so callers can
+ * drop authkey->sem before doing operations that may sleep.
+ */
+struct request_key_auth *request_key_auth_get(struct key *authkey)
+{
+	struct request_key_auth *rka;
+
+	down_read(&authkey->sem);
+	rka = dereference_key_locked(authkey);
+	if (rka && !test_bit(KEY_FLAG_REVOKED, &authkey->flags))
+		refcount_inc(&rka->usage);
+	else
+		rka = NULL;
+	up_read(&authkey->sem);
+
+	return rka;
+}
+
+void request_key_auth_put(struct request_key_auth *rka)
+{
+	if (rka && refcount_dec_and_test(&rka->usage))
+		call_rcu(&rka->rcu, request_key_auth_rcu_disposal);
+}
+
+/*
+ * Dispose of the request_key_auth record under RCU conditions
+ */
+static void request_key_auth_rcu_disposal(struct rcu_head *rcu)
+{
+	struct request_key_auth *rka =
+		container_of(rcu, struct request_key_auth, rcu);
+
+	free_request_key_auth(rka);
+}
+
+/*
+ * Handle revocation of an authorisation token key.
+ *
+ * Called with the key sem write-locked.
+ */
+static void request_key_auth_revoke(struct key *key)
+{
+	struct request_key_auth *rka = dereference_key_locked(key);
+
+	kenter("{%d}", key->serial);
+	if (!rka)
+		return;
+	rcu_assign_keypointer(key, NULL);
+	request_key_auth_put(rka);
+}
+
+/*
  * Destroy an instantiation authorisation token key.
  */
 static void request_key_auth_destroy(struct key *key)
 {
-	struct request_key_auth *rka = key->payload.data[0];
+	struct request_key_auth *rka = rcu_access_pointer(key->payload.rcu_data0);
 
 	kenter("{%d}", key->serial);
-
-	free_request_key_auth(rka);
+	if (rka) {
+		rcu_assign_keypointer(key, NULL);
+		request_key_auth_put(rka);
+	}
 }
 
 /*
@@ -169,6 +207,7 @@ struct key *request_key_auth_new(struct key *target, const void *callout_info,
 	rka = kzalloc(sizeof(*rka), GFP_KERNEL);
 	if (!rka)
 		goto error;
+	refcount_set(&rka->usage, 1);
 	rka->callout_info = kmalloc(callout_len, GFP_KERNEL);
 	if (!rka->callout_info)
 		goto error_free_rka;
@@ -255,7 +294,9 @@ struct key *key_get_instantiation_authkey(key_serial_t target_id)
 
 	ctx.index_key.desc_len = sprintf(description, "%x", target_id);
 
-	authkey_ref = search_process_keyrings(&ctx);
+	rcu_read_lock();
+	authkey_ref = search_process_keyrings_rcu(&ctx);
+	rcu_read_unlock();
 
 	if (IS_ERR(authkey_ref)) {
 		authkey = ERR_CAST(authkey_ref);
