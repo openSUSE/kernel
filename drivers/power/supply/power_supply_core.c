@@ -261,21 +261,12 @@ static int power_supply_check_supplies(struct power_supply *psy)
 	if (cnt == 1)
 		return 0;
 
-	/* All supplies found, allocate char ** array for filling */
-	psy->supplied_from = devm_kzalloc(&psy->dev, sizeof(psy->supplied_from),
+	/* All supplies found, allocate char * array for filling */
+	psy->supplied_from = devm_kcalloc(&psy->dev,
+					  cnt - 1, sizeof(*psy->supplied_from),
 					  GFP_KERNEL);
-	if (!psy->supplied_from) {
-		dev_err(&psy->dev, "Couldn't allocate memory for supply list\n");
+	if (!psy->supplied_from)
 		return -ENOMEM;
-	}
-
-	*psy->supplied_from = devm_kzalloc(&psy->dev,
-					   sizeof(char *) * (cnt - 1),
-					   GFP_KERNEL);
-	if (!*psy->supplied_from) {
-		dev_err(&psy->dev, "Couldn't allocate memory for supply list\n");
-		return -ENOMEM;
-	}
 
 	return power_supply_populate_supplied_from(psy);
 }
