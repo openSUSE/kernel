@@ -9,6 +9,8 @@ int mlx5_esw_adj_vport_modify(struct mlx5_core_dev *dev, u16 vport,
 {
 	u32 in[MLX5_ST_SZ_DW(modify_vport_state_in)] = {};
 
+	lockdep_assert_held(&dev->priv.eswitch->state_lock);
+
 	if (MLX5_CAP_ESW(dev, esw_vport_state_max_tx_speed)) {
 		u8 op_mod = MLX5_VPORT_STATE_OP_MOD_ESW_VPORT;
 		struct mlx5_vport *esw_vport;
@@ -16,7 +18,7 @@ int mlx5_esw_adj_vport_modify(struct mlx5_core_dev *dev, u16 vport,
 		int err;
 
 		err = mlx5_query_vport_max_tx_speed(dev, op_mod, vport,
-						    true, &speed);
+						    true, &speed, NULL);
 		if (err) {
 			esw_vport = mlx5_eswitch_get_vport(dev->priv.eswitch,
 							   vport);
