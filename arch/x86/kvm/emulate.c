@@ -3906,15 +3906,23 @@ static int check_dr_read(struct x86_emulate_ctxt *ctxt)
 static int check_dr_write(struct x86_emulate_ctxt *ctxt)
 {
 	u64 new_val = ctxt->src.val64;
-	int dr = ctxt->modrm_reg;
 	int rc;
 
 	rc = check_dr_read(ctxt);
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
 
-	if ((dr == 6 || dr == 7) && (new_val & 0xffffffff00000000ULL))
-		return emulate_gp(ctxt, 0);
+	switch (ctxt->modrm_reg) {
+	case 4:
+	case 5:
+	case 6:
+	case 7:
+		if (new_val & 0xffffffff00000000ULL)
+			return emulate_gp(ctxt, 0);
+		break;
+	default:
+		break;
+	}
 
 	return X86EMUL_CONTINUE;
 }
