@@ -3332,7 +3332,7 @@ static int em_dr_write(struct x86_emulate_ctxt *ctxt)
 		val = ctxt->src.val & ~0U;
 
 	/* #UD condition is already handled. */
-	if (ctxt->ops->set_dr(ctxt, ctxt->modrm_reg, val) < 0)
+	if (ctxt->ops->set_dr(ctxt, ctxt->modrm_reg, val))
 		return emulate_gp(ctxt, 0);
 
 	/* Disable writeback. */
