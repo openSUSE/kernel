@@ -215,8 +215,6 @@ static inline void arch_interrupt_enter_prepare(struct pt_regs *regs)
 
 	if (user_mode(regs)) {
 		kuap_lock();
-		account_cpu_user_entry();
-		account_stolen_time();
 	} else {
 		kuap_save_and_lock(regs);
 		/*
