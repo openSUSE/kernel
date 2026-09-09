@@ -740,6 +740,7 @@ struct hci_conn {
 	struct dentry	*debugfs;
 
 	struct hci_dev	*hdev;
+
 	void		*l2cap_data;
 	void		*sco_data;
 	void		*iso_data;
