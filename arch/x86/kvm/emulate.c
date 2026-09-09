@@ -3890,6 +3890,9 @@ static int check_dr_read(struct x86_emulate_ctxt *ctxt)
 	if ((cr4 & X86_CR4_DE) && (dr == 4 || dr == 5))
 		return emulate_ud(ctxt);
 
+	if (ctxt->ops->cpl(ctxt))
+		return emulate_gp(ctxt, 0);
+
 	if (check_dr7_gd(ctxt)) {
 		ulong dr6;
 
@@ -4433,11 +4436,10 @@ static const struct opcode twobyte_table[256] = {
 	D(ImplicitOps | ModRM | SrcMem | NoAccess), /* NOP + 7 * reserved NOP */
 	/* 0x20 - 0x2F */
 	DIP(ModRM | DstMem | Priv | Op3264 | NoMod, cr_read, check_cr_access),
-	DIP(ModRM | DstMem | Priv | Op3264 | NoMod, dr_read, check_dr_read),
+	DIP(ModRM | DstMem | Op3264 | NoMod, dr_read, check_dr_read),
 	IIP(ModRM | SrcMem | Priv | Op3264 | NoMod, em_cr_write, cr_write,
 						check_cr_access),
-	IIP(ModRM | SrcMem | Priv | Op3264 | NoMod, em_dr_write, dr_write,
-						check_dr_write),
+	IIP(ModRM | SrcMem | Op3264 | NoMod, em_dr_write, dr_write, check_dr_write),
 	N, N, N, N,
 	GP(ModRM | DstReg | SrcMem | Mov | Sse, &pfx_0f_28_0f_29),
 	GP(ModRM | DstMem | SrcReg | Mov | Sse, &pfx_0f_28_0f_29),
