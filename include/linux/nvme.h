@@ -1011,6 +1011,7 @@ struct nvme_get_log_page_command {
 	__le16			numdl;
 	__le16			numdu;
 	__u16			rsvd11;
+#ifndef __GENKSYMS__
 	union {
 		struct {
 			__le32 lpol;
@@ -1018,6 +1019,10 @@ struct nvme_get_log_page_command {
 		};
 		__le64 lpo;
 	};
+#else
+	__le32 lpol;
+	__le32 lpou;
+#endif
 	__u32			rsvd14[2];
 };
 
