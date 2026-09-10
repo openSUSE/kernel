@@ -238,7 +238,7 @@ static struct iso_conn *iso_conn_add(struct hci_conn *hcon)
 		return conn;
 	}
 
-	conn = kzalloc(sizeof(*conn), GFP_KERNEL);
+	conn = kzalloc(sizeof(*conn), GFP_ATOMIC);
 	if (!conn) {
 		spin_unlock(&__suse_proto_lock);
 		return NULL;
