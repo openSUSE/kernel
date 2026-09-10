@@ -330,6 +330,10 @@ static int erspan_rcv(struct sk_buff *skb, struct tnl_ptk_info *tpi,
 			if (!tun_dst)
 				return PACKET_REJECT;
 
+			/* MUST set options_len before referencing options */
+			info = &tun_dst->u.tun_info;
+			info->options_len = sizeof(*md);
+
 			/* skb can be uncloned in __iptunnel_pull_header, so
 			 * old pkt_md is no longer valid and we need to reset
 			 * it
@@ -344,10 +348,8 @@ static int erspan_rcv(struct sk_buff *skb, struct tnl_ptk_info *tpi,
 			memcpy(md2, pkt_md, ver == 1 ? ERSPAN_V1_MDSIZE :
 						       ERSPAN_V2_MDSIZE);
 
-			info = &tun_dst->u.tun_info;
 			__set_bit(IP_TUNNEL_ERSPAN_OPT_BIT,
 				  info->key.tun_flags);
-			info->options_len = sizeof(*md);
 		}
 
 		skb_reset_mac_header(skb);
@@ -1012,6 +1014,8 @@ static void __gre_tunnel_init(struct net_device *dev)
 	dev->features		|= GRE_FEATURES;
 	dev->hw_features	|= GRE_FEATURES;
 
+	dev->lltx = true;
+
 	/* TCP offload with GRE SEQ is not supported, nor can we support 2
 	 * levels of outer headers requiring an update.
 	 */
@@ -1023,8 +1027,6 @@ static void __gre_tunnel_init(struct net_device *dev)
 
 	dev->features |= NETIF_F_GSO_SOFTWARE;
 	dev->hw_features |= NETIF_F_GSO_SOFTWARE;
-
-	dev->lltx = true;
 }
 
 static int ipgre_tunnel_init(struct net_device *dev)
