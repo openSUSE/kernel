@@ -148,6 +148,8 @@
 
 #define CRYPTO_TFM_FIPS_COMPLIANCE	0x80000000
 
+/* The high bits 0xff000000 are reserved for type-specific flags. */
+
 /*
  * Miscellaneous stuff.
  */

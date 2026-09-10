@@ -978,15 +978,20 @@ err_out:
 static struct nf_queue_entry *
 nf_queue_entry_dup(struct nf_queue_entry *e)
 {
-	struct nf_queue_entry *entry = kmemdup(e, e->size, GFP_ATOMIC);
+	struct nf_queue_entry_kabi_wrapper *e_wrapper =
+		container_of(e, struct nf_queue_entry_kabi_wrapper, entry);
+	struct nf_queue_entry_kabi_wrapper *entry_wrapper =
+		kmemdup(e_wrapper, sizeof(e_wrapper->skb_dev) + e->size, GFP_ATOMIC);
+	struct nf_queue_entry *entry;
 
-	if (!entry)
+	if (!entry_wrapper)
 		return NULL;
+	entry = &entry_wrapper->entry;
 
 	if (nf_queue_entry_get_refs(entry))
 		return entry;
 
-	kfree(entry);
+	kfree(entry_wrapper);
 	return NULL;
 }
 
@@ -1206,6 +1211,9 @@ dev_cmp(struct nf_queue_entry *entry, unsigned long ifindex)
 	if (physinif == ifindex || physoutif == ifindex)
 		return 1;
 #endif
+	if (nf_queue_entry_skbdev(entry) &&
+	    nf_queue_entry_skbdev(entry)->ifindex == ifindex)
+		return 1;
 	if (entry->state.in)
 		if (entry->state.in->ifindex == ifindex)
 			return 1;

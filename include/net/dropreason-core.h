@@ -423,6 +423,16 @@ enum skb_drop_reason {
 	 * shouldn't be used as a real 'reason' - only for tracing code gen
 	 */
 	SKB_DROP_REASON_MAX,
+#ifndef __GENKSYMS__
+        /**
+	 * @SKB_DROP_REASON_RECURSION_LIMIT: Dead loop on virtual device.
+	 *
+	 * In order to prevent kABI breakage, but keeping the sources as is,
+	 * keep the newly introduced RECURSION_LIMIT enum entry, but
+	 * define it to an existing value.
+	 */
+        SKB_DROP_REASON_RECURSION_LIMIT = SKB_DROP_REASON_NOT_SPECIFIED,
+#endif
 
 	/**
 	 * @SKB_DROP_REASON_SUBSYS_MASK: subsystem mask in drop reasons,

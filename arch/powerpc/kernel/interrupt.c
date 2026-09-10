@@ -146,8 +146,6 @@ again:
 #ifdef CONFIG_PPC64
 notrace unsigned long syscall_exit_restart(unsigned long r3, struct pt_regs *regs)
 {
-	unsigned long ret = 0;
-
 	/*
 	 * This is called when detecting a soft-pending interrupt as well as
 	 * an alternate-return interrupt. So we can't just have the alternate
@@ -175,7 +173,7 @@ again:
 	if (test_and_clear_thread_local_flags(_TLF_SYSCALL_EXIT_RESTOREALL))
 		regs->exit_result |= _TIF_RESTOREALL;
 
-	return ret;
+	return regs->exit_result;
 }
 #endif
 
