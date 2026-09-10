@@ -125,8 +125,6 @@ int nf_conntrack_eventmask_report(unsigned int eventmask, struct nf_conn *ct,
 	struct nf_ct_event_notifier *notify;
 	struct nf_conntrack_ecache *e;
 
-	lockdep_nfct_expect_lock_held();
-
 	rcu_read_lock();
 	notify = rcu_dereference(net->ct.nf_conntrack_event_cb);
 	if (!notify)
@@ -237,6 +235,8 @@ void nf_ct_expect_event_report(enum ip_conntrack_expect_events event,
 	struct net *net = nf_ct_exp_net(exp);
 	struct nf_exp_event_notifier *notify;
 	struct nf_conntrack_ecache *e;
+
+	lockdep_nfct_expect_lock_held();
 
 	rcu_read_lock();
 	notify = rcu_dereference(net->ct.nf_expect_event_cb);
