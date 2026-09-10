@@ -91,6 +91,9 @@ do {								\
 		local_lock_acquire(this_cpu_ptr(lock));		\
 	} while (0)
 
+/* preemption or migration must be disabled before calling __local_lock_is_locked */
+#define __local_lock_is_locked(lock) READ_ONCE(this_cpu_ptr(lock)->acquired)
+
 #define __local_unlock(lock)					\
 	do {							\
 		local_lock_release(this_cpu_ptr(lock));		\
@@ -168,5 +171,9 @@ do {								\
 do {								\
 	spin_unlock(this_cpu_ptr((lock)));			\
 } while (0)
+
+/* migration must be disabled before calling __local_lock_is_locked */
+#define __local_lock_is_locked(__lock)					\
+	(rt_mutex_owner(&this_cpu_ptr(__lock)->lock) == current)
 
 #endif /* CONFIG_PREEMPT_RT */

@@ -11,6 +11,15 @@
 #include <crypto/algapi.h>
 #include <crypto/hash.h>
 
+/* Set this bit to handle partial blocks in the API. */
+#define CRYPTO_AHASH_ALG_BLOCK_ONLY	0x01000000
+
+/* Set this bit if final requires at least one byte. */
+#define CRYPTO_AHASH_ALG_FINAL_NONZERO	0x02000000
+
+/* Set this bit if finup can deal with multiple blocks. */
+#define CRYPTO_AHASH_ALG_FINUP_MAX	0x04000000
+
 struct ahash_request;
 struct scatterlist;
 
@@ -268,6 +277,12 @@ static inline struct crypto_shash *crypto_spawn_shash(
 static inline struct crypto_shash *__crypto_shash_cast(struct crypto_tfm *tfm)
 {
 	return container_of(tfm, struct crypto_shash, base);
+}
+
+/* Return the state size without partial block for block-only algorithms. */
+static inline unsigned int crypto_shash_coresize(struct crypto_shash *tfm)
+{
+	return crypto_shash_statesize(tfm) - crypto_shash_blocksize(tfm) - 1;
 }
 
 #endif	/* _CRYPTO_INTERNAL_HASH_H */

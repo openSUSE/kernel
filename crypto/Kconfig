@@ -255,6 +255,7 @@ config CRYPTO_RSA
 	tristate "RSA (Rivest-Shamir-Adleman)"
 	select CRYPTO_AKCIPHER
 	select CRYPTO_MANAGER
+	select CRYPTO_SIG
 	select MPILIB
 	select ASN1
 	help
@@ -295,7 +296,7 @@ config CRYPTO_ECDH
 config CRYPTO_ECDSA
 	tristate "ECDSA (Elliptic Curve Digital Signature Algorithm)"
 	select CRYPTO_ECC
-	select CRYPTO_AKCIPHER
+	select CRYPTO_SIG
 	select ASN1
 	help
 	  ECDSA (Elliptic Curve Digital Signature Algorithm) (FIPS 186,
@@ -307,7 +308,7 @@ config CRYPTO_ECDSA
 config CRYPTO_ECRDSA
 	tristate "EC-RDSA (Elliptic Curve Russian Digital Signature Algorithm)"
 	select CRYPTO_ECC
-	select CRYPTO_AKCIPHER
+	select CRYPTO_SIG
 	select CRYPTO_STREEBOG
 	select OID_REGISTRY
 	select ASN1
@@ -324,6 +325,15 @@ config CRYPTO_CURVE25519
 	select CRYPTO_LIB_CURVE25519_GENERIC
 	help
 	  Curve25519 elliptic curve (RFC7748)
+
+config CRYPTO_MLDSA
+	tristate "ML-DSA (Module-Lattice-Based Digital Signature Algorithm)"
+	select CRYPTO_SIG
+	select CRYPTO_LIB_MLDSA
+	help
+	  ML-DSA (Module-Lattice-Based Digital Signature Algorithm) (FIPS-204).
+
+	  Only signature verification is implemented.
 
 endmenu
 
@@ -1000,6 +1010,7 @@ config CRYPTO_SHA512
 config CRYPTO_SHA3
 	tristate "SHA-3"
 	select CRYPTO_HASH
+	select CRYPTO_LIB_SHA3
 	help
 	  SHA-3 secure hash algorithms (FIPS 202, ISO/IEC 10118-3)
 
