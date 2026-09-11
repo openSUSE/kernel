@@ -482,12 +482,18 @@ static void inode_switch_wbs(struct inode *inode, int new_wb_id)
 	if (!isw)
 		return;
 
-	/* find and pin the new wb */
+	/*
+	 * Paired with synchronize_rcu() in cgroup_writeback_umount():
+	 * holding rcu_read_lock across the SB_ACTIVE check, the inode
+	 * grab and call_rcu() ensures synchronize_rcu() cannot return
+	 * until the switch is queued, so the subsequent rcu_barrier()
+	 * and flush_workqueue() will wait for the switch.
+	 */
 	rcu_read_lock();
+	/* find and pin the new wb */
 	memcg_css = css_from_id(new_wb_id, &memory_cgrp_subsys);
 	if (memcg_css && !css_tryget(memcg_css))
 		memcg_css = NULL;
-	rcu_read_unlock();
 	if (!memcg_css)
 		goto out_free;
 
@@ -519,10 +525,11 @@ static void inode_switch_wbs(struct inode *inode, int new_wb_id)
 	call_rcu(&isw->rcu_head, inode_switch_wbs_rcu_fn);
 
 	atomic_inc(&isw_nr_in_flight);
-
+	rcu_read_unlock();
 	return;
 
 out_free:
+	rcu_read_unlock();
 	if (isw->new_wb)
 		wb_put(isw->new_wb);
 	kfree(isw);
@@ -897,6 +904,14 @@ restart:
 void cgroup_writeback_umount(void)
 {
 	if (atomic_read(&isw_nr_in_flight)) {
+		/*
+		 * Paired with rcu_read_lock() in inode_switch_wbs().
+		 * synchronize_rcu() waits for any in-flight switcher that
+		 * already passed the SB_ACTIVE check to finish calling
+		 * call_rcu(), so the rcu_barrier() and flush_workqueue()
+		 * below will then drain it.
+		 */
+		synchronize_rcu();
 		/*
 		 * Use rcu_barrier() to wait for all pending callbacks to
 		 * ensure that all in-flight wb switches are in the workqueue.
