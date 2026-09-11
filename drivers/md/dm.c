@@ -745,6 +745,13 @@ static void dm_put_live_table_fast(struct mapped_device *md) __releases(RCU)
 
 static char *_dm_claim_ptr = "I belong to device-mapper";
 
+/* mwilck: from 4c7ceeb62d33 ("cred: add kernel_cred() helper") */
+static inline const struct cred *kernel_cred(void)
+{
+       /* shut up sparse */
+       return rcu_dereference_raw(init_task.cred);
+}
+
 /*
  * Open a table device so we can use it as a map destination.
  */
@@ -754,6 +761,7 @@ static struct table_device *open_table_device(struct mapped_device *md,
 	struct table_device *td;
 	struct file *bdev_file;
 	struct block_device *bdev;
+	const struct cred *cred;
 	u64 part_off;
 	int r;
 
@@ -762,6 +770,18 @@ static struct table_device *open_table_device(struct mapped_device *md,
 		return ERR_PTR(-ENOMEM);
 	refcount_set(&td->count, 1);
 
+	/*
+	 * Open the backing device with kernel rather than caller
+	 * credentials. Otherwise the caller's credentials would be
+	 * pinned in bdev_file->f_cred until the table device is closed.
+	 * That would keep the caller's thread keyring alive long beyond the
+	 * lifetime of the caller, breaking userspace expectation (e.g.
+	 * cryptsetup(8) leaking the LUKS volume key).
+	 *
+	 * mwilck: BACKPORT NOTE: be sure to call revert_creds(cred)
+	 * on every return path!
+	 */
+	cred = override_creds(kernel_cred());
 	bdev_file = bdev_file_open_by_dev(dev, mode, _dm_claim_ptr, NULL);
 	if (IS_ERR(bdev_file)) {
 		r = PTR_ERR(bdev_file);
@@ -788,11 +808,16 @@ static struct table_device *open_table_device(struct mapped_device *md,
 						NULL, NULL);
 	format_dev_t(td->dm_dev.name, dev);
 	list_add(&td->list, &md->table_devices);
+
+	revert_creds(cred);
+
 	return td;
 
 out_blkdev_put:
 	__fput_sync(bdev_file);
 out_free_td:
+	revert_creds(cred);
+
 	kfree(td);
 	return ERR_PTR(r);
 }

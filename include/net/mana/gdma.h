@@ -182,6 +182,7 @@ struct gdma_general_req {
 #define GDMA_MESSAGE_V2 2
 #define GDMA_MESSAGE_V3 3
 #define GDMA_MESSAGE_V4 4
+#define GDMA_MESSAGE_V5 5
 
 struct gdma_general_resp {
 	struct gdma_resp_hdr hdr;
@@ -239,6 +240,14 @@ struct gdma_mem_info {
 	dma_addr_t dma_handle;
 	void *virt_addr;
 	u64 length;
+
+	/* Scattered fallback: when @nr_pages > 0 the ring is that many
+	 * PAGE_SIZE coherent allocations in @pages_va/@pages_dma, not
+	 * @virt_addr/@dma_handle.
+	 */
+	void **pages_va;
+	dma_addr_t *pages_dma;
+	unsigned int nr_pages;
 
 	/* Allocated by the PF driver */
 	u64 dma_region_handle;
@@ -428,6 +437,9 @@ struct gdma_context {
 	/* L2 MTU */
 	u16 adapter_mtu;
 
+	/* NIC supports CQE x8 coalescing */
+	bool cqe8_coalescing_sup;
+
 	/* This maps a CQ index to the queue structure. */
 	unsigned int		max_num_cqs;
 	struct gdma_queue	**cq_table;
@@ -511,6 +523,9 @@ void mana_gd_destroy_queue(struct gdma_context *gc, struct gdma_queue *queue);
 int mana_gd_poll_cq(struct gdma_queue *cq, struct gdma_comp *comp, int num_cqe);
 
 void mana_gd_ring_cq(struct gdma_queue *cq, u8 arm_bit);
+
+ssize_t mana_gd_read_ring(struct gdma_queue *q, char __user *buf,
+			  size_t count, loff_t *pos);
 
 int mana_schedule_serv_work(struct gdma_context *gc, enum gdma_eqe_type type);
 
@@ -668,6 +683,9 @@ enum {
 /* Driver supports dynamic interrupt moderation - DIM */
 #define GDMA_DRV_CAP_FLAG_1_DYN_INTERRUPT_MODERATION BIT(28)
 
+/* Driver supports non-contiguous queue buffers */
+#define GDMA_DRV_CAP_FLAG_1_NON_CONTIGUOUS_BUFFERS BIT(30)
+
 #define GDMA_DRV_CAP_FLAGS1 \
 	(GDMA_DRV_CAP_FLAG_1_EQ_SHARING_MULTI_VPORT | \
 	 GDMA_DRV_CAP_FLAG_1_NAPI_WKDONE_FIX | \
@@ -684,7 +702,8 @@ enum {
 	 GDMA_DRV_CAP_FLAG_1_HANDLE_STALL_SQ_RECOVERY | \
 	 GDMA_DRV_CAP_FLAG_1_HWC_TIMEOUT_RECOVERY | \
 	 GDMA_DRV_CAP_FLAG_1_EQ_MSI_UNSHARE_MULTI_VPORT | \
-	 GDMA_DRV_CAP_FLAG_1_DYN_INTERRUPT_MODERATION)
+	 GDMA_DRV_CAP_FLAG_1_DYN_INTERRUPT_MODERATION | \
+	 GDMA_DRV_CAP_FLAG_1_NON_CONTIGUOUS_BUFFERS)
 
 #define GDMA_DRV_CAP_FLAGS2 0
 
@@ -1045,7 +1064,7 @@ void mana_gd_wq_ring_doorbell(struct gdma_context *gc,
 			      struct gdma_queue *queue);
 
 int mana_gd_alloc_memory(struct gdma_context *gc, unsigned int length,
-			 struct gdma_mem_info *gmi);
+			 struct gdma_mem_info *gmi, bool allow_scatter);
 
 void mana_gd_free_memory(struct gdma_mem_info *gmi);
 
