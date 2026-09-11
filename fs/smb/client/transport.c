@@ -1255,8 +1255,11 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 
 	for (i = 0; i < num_rqst; i++) {
 		rc = wait_for_response(server, midQ[i]);
-		if (rc != 0)
+		if (rc != 0) {
+			if (rc == -ECONNABORTED)
+				rc = -EAGAIN;
 			break;
+		}
 	}
 	if (rc != 0) {
 		for (; i < num_rqst; i++) {

@@ -4672,6 +4672,9 @@ smb2_async_writev(struct cifs_writedata *wdata,
 	rc = cifs_call_async(server, &rqst, NULL, smb2_writev_callback, NULL,
 			     wdata, flags, &wdata->credits);
 
+	if (rc == -ECONNABORTED)
+		rc = -EAGAIN;
+
 	if (rc) {
 		trace_smb3_write_err(0 /* no xid */,
 				     io_parms->persistent_fid,
