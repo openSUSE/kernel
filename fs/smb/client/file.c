@@ -2781,6 +2781,7 @@ retry:
 		if (nr_pages == 0) {
 			kref_put(&wdata->refcount, cifs_writedata_release);
 			add_credits_and_wake_if(server, credits, 0);
+			cond_resched();
 			continue;
 		}
 
@@ -2821,6 +2822,7 @@ retry:
 
 		if (wbc->sync_mode == WB_SYNC_ALL && rc == -EAGAIN) {
 			index = saved_index;
+			cond_resched();
 			continue;
 		}
 
@@ -2830,8 +2832,11 @@ retry:
 			break;
 		}
 
-		if (rc != 0 && saved_rc == 0)
-			saved_rc = rc;
+		if (rc != 0) {
+			if (saved_rc == 0)
+				saved_rc = rc;
+			cond_resched();
+		}
 
 		wbc->nr_to_write -= nr_pages;
 		if (wbc->nr_to_write <= 0)
@@ -2847,6 +2852,7 @@ retry:
 		 */
 		scanned = true;
 		index = 0;
+		cond_resched();
 		goto retry;
 	}
 

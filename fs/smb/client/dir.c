@@ -478,6 +478,12 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 		goto out;
 
 	server = tcon->ses->server;
+	rc = check_server_down(server);
+	if (unlikely(rc)) {
+		if (rc == -ECONNABORTED)
+			rc = -EAGAIN;
+		goto out;
+	}
 
 	if (server->ops->new_lease_key)
 		server->ops->new_lease_key(&fid);

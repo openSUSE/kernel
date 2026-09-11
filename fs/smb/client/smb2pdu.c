@@ -396,6 +396,22 @@ static int smb2_plain_req_init(__le16 smb2_command, struct cifs_tcon *tcon,
 {
 	int rc;
 
+	rc = check_server_down(server);
+	if (unlikely(rc)) {
+		if (rc == -EHOSTDOWN)
+			return rc;
+
+		switch (smb2_command) {
+		case SMB2_READ:
+		case SMB2_WRITE:
+		case SMB2_CREATE:
+			wake_up_all(&server->response_q);
+			cond_resched();
+			msleep(200);
+			return rc;
+		}
+	}
+
 	rc = smb2_reconnect(smb2_command, tcon, server);
 	if (rc)
 		return rc;
