@@ -744,6 +744,11 @@ static inline void sysfs_unlink_rdev(struct mddev *mddev, struct md_rdev *rdev)
 #define rdev_for_each_list(rdev, tmp, head)				\
 	list_for_each_entry_safe(rdev, tmp, head, same_set)
 
+static inline bool md_cloned_bio(struct mddev *mddev, struct bio *bio)
+{
+	return bio->bi_pool == &mddev->io_clone_set;
+}
+
 /*
  * iterates through the 'same array disks' ringlist
  */
