@@ -1393,6 +1393,7 @@ static void _ipmi_destroy_user(struct ipmi_user *user)
 		}
 	}
 	mutex_unlock(&intf->cmd_rcvrs_mutex);
+	synchronize_rcu();
 	while (rcvrs) {
 		rcvr = rcvrs;
 		rcvrs = rcvr->next;
