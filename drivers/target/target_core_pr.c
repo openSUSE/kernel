@@ -3777,8 +3777,6 @@ after_iport_check:
 					" REGISTER_AND_MOVE\n");
 	}
 
-	transport_kunmap_data_sg(cmd);
-
 	core_scsi3_put_pr_reg(dest_pr_reg);
 	return 0;
 out:
