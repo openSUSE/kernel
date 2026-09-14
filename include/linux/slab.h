@@ -757,11 +757,7 @@ static inline __alloc_size(1, 2) void *kvcalloc(size_t n, size_t size, gfp_t fla
 ({									\
 	const size_t __count = (COUNT);					\
 	const size_t __obj_size = struct_size_t(TYPE, FAM, __count);	\
-	TYPE *__obj_ptr;						\
-	if (WARN_ON_ONCE(overflows_flex_counter_type(TYPE, FAM,	__count))) \
-		__obj_ptr = NULL;					\
-	else								\
-		__obj_ptr = KMALLOC(__obj_size, GFP);			\
+	TYPE *__obj_ptr = KMALLOC(__obj_size, GFP);			\
 	if (__obj_ptr)							\
 		__set_flex_counter(__obj_ptr->FAM, __count);		\
 	__obj_ptr;							\
