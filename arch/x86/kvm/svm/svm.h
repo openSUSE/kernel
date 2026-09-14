@@ -103,6 +103,7 @@ struct kvm_sev_info {
 	u64 ap_jump_table;	/* SEV-ES AP Jump Table address */
 	u64 vmsa_features;
 	u16 ghcb_version;	/* Highest guest GHCB protocol version allowed */
+	/* The three fields below are protected by sev_mirror_lock */
 	struct kvm *enc_context_owner; /* Owner of copied encryption context */
 	struct list_head mirror_vms; /* List of VMs mirroring */
 	struct list_head mirror_entry; /* Use as a list entry of mirrors */
@@ -368,20 +369,18 @@ static __always_inline struct kvm_sev_info *to_kvm_sev_info(struct kvm *kvm)
 #ifdef CONFIG_KVM_AMD_SEV
 static __always_inline bool sev_guest(struct kvm *kvm)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
-
-	return sev->active;
+	return to_kvm_sev_info(kvm)->active;
 }
 static __always_inline bool sev_es_guest(struct kvm *kvm)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 
 	return sev->es_active && !WARN_ON_ONCE(!sev->active);
 }
 
 static __always_inline bool sev_snp_guest(struct kvm *kvm)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 
 	return (sev->vmsa_features & SVM_SEV_FEAT_SNP_ACTIVE) &&
 	       !WARN_ON_ONCE(!sev_es_guest(kvm));

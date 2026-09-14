@@ -92,6 +92,8 @@ static u64 sev_supported_vmsa_features;
 static u8 sev_enc_bit;
 static DECLARE_RWSEM(sev_deactivate_lock);
 static DEFINE_MUTEX(sev_bitmap_lock);
+/* Protects kvm_sev_info's enc_context_owner, mirror_vms and mirror_entry.  */
+static DEFINE_MUTEX(sev_mirror_lock);
 unsigned int max_sev_asid;
 static unsigned int min_sev_asid;
 static unsigned long sev_me_mask;
@@ -150,7 +152,7 @@ static inline bool is_mirroring_enc_context(struct kvm *kvm)
 static bool sev_vcpu_has_debug_swap(struct vcpu_svm *svm)
 {
 	struct kvm_vcpu *vcpu = &svm->vcpu;
-	struct kvm_sev_info *sev = &to_kvm_svm(vcpu->kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(vcpu->kvm);
 
 	return sev->vmsa_features & SVM_SEV_FEAT_DEBUG_SWAP;
 }
@@ -244,9 +246,7 @@ e_uncharge:
 
 static unsigned int sev_get_asid(struct kvm *kvm)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
-
-	return sev->asid;
+	return to_kvm_sev_info(kvm)->asid;
 }
 
 static void sev_asid_free(struct kvm_sev_info *sev)
@@ -421,7 +421,7 @@ static int __sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp,
 			    struct kvm_sev_init *data,
 			    unsigned long vm_type)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_platform_init_args init_args = {0};
 	bool es_active = vm_type != KVM_X86_SEV_VM;
 	bool snp_active = vm_type == KVM_X86_SNP_VM;
@@ -525,10 +525,9 @@ static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
 
 static int sev_guest_init2(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct kvm_sev_init data;
 
-	if (!sev->need_init)
+	if (!to_kvm_sev_info(kvm)->need_init)
 		return -EINVAL;
 
 	if (kvm->arch.vm_type != KVM_X86_SEV_VM &&
@@ -568,14 +567,14 @@ static int __sev_issue_cmd(int fd, int id, void *data, int *error)
 
 static int sev_issue_cmd(struct kvm *kvm, int id, void *data, int *error)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 
 	return __sev_issue_cmd(sev->fd, id, data, error);
 }
 
 static int sev_launch_start(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_data_launch_start start;
 	struct kvm_sev_launch_start params;
 	void *dh_blob, *session_blob;
@@ -649,7 +648,7 @@ static struct page **sev_pin_memory(struct kvm *kvm, unsigned long uaddr,
 				    unsigned long ulen, unsigned long *n,
 				    int write)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	unsigned long npages, size;
 	int npinned;
 	unsigned long locked, lock_limit;
@@ -714,11 +713,9 @@ err:
 static void sev_unpin_memory(struct kvm *kvm, struct page **pages,
 			     unsigned long npages)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
-
 	unpin_user_pages(pages, npages);
 	kvfree(pages);
-	sev->pages_locked -= npages;
+	to_kvm_sev_info(kvm)->pages_locked -= npages;
 }
 
 static void sev_clflush_pages(struct page *pages[], unsigned long npages)
@@ -762,7 +759,6 @@ static unsigned long get_num_contig_pages(unsigned long idx,
 static int sev_launch_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
 	unsigned long vaddr, vaddr_end, next_vaddr, npages, pages, size, i;
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct kvm_sev_launch_update_data params;
 	struct sev_data_launch_update_data data;
 	struct page **inpages;
@@ -790,7 +786,7 @@ static int sev_launch_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	sev_clflush_pages(inpages, npages);
 
 	data.reserved = 0;
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 
 	for (i = 0; vaddr < vaddr_end; vaddr = next_vaddr, i += pages) {
 		int offset, len;
@@ -830,7 +826,7 @@ e_unpin:
 static int sev_es_sync_vmsa(struct vcpu_svm *svm)
 {
 	struct kvm_vcpu *vcpu = &svm->vcpu;
-	struct kvm_sev_info *sev = &to_kvm_svm(vcpu->kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(vcpu->kvm);
 	struct sev_es_save_area *save = svm->sev_es.vmsa;
 	struct xregs_state *xsave;
 	const u8 *s;
@@ -1008,7 +1004,6 @@ static int sev_launch_update_vmsa(struct kvm *kvm, struct kvm_sev_cmd *argp)
 static int sev_launch_measure(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
 	void __user *measure = u64_to_user_ptr(argp->data);
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_launch_measure data;
 	struct kvm_sev_launch_measure params;
 	void __user *p = NULL;
@@ -1041,7 +1036,7 @@ static int sev_launch_measure(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	}
 
 cmd:
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_LAUNCH_MEASURE, &data, &argp->error);
 
 	/*
@@ -1069,19 +1064,17 @@ e_free_blob:
 
 static int sev_launch_finish(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_launch_finish data;
 
 	if (!sev_guest(kvm))
 		return -ENOTTY;
 
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	return sev_issue_cmd(kvm, SEV_CMD_LAUNCH_FINISH, &data, &argp->error);
 }
 
 static int sev_guest_status(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct kvm_sev_guest_status params;
 	struct sev_data_guest_status data;
 	int ret;
@@ -1091,7 +1084,7 @@ static int sev_guest_status(struct kvm *kvm, struct kvm_sev_cmd *argp)
 
 	memset(&data, 0, sizeof(data));
 
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_GUEST_STATUS, &data, &argp->error);
 	if (ret)
 		return ret;
@@ -1110,11 +1103,10 @@ static int __sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
 			       unsigned long dst, int size,
 			       int *error, bool enc)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_dbg data;
 
 	data.reserved = 0;
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	data.dst_addr = dst;
 	data.src_addr = src;
 	data.len = size;
@@ -1339,7 +1331,6 @@ err:
 
 static int sev_launch_secret(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_launch_secret data;
 	struct kvm_sev_launch_secret params;
 	struct page **pages;
@@ -1395,7 +1386,7 @@ static int sev_launch_secret(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	data.hdr_address = __psp_pa(hdr);
 	data.hdr_len = params.hdr_len;
 
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_LAUNCH_UPDATE_SECRET, &data, &argp->error);
 
 	kfree(hdr);
@@ -1415,7 +1406,6 @@ e_unpin_memory:
 static int sev_get_attestation_report(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
 	void __user *report = u64_to_user_ptr(argp->data);
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_attestation_report data;
 	struct kvm_sev_attestation_report params;
 	void __user *p;
@@ -1448,7 +1438,7 @@ static int sev_get_attestation_report(struct kvm *kvm, struct kvm_sev_cmd *argp)
 		memcpy(data.mnonce, params.mnonce, sizeof(params.mnonce));
 	}
 cmd:
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_ATTESTATION_REPORT, &data, &argp->error);
 	/*
 	 * If we query the session length, FW responded with expected data.
@@ -1478,12 +1468,11 @@ static int
 __sev_send_start_query_session_length(struct kvm *kvm, struct kvm_sev_cmd *argp,
 				      struct kvm_sev_send_start *params)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_send_start data;
 	int ret;
 
 	memset(&data, 0, sizeof(data));
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_SEND_START, &data, &argp->error);
 
 	params->session_len = data.session_len;
@@ -1496,7 +1485,6 @@ __sev_send_start_query_session_length(struct kvm *kvm, struct kvm_sev_cmd *argp,
 
 static int sev_send_start(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_send_start data;
 	struct kvm_sev_send_start params;
 	void *amd_certs, *session_data;
@@ -1557,7 +1545,7 @@ static int sev_send_start(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	data.amd_certs_len = params.amd_certs_len;
 	data.session_address = __psp_pa(session_data);
 	data.session_len = params.session_len;
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 
 	ret = sev_issue_cmd(kvm, SEV_CMD_SEND_START, &data, &argp->error);
 
@@ -1589,12 +1577,11 @@ static int
 __sev_send_update_data_query_lengths(struct kvm *kvm, struct kvm_sev_cmd *argp,
 				     struct kvm_sev_send_update_data *params)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_send_update_data data;
 	int ret;
 
 	memset(&data, 0, sizeof(data));
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_SEND_UPDATE_DATA, &data, &argp->error);
 
 	params->hdr_len = data.hdr_len;
@@ -1609,7 +1596,6 @@ __sev_send_update_data_query_lengths(struct kvm *kvm, struct kvm_sev_cmd *argp,
 
 static int sev_send_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_send_update_data data;
 	struct kvm_sev_send_update_data params;
 	void *hdr, *trans_data;
@@ -1663,7 +1649,7 @@ static int sev_send_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	data.guest_address = (page_to_pfn(guest_page[0]) << PAGE_SHIFT) + offset;
 	data.guest_address |= sev_me_mask;
 	data.guest_len = params.guest_len;
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 
 	ret = sev_issue_cmd(kvm, SEV_CMD_SEND_UPDATE_DATA, &data, &argp->error);
 
@@ -1694,31 +1680,29 @@ e_unpin:
 
 static int sev_send_finish(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_send_finish data;
 
 	if (!sev_guest(kvm))
 		return -ENOTTY;
 
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	return sev_issue_cmd(kvm, SEV_CMD_SEND_FINISH, &data, &argp->error);
 }
 
 static int sev_send_cancel(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_send_cancel data;
 
 	if (!sev_guest(kvm))
 		return -ENOTTY;
 
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	return sev_issue_cmd(kvm, SEV_CMD_SEND_CANCEL, &data, &argp->error);
 }
 
 static int sev_receive_start(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_data_receive_start start;
 	struct kvm_sev_receive_start params;
 	int *error = &argp->error;
@@ -1792,7 +1776,6 @@ e_free_pdh:
 
 static int sev_receive_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct kvm_sev_receive_update_data params;
 	struct sev_data_receive_update_data data;
 	void *hdr = NULL, *trans = NULL;
@@ -1852,7 +1835,7 @@ static int sev_receive_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	data.guest_address = (page_to_pfn(guest_page[0]) << PAGE_SHIFT) + offset;
 	data.guest_address |= sev_me_mask;
 	data.guest_len = params.guest_len;
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 
 	ret = sev_issue_cmd(kvm, SEV_CMD_RECEIVE_UPDATE_DATA, &data,
 				&argp->error);
@@ -1869,13 +1852,12 @@ e_free_hdr:
 
 static int sev_receive_finish(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	struct sev_data_receive_finish data;
 
 	if (!sev_guest(kvm))
 		return -ENOTTY;
 
-	data.handle = sev->handle;
+	data.handle = to_kvm_sev_info(kvm)->handle;
 	return sev_issue_cmd(kvm, SEV_CMD_RECEIVE_FINISH, &data, &argp->error);
 }
 
@@ -1895,8 +1877,8 @@ static bool is_cmd_allowed_from_mirror(u32 cmd_id)
 
 static int sev_lock_two_vms(struct kvm *dst_kvm, struct kvm *src_kvm)
 {
-	struct kvm_sev_info *dst_sev = &to_kvm_svm(dst_kvm)->sev_info;
-	struct kvm_sev_info *src_sev = &to_kvm_svm(src_kvm)->sev_info;
+	struct kvm_sev_info *dst_sev = to_kvm_sev_info(dst_kvm);
+	struct kvm_sev_info *src_sev = to_kvm_sev_info(src_kvm);
 	int r = -EBUSY;
 
 	if (dst_kvm == src_kvm)
@@ -1930,8 +1912,8 @@ release_dst:
 
 static void sev_unlock_two_vms(struct kvm *dst_kvm, struct kvm *src_kvm)
 {
-	struct kvm_sev_info *dst_sev = &to_kvm_svm(dst_kvm)->sev_info;
-	struct kvm_sev_info *src_sev = &to_kvm_svm(src_kvm)->sev_info;
+	struct kvm_sev_info *dst_sev = to_kvm_sev_info(dst_kvm);
+	struct kvm_sev_info *src_sev = to_kvm_sev_info(src_kvm);
 
 	mutex_unlock(&dst_kvm->lock);
 	mutex_unlock(&src_kvm->lock);
@@ -1941,8 +1923,8 @@ static void sev_unlock_two_vms(struct kvm *dst_kvm, struct kvm *src_kvm)
 
 static void sev_migrate_from(struct kvm *dst_kvm, struct kvm *src_kvm)
 {
-	struct kvm_sev_info *dst = &to_kvm_svm(dst_kvm)->sev_info;
-	struct kvm_sev_info *src = &to_kvm_svm(src_kvm)->sev_info;
+	struct kvm_sev_info *dst = to_kvm_sev_info(dst_kvm);
+	struct kvm_sev_info *src = to_kvm_sev_info(src_kvm);
 	struct kvm_vcpu *dst_vcpu, *src_vcpu;
 	struct vcpu_svm *dst_svm, *src_svm;
 	struct kvm_sev_info *mirror;
@@ -1952,7 +1934,6 @@ static void sev_migrate_from(struct kvm *dst_kvm, struct kvm *src_kvm)
 	dst->asid = src->asid;
 	dst->handle = src->handle;
 	dst->pages_locked = src->pages_locked;
-	dst->enc_context_owner = src->enc_context_owner;
 	dst->es_active = src->es_active;
 	dst->vmsa_features = src->vmsa_features;
 
@@ -1960,10 +1941,11 @@ static void sev_migrate_from(struct kvm *dst_kvm, struct kvm *src_kvm)
 	src->active = false;
 	src->handle = 0;
 	src->pages_locked = 0;
-	src->enc_context_owner = NULL;
 	src->es_active = false;
 
 	list_cut_before(&dst->regions_list, &src->regions_list, &src->regions_list);
+
+	mutex_lock(&sev_mirror_lock);
 
 	/*
 	 * If this VM has mirrors, "transfer" each mirror's refcount of the
@@ -1981,13 +1963,15 @@ static void sev_migrate_from(struct kvm *dst_kvm, struct kvm *src_kvm)
 	 * If this VM is a mirror, remove the old mirror from the owners list
 	 * and add the new mirror to the list.
 	 */
-	if (is_mirroring_enc_context(dst_kvm)) {
-		struct kvm_sev_info *owner_sev_info =
-			&to_kvm_svm(dst->enc_context_owner)->sev_info;
+	if (is_mirroring_enc_context(src_kvm)) {
+		struct kvm_sev_info *owner_sev_info = to_kvm_sev_info(src->enc_context_owner);
 
+		dst->enc_context_owner = src->enc_context_owner;
+		src->enc_context_owner = NULL;
 		list_del(&src->mirror_entry);
 		list_add_tail(&dst->mirror_entry, &owner_sev_info->mirror_vms);
 	}
+	mutex_unlock(&sev_mirror_lock);
 
 	kvm_for_each_vcpu(i, dst_vcpu, dst_kvm) {
 		dst_svm = to_svm(dst_vcpu);
@@ -2046,7 +2030,7 @@ static int sev_check_source_vcpus(struct kvm *dst, struct kvm *src)
 
 int sev_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 {
-	struct kvm_sev_info *dst_sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *dst_sev = to_kvm_sev_info(kvm);
 	struct kvm_sev_info *src_sev, *cg_cleanup_sev;
 	CLASS(fd, f)(source_fd);
 	struct kvm *source_kvm;
@@ -2071,7 +2055,7 @@ int sev_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 		goto out_unlock;
 	}
 
-	src_sev = &to_kvm_svm(source_kvm)->sev_info;
+	src_sev = to_kvm_sev_info(source_kvm);
 
 	dst_sev->misc_cg = get_current_misc_cg();
 	cg_cleanup_sev = dst_sev;
@@ -2162,7 +2146,7 @@ static void *snp_context_create(struct kvm *kvm, struct kvm_sev_cmd *argp)
 
 static int snp_bind_asid(struct kvm *kvm, int *error)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_data_snp_activate data = {0};
 
 	data.gctx_paddr = __psp_pa(sev->snp_context);
@@ -2172,7 +2156,7 @@ static int snp_bind_asid(struct kvm *kvm, int *error)
 
 static int snp_launch_start(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_data_snp_launch_start start = {0};
 	struct kvm_sev_snp_launch_start params;
 	int rc;
@@ -2249,7 +2233,7 @@ static int sev_gmem_post_populate(struct kvm *kvm, gfn_t gfn_start, kvm_pfn_t pf
 				  void __user *src, int order, void *opaque)
 {
 	struct sev_gmem_populate_args *sev_populate_args = opaque;
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	int n_private = 0, ret, i;
 	int npages = (1 << order);
 	gfn_t gfn;
@@ -2340,7 +2324,7 @@ err:
 
 static int snp_launch_update(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_gmem_populate_args sev_populate_args = {0};
 	struct kvm_sev_snp_launch_update params;
 	struct kvm_memory_slot *memslot;
@@ -2424,7 +2408,7 @@ out:
 
 static int snp_launch_update_vmsa(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_data_snp_launch_update data = {};
 	struct kvm_vcpu *vcpu;
 	unsigned long i;
@@ -2481,7 +2465,7 @@ out:
 
 static int snp_launch_finish(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct kvm_sev_snp_launch_finish params;
 	struct sev_data_snp_launch_finish *data;
 	void *id_block = NULL, *id_auth = NULL;
@@ -2689,7 +2673,7 @@ out:
 int sev_mem_enc_register_region(struct kvm *kvm,
 				struct kvm_enc_region *range)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct enc_region *region;
 	int ret = 0;
 
@@ -2739,7 +2723,7 @@ e_free:
 static struct enc_region *
 find_enc_region(struct kvm *kvm, struct kvm_enc_region *range)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct list_head *head = &sev->regions_list;
 	struct enc_region *i;
 
@@ -2835,13 +2819,16 @@ int sev_vm_copy_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 	 * The mirror kvm holds an enc_context_owner ref so its asid can't
 	 * disappear until we're done with it
 	 */
-	source_sev = &to_kvm_svm(source_kvm)->sev_info;
-	kvm_get_kvm(source_kvm);
-	mirror_sev = &to_kvm_svm(kvm)->sev_info;
-	list_add_tail(&mirror_sev->mirror_entry, &source_sev->mirror_vms);
+	source_sev = to_kvm_sev_info(source_kvm);
+	mirror_sev = to_kvm_sev_info(kvm);
 
 	/* Set enc_context_owner and copy its encryption context over */
+	mutex_lock(&sev_mirror_lock);
+	kvm_get_kvm(source_kvm);
+	list_add_tail(&mirror_sev->mirror_entry, &source_sev->mirror_vms);
 	mirror_sev->enc_context_owner = source_kvm;
+	mutex_unlock(&sev_mirror_lock);
+
 	mirror_sev->active = true;
 	mirror_sev->asid = source_sev->asid;
 	mirror_sev->fd = source_sev->fd;
@@ -2865,7 +2852,7 @@ e_unlock:
 
 static int snp_decommission_context(struct kvm *kvm)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct sev_data_snp_addr data = {};
 	int ret;
 
@@ -2890,7 +2877,7 @@ static int snp_decommission_context(struct kvm *kvm)
 
 void sev_vm_destroy(struct kvm *kvm)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	struct list_head *head = &sev->regions_list;
 	struct list_head *pos, *q;
 
@@ -2901,11 +2888,19 @@ void sev_vm_destroy(struct kvm *kvm)
 
 	/* If this is a mirror_kvm release the enc_context_owner and skip sev cleanup */
 	if (is_mirroring_enc_context(kvm)) {
-		struct kvm *owner_kvm = sev->enc_context_owner;
+		struct kvm *owner_kvm;
 
-		mutex_lock(&owner_kvm->lock);
+		mutex_lock(&sev_mirror_lock);
+		owner_kvm = sev->enc_context_owner;
 		list_del(&sev->mirror_entry);
-		mutex_unlock(&owner_kvm->lock);
+		sev->enc_context_owner = NULL;
+
+		/*
+		 * The reference to owner_kvm cannot move after sev_mirror_lock is
+		 * released.  Release it before kvm_put_kvm() so that owner_kvm is
+		 * never destroyed inside sev_mirror_lock.
+		 */
+		mutex_unlock(&sev_mirror_lock);
 		kvm_put_kvm(owner_kvm);
 		return;
 	}
@@ -4009,7 +4004,6 @@ unlock:
 
 static int sev_snp_ap_creation(struct vcpu_svm *svm)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(svm->vcpu.kvm)->sev_info;
 	struct kvm_vcpu *vcpu = &svm->vcpu;
 	struct kvm_vcpu *target_vcpu;
 	struct vcpu_svm *target_svm;
@@ -4046,7 +4040,7 @@ static int sev_snp_ap_creation(struct vcpu_svm *svm)
 		u64 sev_features;
 
 		sev_features = vcpu->arch.regs[VCPU_REGS_RAX];
-		sev_features ^= sev->vmsa_features;
+		sev_features ^= to_kvm_sev_info(svm->vcpu.kvm)->vmsa_features;
 
 		if (sev_features & SVM_SEV_FEAT_INT_INJ_MODES) {
 			vcpu_unimpl(vcpu, "vmgexit: invalid AP injection mode [%#lx] from guest\n",
@@ -4247,7 +4241,7 @@ static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
 {
 	struct vmcb_control_area *control = &svm->vmcb->control;
 	struct kvm_vcpu *vcpu = &svm->vcpu;
-	struct kvm_sev_info *sev = &to_kvm_svm(vcpu->kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(vcpu->kvm);
 	u64 ghcb_info;
 	int ret = 1;
 
@@ -4490,7 +4484,7 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 		ret = kvm_emulate_ap_reset_hold(vcpu);
 		break;
 	case SVM_VMGEXIT_AP_JUMP_TABLE: {
-		struct kvm_sev_info *sev = &to_kvm_svm(vcpu->kvm)->sev_info;
+		struct kvm_sev_info *sev = to_kvm_sev_info(vcpu->kvm);
 
 		switch (control->exit_info_1) {
 		case 0:
@@ -5024,7 +5018,7 @@ static bool is_large_rmp_possible(struct kvm *kvm, kvm_pfn_t pfn, int order)
 
 int sev_gmem_prepare(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn, int max_order)
 {
-	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+	struct kvm_sev_info *sev = to_kvm_sev_info(kvm);
 	kvm_pfn_t pfn_aligned;
 	gfn_t gfn_aligned;
 	int level, rc;
