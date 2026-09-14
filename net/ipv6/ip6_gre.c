@@ -1462,6 +1462,9 @@ static int ip6gre_changelink(struct net_device *dev, struct nlattr *tb[],
 	struct __ip6_tnl_parm p;
 	struct ip_tunnel_encap ipencap;
 
+	if (!rtnl_dev_link_net_capable(dev, net))
+		return -EPERM;
+
 	if (dev == ign->fb_tunnel_dev)
 		return -EINVAL;
 
