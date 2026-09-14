@@ -561,8 +561,10 @@ static void bm_evict_inode(struct inode *inode)
 {
 	Node *e = inode->i_private;
 
-	if (e && e->flags & MISC_FMT_OPEN_FILE)
+	if (e && e->flags & MISC_FMT_OPEN_FILE) {
+		allow_write_access(e->interp_file);
 		filp_close(e->interp_file, NULL);
+	}
 
 	clear_inode(inode);
 	kfree(e);
