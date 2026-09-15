@@ -474,8 +474,12 @@ static int configfs_attach_attr(struct configfs_dirent * sd, struct dentry * den
 				(sd->s_type & CONFIGFS_ITEM_BIN_ATTR) ?
 					configfs_init_bin_file :
 					configfs_init_file);
-	if (error)
+	if (error) {
+		spin_lock(&configfs_dirent_lock);
+		sd->s_dentry = NULL;
+		spin_unlock(&configfs_dirent_lock);
 		configfs_put(sd);
+	}
 	return error;
 }
 
