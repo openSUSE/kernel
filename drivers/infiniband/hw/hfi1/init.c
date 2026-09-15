@@ -1612,7 +1612,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* restrict value of hfi1_rcvarr_split */
 	hfi1_rcvarr_split = clamp_val(hfi1_rcvarr_split, 0, 100);
 
-	ret = hfi1_pcie_init(dd);
+	ret = hfi1_pcie_init(pdev);
 	if (ret)
 		goto bail;
 
