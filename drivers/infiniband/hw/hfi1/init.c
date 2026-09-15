@@ -1572,7 +1572,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 
 	/* Validate some global module parameters */
-	ret = hfi1_validate_rcvhdrcnt(dd, rcvhdrcnt);
+	ret = hfi1_validate_rcvhdrcnt(pdev, rcvhdrcnt);
 	if (ret)
 		goto bail;
 
