@@ -1561,25 +1561,16 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* First, lock the non-writable module parameters */
 	HFI1_CAP_LOCK();
 
-	/* Allocate the dd so we can get to work */
-	dd = hfi1_alloc_devdata(pdev, NUM_IB_PORTS *
-				sizeof(struct hfi1_pportdata));
-	if (IS_ERR(dd)) {
-		ret = PTR_ERR(dd);
-		goto bail;
-	}
-
 	/* Validate some global module parameters */
 	ret = hfi1_validate_rcvhdrcnt(pdev, rcvhdrcnt);
 	if (ret)
-		goto bail;
+		return ret;
 
 	/* use the encoding function as a sanitization check */
 	if (!encode_rcv_header_entry_size(hfi1_hdrq_entsize)) {
-		dd_dev_err(dd, "Invalid HdrQ Entry size %u\n",
-			   hfi1_hdrq_entsize);
-		ret = -EINVAL;
-		goto bail;
+		dev_err(&pdev->dev, "Invalid HdrQ Entry size %u\n",
+			hfi1_hdrq_entsize);
+		return -EINVAL;
 	}
 
 	/* The receive eager buffer size must be set before the receive
@@ -1599,12 +1590,10 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			clamp_val(eager_buffer_size,
 				  MIN_EAGER_BUFFER * 8,
 				  MAX_EAGER_BUFFER_TOTAL);
-		dd_dev_info(dd, "Eager buffer size %u\n",
-			    eager_buffer_size);
+		pci_info(pdev, "Eager buffer size %u\n", eager_buffer_size);
 	} else {
-		dd_dev_err(dd, "Invalid Eager buffer size of 0\n");
-		ret = -EINVAL;
-		goto bail;
+		dev_err(&pdev->dev, "Invalid Eager buffer size of 0\n");
+		return -EINVAL;
 	}
 
 	/* restrict value of hfi1_rcvarr_split */
@@ -1612,15 +1601,22 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	ret = hfi1_pcie_init(pdev);
 	if (ret)
-		goto bail;
+		return ret;
+
+	/* Allocate the dd so we can get to work */
+	dd = hfi1_alloc_devdata(pdev, NUM_IB_PORTS *
+				sizeof(struct hfi1_pportdata));
+	if (IS_ERR(dd)) {
+		ret = PTR_ERR(dd);
+		goto clean_pcie;
+	}
 
 	ret = create_workqueues(dd);
 	if (ret)
 		goto free_devdata;
 
 	/*
-	 * Do device-specific initialization, function table setup, dd
-	 * allocation, etc.
+	 * Do device-specific initialization, function table setup, etc.
 	 */
 	ret = hfi1_init_dd(dd);
 	if (ret)
@@ -1671,7 +1667,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		postinit_cleanup(dd);
 		if (initfail)
 			ret = initfail;
-		goto bail;	/* everything already cleaned */
+		return ret;	/* everything already cleaned */
 	}
 
 	sdma_start(dd);
@@ -1682,8 +1678,8 @@ destroy_workqueues:
 	destroy_workqueues(dd);
 free_devdata:
 	hfi1_free_devdata(dd);
+clean_pcie:
 	hfi1_pcie_cleanup(pdev);
-bail:
 	return ret;
 }
 
