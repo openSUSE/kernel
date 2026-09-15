@@ -95,6 +95,7 @@ struct hbucket {
 		: ((h) + 1) * jhash_size(HTABLE_REGION_BITS))
 
 struct htable_gc {
+	atomic_t work_disabled;
 	struct delayed_work dwork;
 	struct ip_set *set;	/* Set the gc belongs to */
 	u32 region;		/* Last gc run position */
@@ -460,8 +461,10 @@ mtype_destroy(struct ip_set *set)
 	struct htype *h = set->data;
 	struct list_head *l, *lt;
 
-	if (SET_WITH_TIMEOUT(set))
+	if (SET_WITH_TIMEOUT(set)) {
+		atomic_set(&h->gc.work_disabled, 1);
 		cancel_delayed_work_sync(&h->gc.dwork);
+	}
 
 	mtype_ahash_destroy(set, ipset_dereference_nfnl(h->table), true);
 	list_for_each_safe(l, lt, &h->ad) {
@@ -597,8 +600,8 @@ mtype_gc(struct work_struct *work)
 		pr_debug("Table destroy after resize by expire: %p\n", t);
 		mtype_ahash_destroy(set, t, false);
 	}
-
-	queue_delayed_work(system_power_efficient_wq, &gc->dwork, next_run);
+	if (!atomic_read(&gc->work_disabled))
+		queue_delayed_work(system_power_efficient_wq, &gc->dwork, next_run);
 
 }
 
