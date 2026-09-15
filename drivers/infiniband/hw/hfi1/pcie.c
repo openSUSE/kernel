@@ -21,10 +21,9 @@
 /*
  * Do all the common PCIe setup and initialization.
  */
-int hfi1_pcie_init(struct hfi1_devdata *dd)
+int hfi1_pcie_init(struct pci_dev *pdev)
 {
 	int ret;
-	struct pci_dev *pdev = dd->pcidev;
 
 	ret = pci_enable_device(pdev);
 	if (ret) {
@@ -40,13 +39,15 @@ int hfi1_pcie_init(struct hfi1_devdata *dd)
 		 * about that, it appears.  If the original BAR was retained
 		 * in the kernel data structures, this may be OK.
 		 */
-		dd_dev_err(dd, "pci enable failed: error %d\n", -ret);
+		dev_err(&pdev->dev, "pci enable failed: error %pe\n",
+			ERR_PTR(ret));
 		return ret;
 	}
 
 	ret = pci_request_regions(pdev, DRIVER_NAME);
 	if (ret) {
-		dd_dev_err(dd, "pci_request_regions fails: err %d\n", -ret);
+		dev_err(&pdev->dev, "pci_request_regions fails: err %pe\n",
+			ERR_PTR(ret));
 		goto bail;
 	}
 
@@ -59,7 +60,8 @@ int hfi1_pcie_init(struct hfi1_devdata *dd)
 		 */
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 		if (ret) {
-			dd_dev_err(dd, "Unable to set DMA mask: %d\n", ret);
+			dev_err(&pdev->dev, "Unable to set DMA mask: %pe\n",
+				ERR_PTR(ret));
 			goto bail;
 		}
 	}
