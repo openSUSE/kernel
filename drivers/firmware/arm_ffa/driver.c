@@ -45,7 +45,7 @@
 
 #include "common.h"
 
-#define FFA_DRIVER_VERSION	FFA_VERSION_1_2
+#define FFA_DRIVER_VERSION	FFA_VERSION_1_1
 #define FFA_MIN_VERSION		FFA_VERSION_1_0
 
 #define SENDER_ID_MASK		GENMASK(31, 16)
@@ -613,14 +613,6 @@ static u16 ffa_memory_attributes_get(u32 func_id)
 	return FFA_MEM_NORMAL | FFA_MEM_WRITE_BACK | FFA_MEM_INNER_SHAREABLE;
 }
 
-static void ffa_emad_impdef_value_init(u32 version, void *dst, void *src)
-{
-	struct ffa_mem_region_attributes *ep_mem_access;
-
-	if (FFA_EMAD_HAS_IMPDEF_FIELD(version))
-		memcpy(dst, src, sizeof(ep_mem_access->impdef_val));
-}
-
 static void
 ffa_mem_region_additional_setup(u32 version, struct ffa_mem_region *mem_region)
 {
@@ -674,9 +666,6 @@ ffa_setup_and_transmit(u32 func_id, void *buffer, u32 max_fragsize,
 		ep_mem_access->composite_off = composite_offset;
 		ep_mem_access->flag = 0;
 		ep_mem_access->reserved = 0;
-		ffa_emad_impdef_value_init(drv_info->version,
-					   ep_mem_access->impdef_val,
-					   args->attrs[idx].impdef_val);
 	}
 	mem_region->handle = 0;
 	mem_region->ep_count = args->nattrs;

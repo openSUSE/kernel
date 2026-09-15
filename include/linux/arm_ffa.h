@@ -326,7 +326,6 @@ struct ffa_mem_region_attributes {
 	 * an `struct ffa_mem_region_addr_range`.
 	 */
 	u32 composite_off;
-	u8 impdef_val[16];
 	u64 reserved;
 };
 
@@ -406,7 +405,6 @@ struct ffa_mem_region {
 #define CONSTITUENTS_OFFSET(x)	\
 	(offsetof(struct ffa_composite_mem_region, constituents[x]))
 
-#define FFA_EMAD_HAS_IMPDEF_FIELD(version)	((version) >= FFA_VERSION_1_2)
 #define FFA_MEM_REGION_HAS_EP_MEM_OFFSET(version) ((version) > FFA_VERSION_1_0)
 
 /* The layout changed from FFA_VERSION_1_0 and the region includes an
@@ -421,10 +419,7 @@ static inline u32 ffa_emad_size_get(u32 ffa_version)
 	u32 sz;
 	struct ffa_mem_region_attributes *ep_mem_access;
 
-	if (FFA_EMAD_HAS_IMPDEF_FIELD(ffa_version))
-		sz = sizeof(*ep_mem_access);
-	else
-		sz = sizeof(*ep_mem_access) - sizeof(ep_mem_access->impdef_val);
+	sz = sizeof(*ep_mem_access);
 
 	return sz;
 }
