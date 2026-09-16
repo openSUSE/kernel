@@ -1727,6 +1727,12 @@ static int vmw_cmd_dma(struct vmw_private *dev_priv,
 	uint32_t bo_size;
 
 	cmd = container_of(header, struct vmw_dma_cmd, header);
+
+	if (unlikely(header->size < sizeof(cmd->dma) + sizeof(*suffix))) {
+		DRM_ERROR("Illegal SVGA_3D_CMD_SURFACE_DMA size.\n");
+		return -EINVAL;
+	}
+
 	suffix = (SVGA3dCmdSurfaceDMASuffix *)((unsigned long) &cmd->dma +
 					       header->size - sizeof(*suffix));
 
