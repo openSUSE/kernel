@@ -786,6 +786,7 @@ static u32 esp4_get_mtu(struct xfrm_state *x, int mtu)
 	struct crypto_aead *aead = x->data;
 	u32 blksize = ALIGN(crypto_aead_blocksize(aead), 4);
 	unsigned int net_adj;
+	u32 overhead, payload_mtu;
 
 	switch (x->props.mode) {
 	case XFRM_MODE_TRANSPORT:
@@ -799,8 +800,16 @@ static u32 esp4_get_mtu(struct xfrm_state *x, int mtu)
 		BUG();
 	}
 
-	return ((mtu - x->props.header_len - crypto_aead_authsize(aead) -
-		 net_adj) & ~(blksize - 1)) + net_adj - 2;
+	overhead = x->props.header_len + crypto_aead_authsize(aead) + net_adj;
+	if (mtu <= overhead)
+		return 1;
+
+	payload_mtu = mtu - overhead;
+	payload_mtu &= ~(blksize - 1);
+	if (payload_mtu <= 2)
+		return 1;
+
+	return payload_mtu + net_adj - 2;
 }
 
 static int esp4_err(struct sk_buff *skb, u32 info)
