@@ -209,7 +209,7 @@ static u64 hist_field_log2(struct hist_field *hist_field,
 
 	u64 val = operand->fn(operand, elt, rbe, event);
 
-	return (u64) ilog2(roundup_pow_of_two(val));
+	return order_base_2(val);
 }
 
 static u64 hist_field_plus(struct hist_field *hist_field,
