@@ -960,6 +960,9 @@ static void svdm_consume_identity(struct tcpm_port *port, const __le32 *payload,
 	u32 vdo = le32_to_cpu(payload[VDO_INDEX_IDH]);
 	u32 product = le32_to_cpu(payload[VDO_INDEX_PRODUCT]);
 
+	if (cnt <= VDO_INDEX_PRODUCT)
+		return;
+
 	memset(&port->mode_data, 0, sizeof(port->mode_data));
 
 	port->partner_ident.id_header = vdo;
