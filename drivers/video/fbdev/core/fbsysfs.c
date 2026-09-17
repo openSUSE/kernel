@@ -91,8 +91,14 @@ EXPORT_SYMBOL(framebuffer_release);
 static int activate_locked(struct fb_info *fb_info,
 			    struct fb_var_screeninfo *var)
 {
+	int err;
+
 	var->activate |= FB_ACTIVATE_FORCE;
-	return fb_set_var(fb_info, var);
+	fb_info->flags |= FBINFO_MISC_USEREVENT;
+	err = fb_set_var(fb_info, var);
+	fb_info->flags &= ~FBINFO_MISC_USEREVENT;
+
+	return err;
 }
 
 static int activate(struct fb_info *fb_info, struct fb_var_screeninfo *var)
@@ -101,9 +107,7 @@ static int activate(struct fb_info *fb_info, struct fb_var_screeninfo *var)
 
 	console_lock();
 	lock_fb_info(fb_info);
-	fb_info->flags |= FBINFO_MISC_USEREVENT;
 	err = activate_locked(fb_info, var);
-	fb_info->flags &= ~FBINFO_MISC_USEREVENT;
 	unlock_fb_info(fb_info);
 	console_unlock();
 
