@@ -520,7 +520,7 @@ find_next:
 			/* skip missing symbols */
 			nd = rb_next(nd);
 		} else if (use_browser == 1) {
-			key = hist_entry__tui_annotate(he, evsel, NULL);
+			key = hist_entry__tui_annotate(he, evsel, NULL, 0);
 
 			switch (key) {
 			case -1:

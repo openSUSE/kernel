@@ -46,7 +46,7 @@ void __init efi_set_secure_boot(enum efi_secureboot_mode mode)
  */
 static int __init arm64_kernel_lockdown(void)
 {
-	if (arch_ima_get_secureboot())
+	if (arch_get_secureboot())
 		security_lock_kernel_down("EFI Secure Boot mode",
 					LOCKDOWN_INTEGRITY_MAX);
 	return 0;
