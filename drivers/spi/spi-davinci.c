@@ -1031,10 +1031,10 @@ static void davinci_spi_remove(struct platform_device *pdev)
 
 	spi_bitbang_stop(&dspi->bitbang);
 
-	clk_disable_unprepare(dspi->clk);
-
 	/* This bit needs to be cleared to disable dpsi->clk */
 	clear_io_bits(dspi->base + SPIGCR1, SPIGCR1_POWERDOWN_MASK);
+
+	clk_disable_unprepare(dspi->clk);
 
 	if (dspi->dma_rx) {
 		dma_release_channel(dspi->dma_rx);
