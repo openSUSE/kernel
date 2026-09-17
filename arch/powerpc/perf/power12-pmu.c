@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Performance counter support for POWER10 processors.
+ * Performance counter support for Power12 processors.
  *
- * Copyright 2020 Madhavan Srinivasan, IBM Corporation.
- * Copyright 2020 Athira Rajeev, IBM Corporation.
+ * Copyright 2026 Athira Rajeev, IBM Corporation.
  */
 
-#define pr_fmt(fmt)	"power10-pmu: " fmt
+#define pr_fmt(fmt)	"power12-pmu: " fmt
 
 #include "isa207-common.h"
 
 /*
- * Raw event encoding for Power10:
+ * Raw event encoding for Power12:
  *
  *        60        56        52        48        44        40        36        32
  * | - - - - | - - - - | - - - - | - - - - | - - - - | - - - - | - - - - | - - - - |
@@ -73,40 +72,40 @@
  */
 
 /*
- * Some power10 event codes.
+ * Some power12 event codes.
  */
 #define EVENT(_name, _code)     enum{_name = _code}
 
-#include "power10-events-list.h"
+#include "power12-events-list.h"
 
 #undef EVENT
 
-/* MMCRA IFM bits - POWER10 */
-#define POWER10_MMCRA_IFM1		0x0000000040000000UL
-#define POWER10_MMCRA_IFM2		0x0000000080000000UL
-#define POWER10_MMCRA_IFM3		0x00000000C0000000UL
-#define POWER10_MMCRA_BHRB_MASK		0x00000000C0000000UL
+/* MMCRA IFM bits - POWER12 */
+#define POWER12_MMCRA_IFM1		0x0000000040000000UL
+#define POWER12_MMCRA_IFM2		0x0000000080000000UL
+#define POWER12_MMCRA_IFM3		0x00000000C0000000UL
+#define POWER12_MMCRA_BHRB_MASK		0x00000000C0000000UL
 
 extern u64 PERF_REG_EXTENDED_MASK;
 
 /* Table of alternatives, sorted by column 0 */
-static const unsigned int power10_event_alternatives[][MAX_ALT] = {
+static const unsigned int power12_event_alternatives[][MAX_ALT] = {
 	{ PM_INST_CMPL_ALT,		PM_INST_CMPL },
 	{ PM_CYC_ALT,			PM_CYC },
 };
 
-static int power10_get_alternatives(u64 event, unsigned int flags, u64 alt[])
+static int power12_get_alternatives(u64 event, unsigned int flags, u64 alt[])
 {
 	int num_alt = 0;
 
 	num_alt = isa207_get_alternatives(event, alt,
-					  ARRAY_SIZE(power10_event_alternatives), flags,
-					  power10_event_alternatives);
+					  ARRAY_SIZE(power12_event_alternatives), flags,
+					  power12_event_alternatives);
 
 	return num_alt;
 }
 
-static int power10_check_attr_config(struct perf_event *ev)
+static int power12_check_attr_config(struct perf_event *ev)
 {
 	u64 val;
 	u64 event = ev->attr.config;
@@ -120,15 +119,12 @@ static int power10_check_attr_config(struct perf_event *ev)
 
 GENERIC_EVENT_ATTR(cpu-cycles,			PM_CYC);
 GENERIC_EVENT_ATTR(instructions,		PM_INST_CMPL);
-GENERIC_EVENT_ATTR(branch-instructions,		PM_BR_CMPL);
-GENERIC_EVENT_ATTR(branch-misses,		PM_BR_MPRED_CMPL);
-GENERIC_EVENT_ATTR(cache-references,		PM_LD_REF_L1);
-GENERIC_EVENT_ATTR(cache-misses,		PM_LD_MISS_L1);
-GENERIC_EVENT_ATTR(mem-loads,			MEM_LOADS);
-GENERIC_EVENT_ATTR(mem-stores,			MEM_STORES);
 GENERIC_EVENT_ATTR(branch-instructions,		PM_BR_FIN);
 GENERIC_EVENT_ATTR(branch-misses,		PM_MPRED_BR_FIN);
+GENERIC_EVENT_ATTR(cache-references,		PM_LD_REF_L1);
 GENERIC_EVENT_ATTR(cache-misses,		PM_LD_DEMAND_MISS_L1_FIN);
+GENERIC_EVENT_ATTR(mem-loads,			MEM_LOADS);
+GENERIC_EVENT_ATTR(mem-stores,			MEM_STORES);
 
 CACHE_EVENT_ATTR(L1-dcache-load-misses,		PM_LD_MISS_L1);
 CACHE_EVENT_ATTR(L1-dcache-loads,		PM_LD_REF_L1);
@@ -147,32 +143,7 @@ CACHE_EVENT_ATTR(branch-loads,			PM_BR_CMPL);
 CACHE_EVENT_ATTR(dTLB-load-misses,		PM_DTLB_MISS);
 CACHE_EVENT_ATTR(iTLB-load-misses,		PM_ITLB_MISS);
 
-static struct attribute *power10_events_attr_dd1[] = {
-	GENERIC_EVENT_PTR(PM_CYC),
-	GENERIC_EVENT_PTR(PM_INST_CMPL),
-	GENERIC_EVENT_PTR(PM_BR_CMPL),
-	GENERIC_EVENT_PTR(PM_BR_MPRED_CMPL),
-	GENERIC_EVENT_PTR(PM_LD_REF_L1),
-	GENERIC_EVENT_PTR(PM_LD_MISS_L1),
-	GENERIC_EVENT_PTR(MEM_LOADS),
-	GENERIC_EVENT_PTR(MEM_STORES),
-	CACHE_EVENT_PTR(PM_LD_MISS_L1),
-	CACHE_EVENT_PTR(PM_LD_REF_L1),
-	CACHE_EVENT_PTR(PM_LD_PREFETCH_CACHE_LINE_MISS),
-	CACHE_EVENT_PTR(PM_ST_MISS_L1),
-	CACHE_EVENT_PTR(PM_L1_ICACHE_MISS),
-	CACHE_EVENT_PTR(PM_INST_FROM_L1),
-	CACHE_EVENT_PTR(PM_IC_PREF_REQ),
-	CACHE_EVENT_PTR(PM_DATA_FROM_L3MISS),
-	CACHE_EVENT_PTR(PM_DATA_FROM_L3),
-	CACHE_EVENT_PTR(PM_BR_MPRED_CMPL),
-	CACHE_EVENT_PTR(PM_BR_CMPL),
-	CACHE_EVENT_PTR(PM_DTLB_MISS),
-	CACHE_EVENT_PTR(PM_ITLB_MISS),
-	NULL
-};
-
-static struct attribute *power10_events_attr[] = {
+static struct attribute *power12_events_attr[] = {
 	GENERIC_EVENT_PTR(PM_CYC),
 	GENERIC_EVENT_PTR(PM_INST_CMPL),
 	GENERIC_EVENT_PTR(PM_BR_FIN),
@@ -200,14 +171,9 @@ static struct attribute *power10_events_attr[] = {
 	NULL
 };
 
-static const struct attribute_group power10_pmu_events_group_dd1 = {
+static const struct attribute_group power12_pmu_events_group = {
 	.name = "events",
-	.attrs = power10_events_attr_dd1,
-};
-
-static const struct attribute_group power10_pmu_events_group = {
-	.name = "events",
-	.attrs = power10_events_attr,
+	.attrs = power12_events_attr,
 };
 
 PMU_FORMAT_ATTR(event,          "config:0-59");
@@ -230,7 +196,7 @@ PMU_FORMAT_ATTR(src_match,      "config:54-59");
 PMU_FORMAT_ATTR(radix_scope,	"config:9");
 PMU_FORMAT_ATTR(thresh_cmp,     "config1:0-17");
 
-static struct attribute *power10_pmu_format_attr[] = {
+static struct attribute *power12_pmu_format_attr[] = {
 	&format_attr_event.attr,
 	&format_attr_pmcxsel.attr,
 	&format_attr_mark.attr,
@@ -253,44 +219,18 @@ static struct attribute *power10_pmu_format_attr[] = {
 	NULL,
 };
 
-static const struct attribute_group power10_pmu_format_group = {
+static const struct attribute_group power12_pmu_format_group = {
 	.name = "format",
-	.attrs = power10_pmu_format_attr,
+	.attrs = power12_pmu_format_attr,
 };
 
-static struct attribute *power10_pmu_caps_attrs[] = {
-	NULL
-};
-
-static struct attribute_group power10_pmu_caps_group = {
-	.name  = "caps",
-	.attrs = power10_pmu_caps_attrs,
-};
-
-static const struct attribute_group *power10_pmu_attr_groups_dd1[] = {
-	&power10_pmu_format_group,
-	&power10_pmu_events_group_dd1,
-	&power10_pmu_caps_group,
+static const struct attribute_group *power12_pmu_attr_groups[] = {
+	&power12_pmu_format_group,
+	&power12_pmu_events_group,
 	NULL,
 };
 
-static const struct attribute_group *power10_pmu_attr_groups[] = {
-	&power10_pmu_format_group,
-	&power10_pmu_events_group,
-	&power10_pmu_caps_group,
-	NULL,
-};
-
-static int power10_generic_events_dd1[] = {
-	[PERF_COUNT_HW_CPU_CYCLES] =			PM_CYC,
-	[PERF_COUNT_HW_INSTRUCTIONS] =			PM_INST_CMPL,
-	[PERF_COUNT_HW_BRANCH_INSTRUCTIONS] =		PM_BR_CMPL,
-	[PERF_COUNT_HW_BRANCH_MISSES] =			PM_BR_MPRED_CMPL,
-	[PERF_COUNT_HW_CACHE_REFERENCES] =		PM_LD_REF_L1,
-	[PERF_COUNT_HW_CACHE_MISSES] =			PM_LD_MISS_L1,
-};
-
-static int power10_generic_events[] = {
+static int power12_generic_events[] = {
 	[PERF_COUNT_HW_CPU_CYCLES] =			PM_CYC,
 	[PERF_COUNT_HW_INSTRUCTIONS] =			PM_INST_CMPL,
 	[PERF_COUNT_HW_BRANCH_INSTRUCTIONS] =		PM_BR_FIN,
@@ -299,7 +239,7 @@ static int power10_generic_events[] = {
 	[PERF_COUNT_HW_CACHE_MISSES] =			PM_LD_DEMAND_MISS_L1_FIN,
 };
 
-static u64 power10_bhrb_filter_map(u64 branch_sample_type)
+static u64 power12_bhrb_filter_map(u64 branch_sample_type)
 {
 	u64 pmu_bhrb_filter = 0;
 
@@ -319,12 +259,12 @@ static u64 power10_bhrb_filter_map(u64 branch_sample_type)
 		return -1;
 
 	if (branch_sample_type & PERF_SAMPLE_BRANCH_IND_CALL) {
-		pmu_bhrb_filter |= POWER10_MMCRA_IFM2;
+		pmu_bhrb_filter |= POWER12_MMCRA_IFM2;
 		return pmu_bhrb_filter;
 	}
 
 	if (branch_sample_type & PERF_SAMPLE_BRANCH_COND) {
-		pmu_bhrb_filter |= POWER10_MMCRA_IFM3;
+		pmu_bhrb_filter |= POWER12_MMCRA_IFM3;
 		return pmu_bhrb_filter;
 	}
 
@@ -332,7 +272,7 @@ static u64 power10_bhrb_filter_map(u64 branch_sample_type)
 		return -1;
 
 	if (branch_sample_type & PERF_SAMPLE_BRANCH_ANY_CALL) {
-		pmu_bhrb_filter |= POWER10_MMCRA_IFM1;
+		pmu_bhrb_filter |= POWER12_MMCRA_IFM1;
 		return pmu_bhrb_filter;
 	}
 
@@ -340,9 +280,9 @@ static u64 power10_bhrb_filter_map(u64 branch_sample_type)
 	return -1;
 }
 
-static void power10_config_bhrb(u64 pmu_bhrb_filter)
+static void power12_config_bhrb(u64 pmu_bhrb_filter)
 {
-	pmu_bhrb_filter &= POWER10_MMCRA_BHRB_MASK;
+	pmu_bhrb_filter &= POWER12_MMCRA_BHRB_MASK;
 
 	/* Enable BHRB filter in PMU */
 	mtspr(SPRN_MMCRA, (mfspr(SPRN_MMCRA) | pmu_bhrb_filter));
@@ -355,108 +295,7 @@ static void power10_config_bhrb(u64 pmu_bhrb_filter)
  * 0 means not supported, -1 means nonsensical, other values
  * are event codes.
  */
-static u64 power10_cache_events_dd1[C(MAX)][C(OP_MAX)][C(RESULT_MAX)] = {
-	[C(L1D)] = {
-		[C(OP_READ)] = {
-			[C(RESULT_ACCESS)] = PM_LD_REF_L1,
-			[C(RESULT_MISS)] = PM_LD_MISS_L1,
-		},
-		[C(OP_WRITE)] = {
-			[C(RESULT_ACCESS)] = 0,
-			[C(RESULT_MISS)] = PM_ST_MISS_L1,
-		},
-		[C(OP_PREFETCH)] = {
-			[C(RESULT_ACCESS)] = PM_LD_PREFETCH_CACHE_LINE_MISS,
-			[C(RESULT_MISS)] = 0,
-		},
-	},
-	[C(L1I)] = {
-		[C(OP_READ)] = {
-			[C(RESULT_ACCESS)] = PM_INST_FROM_L1,
-			[C(RESULT_MISS)] = PM_L1_ICACHE_MISS,
-		},
-		[C(OP_WRITE)] = {
-			[C(RESULT_ACCESS)] = PM_INST_FROM_L1MISS,
-			[C(RESULT_MISS)] = -1,
-		},
-		[C(OP_PREFETCH)] = {
-			[C(RESULT_ACCESS)] = PM_IC_PREF_REQ,
-			[C(RESULT_MISS)] = 0,
-		},
-	},
-	[C(LL)] = {
-		[C(OP_READ)] = {
-			[C(RESULT_ACCESS)] = PM_DATA_FROM_L3,
-			[C(RESULT_MISS)] = PM_DATA_FROM_L3MISS,
-		},
-		[C(OP_WRITE)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-		[C(OP_PREFETCH)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = 0,
-		},
-	},
-	 [C(DTLB)] = {
-		[C(OP_READ)] = {
-			[C(RESULT_ACCESS)] = 0,
-			[C(RESULT_MISS)] = PM_DTLB_MISS,
-		},
-		[C(OP_WRITE)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-		[C(OP_PREFETCH)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-	},
-	[C(ITLB)] = {
-		[C(OP_READ)] = {
-			[C(RESULT_ACCESS)] = 0,
-			[C(RESULT_MISS)] = PM_ITLB_MISS,
-		},
-		[C(OP_WRITE)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-		[C(OP_PREFETCH)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-	},
-	[C(BPU)] = {
-		[C(OP_READ)] = {
-			[C(RESULT_ACCESS)] = PM_BR_CMPL,
-			[C(RESULT_MISS)] = PM_BR_MPRED_CMPL,
-		},
-		[C(OP_WRITE)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-		[C(OP_PREFETCH)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-	},
-	[C(NODE)] = {
-		[C(OP_READ)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-		[C(OP_WRITE)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-		[C(OP_PREFETCH)] = {
-			[C(RESULT_ACCESS)] = -1,
-			[C(RESULT_MISS)] = -1,
-		},
-	},
-};
-
-static u64 power10_cache_events[C(MAX)][C(OP_MAX)][C(RESULT_MAX)] = {
+static u64 power12_cache_events[C(MAX)][C(OP_MAX)][C(RESULT_MAX)] = {
 	[C(L1D)] = {
 		[C(OP_READ)] = {
 			[C(RESULT_ACCESS)] = PM_LD_REF_L1,
@@ -565,7 +404,7 @@ static u64 power10_cache_events[C(MAX)][C(OP_MAX)][C(RESULT_MAX)] = {
  * so that we can use counters 5 and 6 as PM_INST_CMPL and
  * PM_CYC.
  */
-static int power10_compute_mmcr(u64 event[], int n_ev,
+static int power12_compute_mmcr(u64 event[], int n_ev,
 				unsigned int hwc[], struct mmcr_regs *mmcr,
 				struct perf_event *pevents[], u32 flags)
 {
@@ -577,83 +416,46 @@ static int power10_compute_mmcr(u64 event[], int n_ev,
 	return ret;
 }
 
-static struct power_pmu power10_pmu = {
-	.name			= "POWER10",
+static struct power_pmu power12_pmu = {
+	.name			= "Power12",
 	.n_counter		= MAX_PMU_COUNTERS,
 	.add_fields		= ISA207_ADD_FIELDS,
 	.test_adder		= ISA207_TEST_ADDER,
 	.group_constraint_mask	= CNST_CACHE_PMC4_MASK,
 	.group_constraint_val	= CNST_CACHE_PMC4_VAL,
-	.compute_mmcr		= power10_compute_mmcr,
-	.config_bhrb		= power10_config_bhrb,
-	.bhrb_filter_map	= power10_bhrb_filter_map,
+	.compute_mmcr		= power12_compute_mmcr,
+	.config_bhrb		= power12_config_bhrb,
+	.bhrb_filter_map	= power12_bhrb_filter_map,
 	.get_constraint		= isa207_get_constraint,
-	.get_alternatives	= power10_get_alternatives,
+	.get_alternatives	= power12_get_alternatives,
 	.get_mem_data_src	= isa207_get_mem_data_src,
 	.get_mem_weight		= isa207_get_mem_weight,
 	.disable_pmc		= isa207_disable_pmc,
 	.flags			= PPMU_HAS_SIER | PPMU_ARCH_207S |
 				  PPMU_ARCH_31 | PPMU_HAS_ATTR_CONFIG1 |
 				  PPMU_P10,
-	.n_generic		= ARRAY_SIZE(power10_generic_events),
-	.generic_events		= power10_generic_events,
-	.cache_events		= &power10_cache_events,
-	.attr_groups		= power10_pmu_attr_groups,
+	.n_generic		= ARRAY_SIZE(power12_generic_events),
+	.generic_events		= power12_generic_events,
+	.cache_events		= &power12_cache_events,
+	.attr_groups		= power12_pmu_attr_groups,
 	.bhrb_nr		= 32,
 	.capabilities           = PERF_PMU_CAP_EXTENDED_REGS,
-	.check_attr_config	= power10_check_attr_config,
+	.check_attr_config	= power12_check_attr_config,
 };
 
-int __init init_power10_pmu(void)
+int __init init_power12_pmu(void)
 {
 	unsigned int pvr;
 	int rc;
 
 	pvr = mfspr(SPRN_PVR);
-	if (PVR_VER(pvr) != PVR_POWER10)
-		return -ENODEV;
-
-	/* Add the ppmu flag for power10 DD1 */
-	if ((PVR_CFG(pvr) == 1))
-		power10_pmu.flags |= PPMU_P10_DD1;
-
-	/* Set the PERF_REG_EXTENDED_MASK here */
-	PERF_REG_EXTENDED_MASK = PERF_REG_PMU_MASK_31;
-
-	if ((PVR_CFG(pvr) == 1)) {
-		power10_pmu.generic_events = power10_generic_events_dd1;
-		power10_pmu.attr_groups = power10_pmu_attr_groups_dd1;
-		power10_pmu.cache_events = &power10_cache_events_dd1;
-	}
-
-	rc = register_power_pmu(&power10_pmu);
-	if (rc)
-		return rc;
-
-	/* Tell userspace that EBB is supported */
-	cur_cpu_spec->cpu_user_features2 |= PPC_FEATURE2_EBB;
-
-	return 0;
-}
-
-static struct power_pmu power11_pmu;
-
-int __init init_power11_pmu(void)
-{
-	unsigned int pvr;
-	int rc;
-
-	pvr = mfspr(SPRN_PVR);
-	if (PVR_VER(pvr) != PVR_POWER11)
+	if (PVR_VER(pvr) != PVR_POWER12)
 		return -ENODEV;
 
 	/* Set the PERF_REG_EXTENDED_MASK here */
 	PERF_REG_EXTENDED_MASK = PERF_REG_PMU_MASK_31;
 
-	power11_pmu = power10_pmu;
-	power11_pmu.name = "Power11";
-
-	rc = register_power_pmu(&power11_pmu);
+	rc = register_power_pmu(&power12_pmu);
 	if (rc)
 		return rc;
 
