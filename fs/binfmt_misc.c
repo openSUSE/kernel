@@ -301,6 +301,10 @@ static Node *create_entry(const char __user *buffer, size_t count)
 
 	pr_debug("register: delim: %#x {%c}\n", del, del);
 
+	/* A flag-char delimiter runs the flag scan off the buffer. */
+	if (del == 'P' || del == 'O' || del == 'C' || del == 'F')
+		goto einval;
+
 	/* Pad the buffer with the delim to simplify parsing below. */
 	memset(buf + count, del, 8);
 
@@ -557,8 +561,10 @@ static void bm_evict_inode(struct inode *inode)
 {
 	Node *e = inode->i_private;
 
-	if (e && e->flags & MISC_FMT_OPEN_FILE)
+	if (e && e->flags & MISC_FMT_OPEN_FILE) {
+		allow_write_access(e->interp_file);
 		filp_close(e->interp_file, NULL);
+	}
 
 	clear_inode(inode);
 	kfree(e);
