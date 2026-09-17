@@ -78,7 +78,7 @@ static struct mpam_pcc_chan *mpam_pcc_chan_get(struct device *dev,
 		}
 	}
 
-	cur = kzalloc(sizeof(*cur), GFP_KERNEL);
+	cur = kzalloc_obj(*cur);
 	if (!cur) {
 		mutex_unlock(&pcc_chan_list_lock);
 		return ERR_PTR(-ENOMEM);
