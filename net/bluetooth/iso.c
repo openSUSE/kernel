@@ -22,8 +22,14 @@ static struct bt_sock_list iso_sk_list = {
 };
 
 /* ---- ISO connections ---- */
+enum {
+	ISO_CONN_DROPPED,
+	__ISO_CONN_NUM_FLAGS
+};
+
 struct iso_conn {
 	struct hci_conn	*hcon;
+	DECLARE_BITMAP(flags, __ISO_CONN_NUM_FLAGS);
 
 	/* @lock: spinlock protecting changes to iso_conn fields */
 	spinlock_t	lock;
@@ -184,8 +190,11 @@ static void iso_chan_del(struct sock *sk, int err)
 		iso_pi(sk)->conn = NULL;
 		iso_conn_unlock(conn);
 
-		if (conn->hcon)
+		if (conn->hcon) {
+			if (!test_and_set_bit(ISO_CONN_DROPPED, conn->flags))
+				hci_conn_drop(conn->hcon);
 			hci_conn_drop(conn->hcon);
+		}
 	}
 
 	sk->sk_state = BT_CLOSED;
@@ -277,6 +286,7 @@ static int __iso_chan_add(struct iso_conn *conn, struct sock *sk,
 
 	iso_pi(sk)->conn = conn;
 	conn->sk = sk;
+	clear_bit(ISO_CONN_DROPPED, conn->flags);
 
 	if (parent)
 		bt_accept_enqueue(parent, sk, true);
@@ -765,10 +775,8 @@ static void iso_sock_disconn(struct sock *sk)
 
 	sk->sk_state = BT_DISCONN;
 	iso_sock_set_timer(sk, ISO_DISCONN_TIMEOUT);
-	iso_conn_lock(iso_pi(sk)->conn);
-	hci_conn_drop(iso_pi(sk)->conn->hcon);
-	iso_pi(sk)->conn->hcon = NULL;
-	iso_conn_unlock(iso_pi(sk)->conn);
+	if (!test_and_set_bit(ISO_CONN_DROPPED, iso_pi(sk)->conn->flags))
+		hci_conn_drop(iso_pi(sk)->conn->hcon);
 }
 
 static void __iso_sock_close(struct sock *sk)
@@ -1686,6 +1694,12 @@ static void iso_sock_ready(struct sock *sk)
 	BT_DBG("sk %p", sk);
 
 	lockdep_assert(lockdep_sock_is_held(sk));
+
+	switch (sk->sk_state) {
+	case BT_DISCONN:
+	case BT_CLOSED:
+		return;
+	}
 
 	iso_sock_clear_timer(sk);
 	sk->sk_state = BT_CONNECTED;
