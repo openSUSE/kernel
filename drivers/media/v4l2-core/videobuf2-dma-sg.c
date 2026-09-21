@@ -349,7 +349,7 @@ static int vb2_dma_sg_mmap(void *buf_priv, struct vm_area_struct *vma)
 		usize -= PAGE_SIZE;
 	} while (usize > 0);
 
-
+	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
 	/*
 	 * Use common vm_area operations to track buffer refcount.
 	 */
