@@ -30,6 +30,7 @@
 #include <sound/rawmidi.h>
 #include <sound/seq_kernel.h>
 #include <sound/info.h>
+#include "../seq_lock.h"
 
 /* enable debug print */
 #define SNDRV_SEQ_OSS_DEBUG
