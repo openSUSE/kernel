@@ -4509,9 +4509,13 @@ static int blk_mq_realloc_tag_set_tags(struct blk_mq_tag_set *set,
 				  int cur_nr_hw_queues, int new_nr_hw_queues)
 {
 	struct blk_mq_tags **new_tags;
+	int i;
 
-	if (cur_nr_hw_queues >= new_nr_hw_queues)
+	if (cur_nr_hw_queues >= new_nr_hw_queues) {
+		for (i = new_nr_hw_queues; i < cur_nr_hw_queues; i++)
+			__blk_mq_free_map_and_rqs(set, i);
 		return 0;
+	}
 
 	new_tags = kcalloc_node(new_nr_hw_queues, sizeof(struct blk_mq_tags *),
 				GFP_KERNEL, set->numa_node);
