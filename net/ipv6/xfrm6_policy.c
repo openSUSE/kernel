@@ -79,6 +79,7 @@ static int xfrm6_fill_dst(struct xfrm_dst *xdst, struct net_device *dev,
 	xdst->u.rt6.rt6i_idev = in6_dev_get(dev);
 	if (!xdst->u.rt6.rt6i_idev) {
 		dev_put(dev);
+		xdst->u.dst.dev = NULL;
 		return -ENODEV;
 	}
 
@@ -88,7 +89,6 @@ static int xfrm6_fill_dst(struct xfrm_dst *xdst, struct net_device *dev,
 						   RTF_LOCAL);
 	xdst->route_cookie = rt6_get_cookie(rt);
 	xdst->u.rt6.rt6i_gateway = rt->rt6i_gateway;
-		xdst->u.dst.dev = NULL;
 	xdst->u.rt6.rt6i_dst = rt->rt6i_dst;
 	xdst->u.rt6.rt6i_src = rt->rt6i_src;
 	INIT_LIST_HEAD(&xdst->u.rt6.rt6i_uncached);
