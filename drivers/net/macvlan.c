@@ -445,6 +445,8 @@ static int macvlan_init(struct net_device *dev)
 	dev->iflink		= lowerdev->ifindex;
 	dev->hard_header_len	= lowerdev->hard_header_len;
 
+	dev->needed_headroom	= lowerdev->needed_headroom;
+	dev->needed_tailroom	= lowerdev->needed_tailroom;
 	macvlan_set_lockdep_class(dev);
 
 	vlan->pcpu_stats = alloc_percpu(struct macvlan_pcpu_stats);
@@ -793,6 +795,8 @@ static int macvlan_device_event(struct notifier_block *unused,
 		list_for_each_entry(vlan, &port->vlans, list) {
 			vlan->dev->features = dev->features & MACVLAN_FEATURES;
 			vlan->dev->gso_max_size = dev->gso_max_size;
+			vlan->dev->needed_headroom = dev->needed_headroom;
+			vlan->dev->needed_tailroom = dev->needed_tailroom;
 			netdev_features_change(vlan->dev);
 		}
 		break;
