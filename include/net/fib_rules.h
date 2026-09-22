@@ -114,6 +114,11 @@ static inline void fib_rule_get(struct fib_rule *rule)
 	atomic_inc(&rule->refcnt);
 }
 
+static inline bool fib_rule_get_safe(struct fib_rule *rule)
+{
+	return atomic_inc_not_zero(&rule->refcnt);
+}
+
 static inline void fib_rule_put(struct fib_rule *rule)
 {
 	if (atomic_dec_and_test(&rule->refcnt))
