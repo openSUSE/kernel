@@ -12,6 +12,7 @@
 #include <linux/dma-fence-array.h>
 #include <linux/math64.h>
 
+#include <drm/drm_drv.h>
 #include <drm/drm_managed.h>
 
 #include "abi/guc_actions_abi.h"
@@ -37,6 +38,7 @@
 #include "xe_macros.h"
 #include "xe_map.h"
 #include "xe_mocs.h"
+#include "xe_module.h"
 #include "xe_pm.h"
 #include "xe_ring_ops_types.h"
 #include "xe_sched_job.h"
@@ -228,17 +230,9 @@ static bool exec_queue_killed_or_banned_or_wedged(struct xe_exec_queue *q)
 static void guc_submit_fini(struct drm_device *drm, void *arg)
 {
 	struct xe_guc *guc = arg;
-	struct xe_device *xe = guc_to_xe(guc);
 	struct xe_gt *gt = guc_to_gt(guc);
-	int ret;
 
-	ret = wait_event_timeout(guc->submission_state.fini_wq,
-				 xa_empty(&guc->submission_state.exec_queue_lookup),
-				 HZ * 5);
-
-	drain_workqueue(xe->destroy_wq);
-
-	xe_gt_assert(gt, ret);
+	xe_gt_assert(gt, xa_empty(&guc->submission_state.exec_queue_lookup));
 
 	xa_destroy(&guc->submission_state.exec_queue_lookup);
 }
@@ -306,8 +300,6 @@ int xe_guc_submit_init(struct xe_guc *guc, unsigned int num_ids)
 
 	xa_init(&guc->submission_state.exec_queue_lookup);
 
-	init_waitqueue_head(&guc->submission_state.fini_wq);
-
 	primelockdep(guc);
 
 	guc->submission_state.initialized = true;
@@ -326,9 +318,6 @@ static void __release_guc_id(struct xe_guc *guc, struct xe_exec_queue *q, u32 xa
 
 	xe_guc_id_mgr_release_locked(&guc->submission_state.idm,
 				     q->guc->id, q->width);
-
-	if (xa_empty(&guc->submission_state.exec_queue_lookup))
-		wake_up(&guc->submission_state.fini_wq);
 }
 
 static int alloc_guc_id(struct xe_guc *guc, struct xe_exec_queue *q)
@@ -1253,6 +1242,7 @@ static void __guc_exec_queue_fini_async(struct work_struct *w)
 		container_of(w, struct xe_guc_exec_queue, fini_async);
 	struct xe_exec_queue *q = ge->q;
 	struct xe_guc *guc = exec_queue_to_guc(q);
+	struct drm_device *drm = &guc_to_xe(guc)->drm;
 
 	xe_pm_runtime_get(guc_to_xe(guc));
 	trace_xe_exec_queue_destroy(q);
@@ -1270,22 +1260,20 @@ static void __guc_exec_queue_fini_async(struct work_struct *w)
 	 * (timeline name).
 	 */
 	kfree_rcu(ge, rcu);
-	xe_exec_queue_fini(q);
 	xe_pm_runtime_put(guc_to_xe(guc));
+
+	drm_dev_put(drm);
 }
 
 static void guc_exec_queue_fini_async(struct xe_exec_queue *q)
 {
-	struct xe_guc *guc = exec_queue_to_guc(q);
-	struct xe_device *xe = guc_to_xe(guc);
-
 	INIT_WORK(&q->guc->fini_async, __guc_exec_queue_fini_async);
 
 	/* We must block on kernel engines so slabs are empty on driver unload */
 	if (q->flags & EXEC_QUEUE_FLAG_PERMANENT || exec_queue_wedged(q))
 		__guc_exec_queue_fini_async(&q->guc->fini_async);
 	else
-		queue_work(xe->destroy_wq, &q->guc->fini_async);
+		xe_destroy_wq_queue(&q->guc->fini_async);
 }
 
 static void __guc_exec_queue_fini(struct xe_guc *guc, struct xe_exec_queue *q)
@@ -1453,6 +1441,7 @@ static int guc_exec_queue_init(struct xe_exec_queue *q)
 	struct xe_gpu_scheduler *sched;
 	struct xe_guc *guc = exec_queue_to_guc(q);
 	struct xe_device *xe = guc_to_xe(guc);
+	struct drm_device *drm = &guc_to_xe(guc)->drm;
 	struct xe_guc_exec_queue *ge;
 	long timeout;
 	int err, i;
@@ -1462,6 +1451,8 @@ static int guc_exec_queue_init(struct xe_exec_queue *q)
 	ge = kzalloc(sizeof(*ge), GFP_KERNEL);
 	if (!ge)
 		return -ENOMEM;
+
+	drm_dev_get(drm);
 
 	q->guc = ge;
 	ge->q = q;
@@ -1514,6 +1505,7 @@ err_sched:
 	xe_sched_fini(&ge->sched);
 err_free:
 	kfree(ge);
+	drm_dev_put(drm);
 
 	return err;
 }
