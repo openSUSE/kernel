@@ -3101,7 +3101,7 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 	 * filesystems).
 	 */
 	if ((attrs->ia_valid & (ATTR_KILL_SUID|ATTR_KILL_SGID)) &&
-		!((sbflags & (CIFS_MOUNT_CIFS_ACL | CIFS_MOUNT_MODE_FROM_SID)) ||
+		!((cifs_sb->mnt_cifs_flags & (CIFS_MOUNT_CIFS_ACL | CIFS_MOUNT_MODE_FROM_SID)) ||
 		  cifs_sb_master_tcon(cifs_sb)->posix_extensions))
 		attrs->ia_valid &= ~ATTR_MODE;
 
