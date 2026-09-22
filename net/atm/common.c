@@ -750,7 +750,7 @@ int vcc_setsockopt(struct socket *sock, int level, int optname,
 		   char __user *optval, unsigned int optlen)
 {
 	struct atm_vcc *vcc;
-	unsigned long value;
+	int value;
 	int error;
 
 	if (__SO_LEVEL_MATCH(optname, level) && optlen != __SO_SIZE(optname))
@@ -762,6 +762,8 @@ int vcc_setsockopt(struct socket *sock, int level, int optname,
 	{
 		struct atm_qos qos;
 
+		if (optlen < sizeof(qos))
+			return -EINVAL;
 		if (copy_from_user(&qos, optval, sizeof(qos)))
 			return -EFAULT;
 		error = check_qos(&qos);
@@ -776,7 +778,9 @@ int vcc_setsockopt(struct socket *sock, int level, int optname,
 		return 0;
 	}
 	case SO_SETCLP:
-		if (get_user(value, (unsigned long __user *)optval))
+		if (optlen < sizeof(value))
+			return -EINVAL;
+		if (get_user(value, (int __user *)optval))
 			return -EFAULT;
 		if (value)
 			vcc->atm_options |= ATM_ATMOPT_CLP;

@@ -375,13 +375,23 @@ static void tbnet_tear_down(struct tbnet *net, bool send_logout)
 				break;
 		}
 
+		/* Tear the paths down before stopping the rings.  This mirrors
+		 * tbnet_connected_work(), which enables the paths last so the
+		 * Rx ring is primed before packets can arrive.  Stopping a
+		 * ring zeroes its descriptor base and tbnet_free_buffers()
+		 * unmaps and frees the frame buffers, leaving anything still
+		 * in flight with nowhere to drain to;
+		 * __tb_path_deactivate_hop() then waits for the hop's
+		 * 'pending' bit, which on some host routers never clears in
+		 * that state.
+		 */
+		if (tb_xdomain_disable_paths(net->xd))
+			netdev_warn(net->dev, "failed to disable DMA paths\n");
+
 		tb_ring_stop(net->rx_ring.ring);
 		tb_ring_stop(net->tx_ring.ring);
 		tbnet_free_buffers(&net->rx_ring);
 		tbnet_free_buffers(&net->tx_ring);
-
-		if (tb_xdomain_disable_paths(net->xd))
-			netdev_warn(net->dev, "failed to disable DMA paths\n");
 	}
 
 	net->login_retries = 0;

@@ -13,6 +13,13 @@
 #include <linux/types.h>
 #include <linux/netfilter/ipset/ip_set_timeout.h>
 
+static __always_inline bool
+test_bit_acquire(unsigned long nr, const volatile unsigned long *addr)
+{
+	unsigned long *p = ((unsigned long *)addr) + BIT_WORD(nr);
+	return 1UL & (smp_load_acquire(p) >> (nr & (BITS_PER_LONG-1)));
+}
+
 #define __ipset_dereference_protected(p, c)	rcu_dereference_protected(p, c)
 #define ipset_dereference_protected(p, set) \
 	__ipset_dereference_protected(p, spin_is_locked(&(set)->lock))
@@ -601,7 +608,7 @@ retry:
 		if (!n)
 			continue;
 		for (j = 0; j < n->pos; j++) {
-			if (!test_bit(j, n->used))
+			if (!test_bit_acquire(j, n->used))
 				continue;
 			data = ahash_data(n, j, dsize);
 #ifdef IP_SET_HASH_WITH_NETS
@@ -963,7 +970,7 @@ mtype_test_cidrs(struct ip_set *set, struct mtype_elem *d,
 		if (!n)
 			continue;
 		for (i = 0; i < n->pos; i++) {
-			if (!test_bit(i, n->used))
+			if (!test_bit_acquire(i, n->used))
 				continue;
 			data = ahash_data(n, i, set->dsize);
 			if (!mtype_data_equal(data, d, &multi))
@@ -1023,7 +1030,7 @@ mtype_test(struct ip_set *set, void *value, const struct ip_set_ext *ext,
 		goto out;
 	}
 	for (i = 0; i < n->pos; i++) {
-		if (!test_bit(i, n->used))
+		if (!test_bit_acquire(i, n->used))
 			continue;
 		data = ahash_data(n, i, set->dsize);
 		if (mtype_data_equal(data, d, &multi) &&
@@ -1137,7 +1144,7 @@ mtype_list(const struct ip_set *set,
 		if (!n)
 			continue;
 		for (i = 0; i < n->pos; i++) {
-			if (!test_bit(i, n->used))
+			if (!test_bit_acquire(i, n->used))
 				continue;
 			e = ahash_data(n, i, set->dsize);
 			if (SET_WITH_TIMEOUT(set) &&
