@@ -592,6 +592,7 @@ static int sctp_outq_flush_rtx(struct sctp_outq *q, struct sctp_packet *pkt,
 			list_del(&chunk->transmitted_list);
 			list_add_tail(&chunk->transmitted_list,
 					&transport->transmitted);
+			chunk->transport = transport;
 			continue;
 		}
 
