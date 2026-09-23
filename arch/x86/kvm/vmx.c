@@ -7697,6 +7697,13 @@ static int enter_vmx_operation(struct kvm_vcpu *vcpu)
 
 	vmx->nested.vpid02 = allocate_vpid();
 
+	/*
+	 * Clear last_vpid to ensure that the VPID is flushed on the first
+	 * nested VM-Enter. Otherwise, stale TLB entries from a previous life of
+	 * the VPID (e.g. different vCPU or even different VM) could be used.
+	 */
+	vmx->nested.last_vpid = 0;
+
 	vmx->nested.vmxon = true;
 	return 0;
 
@@ -11427,6 +11434,9 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 		 * The vpid12 is allocated by L1 for L2, so it will not
 		 * influence global bitmap(for vpid01 and vpid02 allocation)
 		 * even if spawn a lot of nested vCPUs.
+		 *
+		 * Note, last_vpid is initialized as 0, so the first nested VM-Enter
+		 * after VMXON will always flush the TLB to avoid using stale entries.
 		 */
 		if (nested_cpu_has_vpid(vmcs12) && vmx->nested.vpid02) {
 			vmcs_write16(VIRTUAL_PROCESSOR_ID, vmx->nested.vpid02);
