@@ -8398,6 +8398,7 @@ static int handle_invvpid(struct kvm_vcpu *vcpu)
 		u64 vpid;
 		u64 gla;
 	} operand;
+	int cpu;
 
 	if (!(vmx->nested.nested_vmx_secondary_ctls_high &
 	      SECONDARY_EXEC_ENABLE_VPID) ||
@@ -8460,7 +8461,17 @@ static int handle_invvpid(struct kvm_vcpu *vcpu)
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
-	__vmx_flush_tlb(vcpu, vmx->nested.vpid02, true);
+	/*
+	 * If vmcs02 was last loaded on a different pCPU, then defer the flush
+	 * by invalidating the nested VPID tracking to ensure that KVM performs
+	 * the invalidation on the correct pCPU.
+	 */
+	cpu = get_cpu();
+	if (cpu != vmx->nested.vmcs02.cpu)
+		vmx->nested.last_vpid = 0;
+	else
+		__vmx_flush_tlb(vcpu, vmx->nested.vpid02, true);
+	put_cpu();
 	nested_vmx_succeed(vcpu);
 
 	return kvm_skip_emulated_instruction(vcpu);
