@@ -105,11 +105,11 @@ static int activate(struct fb_info *fb_info, struct fb_var_screeninfo *var)
 	int err;
 
 	console_lock();
-	err = fb_set_var(fb_info, var);
 	lock_fb_info(fb_info);
 	err = activate_locked(fb_info, var);
 	if (!err)
 		fbcon_update_vcs(fb_info, var->activate & FB_ACTIVATE_ALL);
+	unlock_fb_info(fb_info);
 	console_unlock();
 
 	return err;
