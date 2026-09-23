@@ -2224,6 +2224,7 @@ static void ffa_remove(struct platform_device *pdev)
 static struct platform_driver ffa_driver = {
 	.probe = ffa_probe,
 	.remove = ffa_remove,
+	.shutdown = ffa_remove,
 	.driver = {
 		.name = FFA_PLATFORM_NAME,
 	},
