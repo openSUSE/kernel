@@ -105,6 +105,7 @@ static int xfrm6_fill_dst(struct xfrm_dst *xdst, struct net_device *dev,
 	xdst->u.rt6.rt6i_idev = in6_dev_get(dev);
 	if (!xdst->u.rt6.rt6i_idev) {
 		dev_put(dev);
+		xdst->u.dst.dev = NULL;
 		return -ENODEV;
 	}
 
