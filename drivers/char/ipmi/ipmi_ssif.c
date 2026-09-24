@@ -1292,6 +1292,7 @@ static void shutdown_ssif(void *send_info)
 	if (ssif_info->thread) {
 		complete(&ssif_info->wake_thread);
 		kthread_stop(ssif_info->thread);
+		ssif_info->thread = NULL;
 	}
 }
 
@@ -1910,6 +1911,7 @@ static int ssif_probe(struct i2c_client *client)
 					       "kssif%4.4x", thread_num);
 		if (IS_ERR(ssif_info->thread)) {
 			rv = PTR_ERR(ssif_info->thread);
+			ssif_info->thread = NULL;
 			dev_notice(&ssif_info->client->dev,
 				   "Could not start kernel thread: error %d\n",
 				   rv);
@@ -1939,6 +1941,15 @@ static int ssif_probe(struct i2c_client *client)
 
  out:
 	if (rv) {
+		/*
+		 * If ipmi_register_smi() starts the interface, it will
+		 * call shutdown and that will free the thread and set
+		 * it to NULL.  Otherwise it must be freed here.
+		 */
+		if (ssif_info->thread) {
+			kthread_stop(ssif_info->thread);
+			ssif_info->thread = NULL;
+		}
 		if (addr_info)
 			addr_info->client = NULL;
 

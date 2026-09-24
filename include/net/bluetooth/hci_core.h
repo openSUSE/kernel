@@ -980,6 +980,7 @@ enum {
 	HCI_CONN_CREATE_PA_SYNC,
 	HCI_CONN_PA_SYNC,
 	HCI_CONN_PA_SYNC_FAILED,
+	HCI_CONN_CREATE,
 };
 
 static inline bool hci_conn_ssp_enabled(struct hci_conn *conn)
