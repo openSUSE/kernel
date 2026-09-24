@@ -365,12 +365,6 @@ unsigned sizeof_namespace_label(struct nvdimm_drvdata *ndd);
 	for (res = (ndd)->dpa.child, next = res ? res->sibling : NULL; \
 			res; res = next, next = next ? next->sibling : NULL)
 
-#ifdef __GENKSYMS__
-struct nd_percpu_lane {
-	int count;
-	spinlock_t lock;
-};
-#endif
 enum nd_label_flags {
 	ND_LABEL_REAP,
 };
@@ -425,11 +419,7 @@ struct nd_region {
 	struct kernfs_node *bb_state;
 	struct badblocks bb;
 	struct nd_interleave_set *nd_set;
-#ifdef __GENKSYMS__
-	struct nd_percpu_lane __percpu *lane;
-#else
 	struct nd_lane *lane;
-#endif
 	int (*flush)(struct nd_region *nd_region, struct bio *bio);
 	struct nd_mapping mapping[] __counted_by(ndr_mappings);
 };
