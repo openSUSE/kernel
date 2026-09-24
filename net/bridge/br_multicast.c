@@ -3104,6 +3104,7 @@ br_multicast_leave_group(struct net_bridge *br,
 
 			p->flags |= MDB_PG_FLAGS_FAST_LEAVE;
 			br_multicast_del_pg(mp, p, pp);
+			break;
 		}
 		goto out;
 	}
