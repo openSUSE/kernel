@@ -376,12 +376,13 @@ static void map_all_vpes(struct kvm *kvm)
  */
 int vgic_v3_save_pending_tables(struct kvm *kvm)
 {
-	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct vgic_irq *irq;
 	gpa_t last_ptr = ~(gpa_t)0;
 	bool vlpi_avail = false;
 	int ret = 0;
 	u8 val;
+	u32 *intids = NULL;
+	int irq_count, i;
 
 	if (unlikely(!vgic_initialized(kvm)))
 		return -ENXIO;
@@ -396,16 +397,26 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 		vlpi_avail = true;
 	}
 
-	list_for_each_entry(irq, &dist->lpi_list_head, lpi_list) {
+	irq_count = vgic_copy_lpi_list(kvm, NULL, &intids);
+	if (irq_count < 0) {
+		ret = irq_count;
+		goto out;
+	}
+
+	for (i = 0; i < irq_count; i++) {
 		int byte_offset, bit_nr;
 		struct kvm_vcpu *vcpu;
 		gpa_t pendbase, ptr;
 		bool is_pending;
 		bool stored;
 
+		irq = vgic_get_irq(kvm, NULL, intids[i]);
+		if (!irq)
+			continue;
+
 		vcpu = irq->target_vcpu;
 		if (!vcpu)
-			continue;
+			goto put_irq;
 
 		pendbase = GICR_PENDBASER_ADDRESS(vcpu->arch.vgic_cpu.pendbaser);
 
@@ -416,7 +427,7 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 		if (ptr != last_ptr) {
 			ret = kvm_read_guest_lock(kvm, ptr, &val, 1);
 			if (ret)
-				goto out;
+				goto put_irq;
 			last_ptr = ptr;
 		}
 
@@ -428,7 +439,7 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 			vgic_v4_get_vlpi_state(irq, &is_pending);
 
 		if (stored == is_pending)
-			continue;
+			goto put_irq;
 
 		if (is_pending)
 			val |= 1 << bit_nr;
@@ -436,6 +447,8 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 			val &= ~(1 << bit_nr);
 
 		ret = vgic_write_guest_lock(kvm, ptr, &val, 1);
+put_irq:
+		vgic_put_irq(kvm, irq);
 		if (ret)
 			goto out;
 	}
@@ -443,6 +456,9 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 out:
 	if (vlpi_avail)
 		map_all_vpes(kvm);
+
+	if (intids)
+		kfree(intids);
 
 	return ret;
 }
