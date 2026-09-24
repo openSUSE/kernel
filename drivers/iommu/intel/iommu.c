@@ -1597,7 +1597,8 @@ static void copied_context_tear_down(struct intel_iommu *iommu,
 	assert_spin_locked(&iommu->lock);
 
 	did_old = context_domain_id(context);
-	context_clear_entry(context);
+	context_clear_present(context);
+	__iommu_flush_cache(iommu, context, sizeof(*context));
 
 	if (did_old < cap_ndoms(iommu->cap)) {
 		iommu->flush.flush_context(iommu, did_old,
@@ -1607,6 +1608,9 @@ static void copied_context_tear_down(struct intel_iommu *iommu,
 		iommu->flush.flush_iotlb(iommu, did_old, 0, 0,
 					 DMA_TLB_DSI_FLUSH);
 	}
+
+	context_clear_entry(context);
+	__iommu_flush_cache(iommu, context, sizeof(*context));
 
 	clear_context_copied(iommu, bus, devfn);
 }
@@ -1907,7 +1911,7 @@ static void domain_context_clear_one(struct device_domain_info *info, u8 bus, u8
 	context_clear_present(context);
 	__iommu_flush_cache(iommu, context, sizeof(*context));
 	spin_unlock(&iommu->lock);
-	intel_context_flush_present(info, context, did, true);
+	intel_context_flush_present(info, context, did, PCI_DEVID(bus, devfn), true);
 	context_clear_entry(context);
 	__iommu_flush_cache(iommu, context, sizeof(*context));
 }
@@ -4135,7 +4139,7 @@ static int context_flip_pri(struct device_domain_info *info, bool enable)
 
 	if (!ecap_coherent(iommu->ecap))
 		clflush_cache_range(context, sizeof(*context));
-	intel_context_flush_present(info, context, did, true);
+	intel_context_flush_present(info, context, did, PCI_DEVID(bus, devfn), true);
 	spin_unlock(&iommu->lock);
 
 	return 0;
