@@ -11676,6 +11676,13 @@ static int enter_vmx_non_root_mode(struct kvm_vcpu *vcpu)
 
 	if (prepare_vmcs02(vcpu, vmcs12, &exit_qual) ||
 	    (!!exit_qual && check_vmentry_postreqs(vcpu, vmcs12, &exit_qual))) {
+		/*
+		 * Handle any TLB flush requests that were queued for L2 if KVM made it
+		 * far enough along to switch to L2 context.  Note, loading host state
+		 * will generate any flushes for L1 required by VM-Exit.
+		 */
+		if (kvm_check_request(KVM_REQ_TLB_FLUSH, vcpu))
+			vmx_flush_tlb(vcpu, true);
 		leave_guest_mode(vcpu);
 		vmx_switch_vmcs(vcpu, &vmx->vmcs01);
 		nested_vmx_entry_failure(vcpu, vmcs12,
@@ -11689,6 +11696,13 @@ static int enter_vmx_non_root_mode(struct kvm_vcpu *vcpu)
 					    vmcs12->vm_entry_msr_load_addr,
 					    vmcs12->vm_entry_msr_load_count);
 	if (msr_entry_idx) {
+		/*
+		 * Handle any TLB flush requests that were queued for L2 if KVM made it
+		 * far enough along to switch to L2 context.  Note, loading host state
+		 * will generate any flushes for L1 required by VM-Exit.
+		 */
+		if (kvm_check_request(KVM_REQ_TLB_FLUSH, vcpu))
+			vmx_flush_tlb(vcpu, true);
 		leave_guest_mode(vcpu);
 		vmx_switch_vmcs(vcpu, &vmx->vmcs01);
 		nested_vmx_entry_failure(vcpu, vmcs12,
