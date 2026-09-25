@@ -40,7 +40,7 @@ static struct fb_deferred_io_state *fb_deferred_io_state_alloc(void)
 {
 	struct fb_deferred_io_state *fbdefio_state;
 
-	fbdefio_state = kzalloc(sizeof(*fbdefio_state), GFP_KERNEL);
+	fbdefio_state = kzalloc_obj(*fbdefio_state);
 	if (!fbdefio_state)
 		return NULL;
 
