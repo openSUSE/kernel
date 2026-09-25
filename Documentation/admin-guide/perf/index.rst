@@ -27,3 +27,4 @@ Performance monitor support
    meson-ddr-pmu
    cxl
    ampere_cspmu
+   ujitsu_uncore_pmu

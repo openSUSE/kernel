@@ -65,7 +65,7 @@
 /* PMU registers occupy the 3rd 4KB page of each node's region */
 #define CMN_PMU_OFFSET			0x2000
 /* ...except when they don't :( */
-#define CMN_S3_DTM_OFFSET		0xa000
+#define CMN_S3_R1_DTM_OFFSET		0xa000
 #define CMN_S3_PMU_OFFSET		0xd900
 
 /* For most nodes, this is all there is */
@@ -197,13 +197,14 @@
 enum cmn_model {
 	CMN600 = 1,
 	CMN650 = 2,
-	CMN700 = 4,
-	CI700 = 8,
+	CI700 = 4,
+	CMN700 = 8,
 	CMNS3 = 16,
 	/* ...and then we can use bitmap tricks for commonality */
 	CMN_ANY = -1,
 	NOT_CMN600 = -2,
-	CMN_650ON = CMN650 | CMN700 | CMNS3,
+	CMN_700ON = ~(CMN700 - 1),
+	CMN_650ON = CMN_700ON | CMN650,
 };
 
 /* Actual part numbers and revision IDs defined by the hardware */
@@ -233,6 +234,9 @@ enum cmn_revision {
 	REV_CMN700_R1P0,
 	REV_CMN700_R2P0,
 	REV_CMN700_R3P0,
+	REV_CMNS3_R0P0 = 0,
+	REV_CMNS3_R0P1,
+	REV_CMNS3_R1P0,
 	REV_CI700_R0P0 = 0,
 	REV_CI700_R1P0,
 	REV_CI700_R2P0,
@@ -425,8 +429,8 @@ static enum cmn_model arm_cmn_model(const struct arm_cmn *cmn)
 static int arm_cmn_pmu_offset(const struct arm_cmn *cmn, const struct arm_cmn_node *dn)
 {
 	if (cmn->part == PART_CMN_S3) {
-		if (dn->type == CMN_TYPE_XP)
-			return CMN_S3_DTM_OFFSET;
+		if (cmn->rev >= REV_CMNS3_R1P0 && dn->type == CMN_TYPE_XP)
+			return CMN_S3_R1_DTM_OFFSET;
 		return CMN_S3_PMU_OFFSET;
 	}
 	return CMN_PMU_OFFSET;
@@ -727,8 +731,8 @@ static umode_t arm_cmn_event_attr_is_visible(struct kobject *kobj,
 
 		if ((chan == 5 && cmn->rsp_vc_num < 2) ||
 		    (chan == 6 && cmn->dat_vc_num < 2) ||
-		    (chan == 7 && cmn->snp_vc_num < 2) ||
-		    (chan == 8 && cmn->req_vc_num < 2))
+		    (chan == 7 && cmn->req_vc_num < 2) ||
+		    (chan == 8 && cmn->snp_vc_num < 2))
 			return 0;
 	}
 
@@ -802,8 +806,6 @@ static umode_t arm_cmn_event_attr_is_visible(struct kobject *kobj,
 	CMN_EVENT_ATTR(_model, ccha_##_name, CMN_TYPE_CCHA, _event)
 #define CMN_EVENT_CCLA(_name, _event)				\
 	CMN_EVENT_ATTR(CMN_ANY, ccla_##_name, CMN_TYPE_CCLA, _event)
-#define CMN_EVENT_CCLA_RNI(_name, _event)				\
-	CMN_EVENT_ATTR(CMN_ANY, ccla_rni_##_name, CMN_TYPE_CCLA_RNI, _event)
 #define CMN_EVENT_HNS(_name, _event)				\
 	CMN_EVENT_ATTR(CMN_ANY, hns_##_name, CMN_TYPE_HNS, _event)
 
@@ -884,8 +886,8 @@ static umode_t arm_cmn_event_attr_is_visible(struct kobject *kobj,
 	_CMN_EVENT_XP(pub_##_name, (_event) | (4 << 5)),	\
 	_CMN_EVENT_XP(rsp2_##_name, (_event) | (5 << 5)),	\
 	_CMN_EVENT_XP(dat2_##_name, (_event) | (6 << 5)),	\
-	_CMN_EVENT_XP(snp2_##_name, (_event) | (7 << 5)),	\
-	_CMN_EVENT_XP(req2_##_name, (_event) | (8 << 5))
+	_CMN_EVENT_XP(req2_##_name, (_event) | (7 << 5)),	\
+	_CMN_EVENT_XP(snp2_##_name, (_event) | (8 << 5))
 
 #define CMN_EVENT_XP_DAT(_name, _event)				\
 	_CMN_EVENT_XP_PORT(dat_##_name, (_event) | (3 << 5)),	\
@@ -917,14 +919,14 @@ static struct attribute *arm_cmn_event_attrs[] = {
 	CMN_EVENT_DVM(NOT_CMN600, txsnp_stall,		0x0a),
 	CMN_EVENT_DVM(NOT_CMN600, trkfull,		0x0b),
 	CMN_EVENT_DVM_OCC(NOT_CMN600, trk_occupancy,	0x0c),
-	CMN_EVENT_DVM_OCC(CMN700, trk_occupancy_cxha,	0x0d),
-	CMN_EVENT_DVM_OCC(CMN700, trk_occupancy_pdn,	0x0e),
-	CMN_EVENT_DVM(CMN700, trk_alloc,		0x0f),
-	CMN_EVENT_DVM(CMN700, trk_cxha_alloc,		0x10),
-	CMN_EVENT_DVM(CMN700, trk_pdn_alloc,		0x11),
-	CMN_EVENT_DVM(CMN700, txsnp_stall_limit,	0x12),
-	CMN_EVENT_DVM(CMN700, rxsnp_stall_starv,	0x13),
-	CMN_EVENT_DVM(CMN700, txsnp_sync_stall_op,	0x14),
+	CMN_EVENT_DVM_OCC(CMN_700ON, trk_occupancy_cxha, 0x0d),
+	CMN_EVENT_DVM_OCC(CMN_700ON, trk_occupancy_pdn,	0x0e),
+	CMN_EVENT_DVM(CMN_700ON, trk_alloc,		0x0f),
+	CMN_EVENT_DVM(CMN_700ON, trk_cxha_alloc,	0x10),
+	CMN_EVENT_DVM(CMN_700ON, trk_pdn_alloc,		0x11),
+	CMN_EVENT_DVM(CMN_700ON, txsnp_stall_limit,	0x12),
+	CMN_EVENT_DVM(CMN_700ON, rxsnp_stall_starv,	0x13),
+	CMN_EVENT_DVM(CMN_700ON, txsnp_sync_stall_op,	0x14),
 
 	CMN_EVENT_HNF(CMN_ANY, cache_miss,		0x01),
 	CMN_EVENT_HNF(CMN_ANY, slc_sf_cache_access,	0x02),
@@ -1713,8 +1715,8 @@ static int arm_cmn_validate_group(struct arm_cmn *cmn, struct perf_event *event)
 		goto done;
 	}
 
-	for (i = 0; i < CMN_MAX_DTCS; i++)
-		if (val->dtc_count[i] == CMN_DT_NUM_COUNTERS)
+	for_each_hw_dtc_idx(hw, dtc, idx)
+		if (val->dtc_count[dtc] == CMN_DT_NUM_COUNTERS)
 			goto done;
 
 	for_each_hw_dn(hw, dn, i) {
@@ -1798,6 +1800,9 @@ static int arm_cmn_event_init(struct perf_event *event)
 	} else if (type == CMN_TYPE_XP &&
 		   (cmn->part == PART_CMN700 || cmn->part == PART_CMN_S3)) {
 		hw->wide_sel = true;
+	} else if (type == CMN_TYPE_RND) {
+		/* Secretly permit this as an alias for "rnid" events */
+		type = CMN_TYPE_RNI;
 	}
 
 	/* This is sufficiently annoying to recalculate, so cache it */
@@ -2127,12 +2132,21 @@ static void arm_cmn_init_dtm(struct arm_cmn_dtm *dtm, struct arm_cmn_node *xp, i
 static int arm_cmn_init_dtc(struct arm_cmn *cmn, struct arm_cmn_node *dn, int idx)
 {
 	struct arm_cmn_dtc *dtc = cmn->dtc + idx;
+	const struct resource *cfg;
+	resource_size_t base, size;
 
 	dtc->pmu_base = dn->pmu_base;
 	dtc->base = dtc->pmu_base - arm_cmn_pmu_offset(cmn, dn);
 	dtc->irq = platform_get_irq(to_platform_device(cmn->dev), idx);
 	if (dtc->irq < 0)
 		return dtc->irq;
+
+	cfg = platform_get_resource(to_platform_device(cmn->dev), IORESOURCE_MEM, 0);
+	base = dtc->base - cmn->base + cfg->start;
+	size = cmn->part == PART_CMN600 ? SZ_16K : SZ_64K;
+	if (!devm_request_mem_region(cmn->dev, base, size, dev_name(cmn->dev)))
+		return dev_err_probe(cmn->dev, -EBUSY,
+				     "Failed to request DTC region 0x%pa\n", &base);
 
 	writel_relaxed(CMN_DT_DTC_CTL_DT_EN, dtc->base + CMN_DT_DTC_CTL);
 	writel_relaxed(CMN_DT_PMCR_PMU_EN | CMN_DT_PMCR_OVFL_INTR_EN, CMN_DT_PMCR(dtc));
@@ -2166,20 +2180,11 @@ static int arm_cmn_init_dtcs(struct arm_cmn *cmn)
 
 	cmn->xps = arm_cmn_node(cmn, CMN_TYPE_XP);
 
-	if (cmn->part == PART_CMN600 && cmn->num_dtcs > 1) {
-		/* We do at least know that a DTC's XP must be in that DTC's domain */
-		dn = arm_cmn_node(cmn, CMN_TYPE_DTC);
-		for (int i = 0; i < cmn->num_dtcs; i++)
-			arm_cmn_node_to_xp(cmn, dn + i)->dtc = i;
-	}
-
 	for (dn = cmn->dns; dn->type; dn++) {
 		if (dn->type == CMN_TYPE_XP)
 			continue;
 
 		xp = arm_cmn_node_to_xp(cmn, dn);
-		dn->portid_bits = xp->portid_bits;
-		dn->deviceid_bits = xp->deviceid_bits;
 		dn->dtc = xp->dtc;
 		dn->dtm = xp->dtm;
 		if (cmn->multi_dtm)
@@ -2253,12 +2258,11 @@ static enum cmn_node_type arm_cmn_subtype(enum cmn_node_type type)
 
 static int arm_cmn_discover(struct arm_cmn *cmn, unsigned int rgn_offset)
 {
-	void __iomem *cfg_region;
+	void __iomem *cfg_region, __iomem *xp_region;
 	struct arm_cmn_node cfg, *dn;
 	struct arm_cmn_dtm *dtm;
 	enum cmn_part part;
 	u16 child_count, child_poff;
-	u32 xp_offset[CMN_MAX_XPS];
 	u64 reg;
 	int i, j;
 	size_t sz;
@@ -2310,11 +2314,12 @@ static int arm_cmn_discover(struct arm_cmn *cmn, unsigned int rgn_offset)
 	cmn->num_dns = cmn->num_xps;
 
 	/* Pass 1: visit the XPs, enumerate their children */
+	cfg_region += child_poff;
 	for (i = 0; i < cmn->num_xps; i++) {
-		reg = readq_relaxed(cfg_region + child_poff + i * 8);
-		xp_offset[i] = reg & CMN_CHILD_NODE_ADDR;
+		reg = readq_relaxed(cfg_region + i * 8);
+		xp_region = cmn->base + (reg & CMN_CHILD_NODE_ADDR);
 
-		reg = readq_relaxed(cmn->base + xp_offset[i] + CMN_CHILD_INFO);
+		reg = readq_relaxed(xp_region + CMN_CHILD_INFO);
 		cmn->num_dns += FIELD_GET(CMN_CI_CHILD_COUNT, reg);
 	}
 
@@ -2340,11 +2345,12 @@ static int arm_cmn_discover(struct arm_cmn *cmn, unsigned int rgn_offset)
 	cmn->dns = dn;
 	cmn->dtms = dtm;
 	for (i = 0; i < cmn->num_xps; i++) {
-		void __iomem *xp_region = cmn->base + xp_offset[i];
 		struct arm_cmn_node *xp = dn++;
 		unsigned int xp_ports = 0;
 
-		arm_cmn_init_node_info(cmn, xp_offset[i], xp);
+		reg = readq_relaxed(cfg_region + i * 8);
+		xp_region = cmn->base + (reg & CMN_CHILD_NODE_ADDR);
+		arm_cmn_init_node_info(cmn, reg & CMN_CHILD_NODE_ADDR, xp);
 		/*
 		 * Thanks to the order in which XP logical IDs seem to be
 		 * assigned, we can handily infer the mesh X dimension by
@@ -2420,6 +2426,9 @@ static int arm_cmn_discover(struct arm_cmn *cmn, unsigned int rgn_offset)
 			}
 
 			arm_cmn_init_node_info(cmn, reg & CMN_CHILD_NODE_ADDR, dn);
+			dn->portid_bits = xp->portid_bits;
+			dn->deviceid_bits = xp->deviceid_bits;
+
 			/*
 			 * Logical IDs are assigned from 0 per node type, so as
 			 * soon as we see one bigger than expected, we can assume
@@ -2523,43 +2532,26 @@ static int arm_cmn_discover(struct arm_cmn *cmn, unsigned int rgn_offset)
 	return 0;
 }
 
-static int arm_cmn600_acpi_probe(struct platform_device *pdev, struct arm_cmn *cmn)
+static int arm_cmn_get_root(struct arm_cmn *cmn, const struct resource *cfg)
 {
-	struct resource *cfg, *root;
-
-	cfg = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!cfg)
-		return -EINVAL;
-
-	root = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	if (!root)
-		return -EINVAL;
-
-	if (!resource_contains(cfg, root))
-		swap(cfg, root);
-	/*
-	 * Note that devm_ioremap_resource() is dumb and won't let the platform
-	 * device claim cfg when the ACPI companion device has already claimed
-	 * root within it. But since they *are* already both claimed in the
-	 * appropriate name, we don't really need to do it again here anyway.
-	 */
-	cmn->base = devm_ioremap(cmn->dev, cfg->start, resource_size(cfg));
-	if (!cmn->base)
-		return -ENOMEM;
-
-	return root->start - cfg->start;
-}
-
-static int arm_cmn600_of_probe(struct device_node *np)
-{
+	const struct device_node *np = cmn->dev->of_node;
+	const struct resource *root;
 	u32 rootnode;
 
-	return of_property_read_u32(np, "arm,root-node", &rootnode) ?: rootnode;
+	if (cmn->part != PART_CMN600)
+		return 0;
+
+	if (np)
+		return of_property_read_u32(np, "arm,root-node", &rootnode) ?: rootnode;
+
+	root = platform_get_resource(to_platform_device(cmn->dev), IORESOURCE_MEM, 1);
+	return root ? root->start - cfg->start : -EINVAL;
 }
 
 static int arm_cmn_probe(struct platform_device *pdev)
 {
 	struct arm_cmn *cmn;
+	const struct resource *cfg;
 	const char *name;
 	static atomic_t id;
 	int err, rootnode, this_id;
@@ -2570,18 +2562,19 @@ static int arm_cmn_probe(struct platform_device *pdev)
 
 	cmn->dev = &pdev->dev;
 	cmn->part = (unsigned long)device_get_match_data(cmn->dev);
+	cmn->cpu = cpumask_local_spread(0, dev_to_node(cmn->dev));
 	platform_set_drvdata(pdev, cmn);
 
-	if (cmn->part == PART_CMN600 && has_acpi_companion(cmn->dev)) {
-		rootnode = arm_cmn600_acpi_probe(pdev, cmn);
-	} else {
-		rootnode = 0;
-		cmn->base = devm_platform_ioremap_resource(pdev, 0);
-		if (IS_ERR(cmn->base))
-			return PTR_ERR(cmn->base);
-		if (cmn->part == PART_CMN600)
-			rootnode = arm_cmn600_of_probe(pdev->dev.of_node);
-	}
+	cfg = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!cfg)
+		return -EINVAL;
+
+	/* Map the whole region now, claim the DTCs once we've found them */
+	cmn->base = devm_ioremap(cmn->dev, cfg->start, resource_size(cfg));
+	if (!cmn->base)
+		return -ENOMEM;
+
+	rootnode = arm_cmn_get_root(cmn, cfg);
 	if (rootnode < 0)
 		return rootnode;
 
@@ -2597,7 +2590,6 @@ static int arm_cmn_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
-	cmn->cpu = cpumask_local_spread(0, dev_to_node(cmn->dev));
 	cmn->pmu = (struct pmu) {
 		.module = THIS_MODULE,
 		.parent = cmn->dev,
@@ -2663,6 +2655,7 @@ static const struct acpi_device_id arm_cmn_acpi_match[] = {
 	{ "ARMHC600", PART_CMN600 },
 	{ "ARMHC650" },
 	{ "ARMHC700" },
+	{ "ARMHC003" },
 	{}
 };
 MODULE_DEVICE_TABLE(acpi, arm_cmn_acpi_match);
@@ -2673,6 +2666,7 @@ static struct platform_driver arm_cmn_driver = {
 		.name = "arm-cmn",
 		.of_match_table = of_match_ptr(arm_cmn_of_match),
 		.acpi_match_table = ACPI_PTR(arm_cmn_acpi_match),
+		.suppress_bind_attrs = true,
 	},
 	.probe = arm_cmn_probe,
 	.remove = arm_cmn_remove,
