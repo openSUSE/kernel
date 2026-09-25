@@ -1283,9 +1283,7 @@ struct sctp_endpoint {
 	      reconf_enable:1;
 
 	__u8  strreset_enable;
-#ifndef __GENKSYMS__
 	struct rcu_head rcu;
-#endif
 };
 
 /* Recover the outter endpoint structure. */
