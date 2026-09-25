@@ -695,7 +695,7 @@ static void device_pasid_table_teardown(struct device *dev, u8 bus, u8 devfn)
 	context_clear_present(context);
 	__iommu_flush_cache(iommu, context, sizeof(*context));
 	spin_unlock(&iommu->lock);
-	intel_context_flush_present(info, context, did, false);
+	intel_context_flush_present(info, context, did, PCI_DEVID(bus, devfn), false);
 	context_clear_entry(context);
 	__iommu_flush_cache(iommu, context, sizeof(*context));
 }
@@ -899,7 +899,7 @@ static void __context_flush_dev_iotlb(struct device_domain_info *info)
  */
 void intel_context_flush_present(struct device_domain_info *info,
 				 struct context_entry *context,
-				 u16 did, bool flush_domains)
+				 u16 did, u16 sid, bool flush_domains)
 {
 	struct intel_iommu *iommu = info->iommu;
 	struct pasid_entry *pte;
@@ -911,7 +911,7 @@ void intel_context_flush_present(struct device_domain_info *info,
 	 * when operating in scalable mode. Therefore the @did value doesn't
 	 * matter in scalable mode.
 	 */
-	iommu->flush.flush_context(iommu, did, PCI_DEVID(info->bus, info->devfn),
+	iommu->flush.flush_context(iommu, did, sid,
 				   DMA_CCMD_MASK_NOBIT, DMA_CCMD_DEVICE_INVL);
 
 	/*
