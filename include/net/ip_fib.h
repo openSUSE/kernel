@@ -419,6 +419,11 @@ static inline void fib_info_hold(struct fib_info *fi)
 	atomic_inc(&fi->fib_clntref);
 }
 
+static inline bool fib_info_hold_safe(struct fib_info *fi)
+{
+	return atomic_inc_not_zero(&fi->fib_clntref);
+}
+
 static inline void fib_info_put(struct fib_info *fi)
 {
 	if (atomic_dec_and_test(&fi->fib_clntref))
