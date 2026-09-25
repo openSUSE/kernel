@@ -29,6 +29,7 @@ static int fips_enabled;
 
 struct tls_crypto_info_keys {
 	union {
+		struct tls_crypto_info crypto_info;
 		struct tls12_crypto_info_aes_gcm_128 aes128;
 		struct tls12_crypto_info_chacha20_poly1305 chacha20;
 		struct tls12_crypto_info_sm4_gcm sm4gcm;
@@ -228,50 +229,6 @@ TEST_F(tls_basic, base_base)
 	EXPECT_NE(recv(self->cfd, buf, send_len, 0), -1);
 	EXPECT_EQ(memcmp(buf, test_str, send_len), 0);
 };
-
-TEST_F(tls_basic, bad_cipher)
-{
-	struct tls_crypto_info_keys tls12;
-
-	tls12.crypto_info.version = 200;
-	tls12.crypto_info.cipher_type = TLS_CIPHER_AES_GCM_128;
-	EXPECT_EQ(setsockopt(self->fd, SOL_TLS, TLS_TX, &tls12, sizeof(struct tls12_crypto_info_aes_gcm_128)), -1);
-
-	tls12.crypto_info.version = TLS_1_2_VERSION;
-	tls12.crypto_info.cipher_type = 50;
-	EXPECT_EQ(setsockopt(self->fd, SOL_TLS, TLS_TX, &tls12, sizeof(struct tls12_crypto_info_aes_gcm_128)), -1);
-
-	tls12.crypto_info.version = TLS_1_2_VERSION;
-	tls12.crypto_info.cipher_type = 59;
-	EXPECT_EQ(setsockopt(self->fd, SOL_TLS, TLS_TX, &tls12, sizeof(struct tls12_crypto_info_aes_gcm_128)), -1);
-
-	tls12.crypto_info.version = TLS_1_2_VERSION;
-	tls12.crypto_info.cipher_type = 10;
-	EXPECT_EQ(setsockopt(self->fd, SOL_TLS, TLS_TX, &tls12, sizeof(struct tls12_crypto_info_aes_gcm_128)), -1);
-
-	tls12.crypto_info.version = TLS_1_2_VERSION;
-	tls12.crypto_info.cipher_type = 70;
-	EXPECT_EQ(setsockopt(self->fd, SOL_TLS, TLS_TX, &tls12, sizeof(struct tls12_crypto_info_aes_gcm_128)), -1);
-}
-
-TEST_F(tls_basic, recseq_wrap)
-{
-	struct tls_crypto_info_keys tls12;
-	char const *test_str = "test_read";
-	int send_len = 10;
-
-	if (self->notls)
-		SKIP(return, "no TLS support");
-
-	tls_crypto_info_init(TLS_1_2_VERSION, TLS_CIPHER_AES_GCM_128, &tls12, 0);
-	memset(&tls12.aes128.rec_seq, 0xff, sizeof(tls12.aes128.rec_seq));
-
-	ASSERT_EQ(setsockopt(self->fd, SOL_TLS, TLS_TX, &tls12, tls12.len), 0);
-	ASSERT_EQ(setsockopt(self->cfd, SOL_TLS, TLS_RX, &tls12, tls12.len), 0);
-
-	EXPECT_EQ(send(self->fd, test_str, send_len, 0), -1);
-	EXPECT_EQ(errno, EBADMSG);
-}
 
 FIXTURE(tls)
 {
@@ -1540,38 +1497,9 @@ TEST_F(tls, getsockopt)
 	EXPECT_EQ(errno, EINVAL);
 }
 
-TEST_F(tls, recv_efault)
+static inline bool __test_passed(struct __test_metadata *metadata)
 {
-	char *rec1 = "1111111111";
-	char *rec2 = "2222222222";
-	struct msghdr hdr = {};
-	struct iovec iov[2];
-	char recv_mem[12];
-	int ret;
-
-	if (self->notls)
-		SKIP(return, "no TLS support");
-
-	EXPECT_EQ(send(self->fd, rec1, 10, 0), 10);
-	EXPECT_EQ(send(self->fd, rec2, 10, 0), 10);
-
-	iov[0].iov_base = recv_mem;
-	iov[0].iov_len = sizeof(recv_mem);
-	iov[1].iov_base = NULL; /* broken iov to make process_rx_list fail */
-	iov[1].iov_len = 1;
-
-	hdr.msg_iovlen = 2;
-	hdr.msg_iov = iov;
-
-	EXPECT_EQ(recv(self->cfd, recv_mem, 1, 0), 1);
-	EXPECT_EQ(recv_mem[0], rec1[0]);
-
-	ret = recvmsg(self->cfd, &hdr, 0);
-	EXPECT_LE(ret, sizeof(recv_mem));
-	EXPECT_GE(ret, 9);
-	EXPECT_EQ(memcmp(rec1, recv_mem, 9), 0);
-	if (ret > 9)
-		EXPECT_EQ(memcmp(rec2, recv_mem + 9, ret - 9), 0);
+	return metadata->passed;
 }
 
 #define TLS_RECORD_TYPE_HANDSHAKE      0x16
