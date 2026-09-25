@@ -538,7 +538,8 @@ static void espintcp_close(struct sock *sk, long timeout)
 	strp_stop(&ctx->strp);
 
 	sk->sk_prot = &tcp_prot;
-	barrier();
+
+	synchronize_rcu();
 
 	/* disable scheduling, workaround for missing disable_ */
 	ctx->work_disabled = true;
