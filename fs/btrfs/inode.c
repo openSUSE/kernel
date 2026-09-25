@@ -7845,14 +7845,22 @@ static int btrfs_get_blocks_direct(struct inode *inode, sector_t iblock,
 						      len, orig_block_len,
 						      ram_bytes, type);
 			btrfs_dec_nocow_writers(fs_info, block_start);
-			if (type == BTRFS_ORDERED_PREALLOC) {
+			if (em2 && IS_ERR(em2)) {
+				ret = PTR_ERR(em2);
+				free_extent_map(em);
+				goto unlock_err;
+			}
+
+			/*
+			 * True NOCOW writes don't need to create a new extent map,
+			 * while PREALLOC writes must replace the existing one.
+			 */
+			if (em2) {
+				ASSERT(type == BTRFS_ORDERED_PREALLOC);
 				free_extent_map(em);
 				em = em2;
 			}
-			if (em2 && IS_ERR(em2)) {
-				ret = PTR_ERR(em2);
-				goto unlock_err;
-			}
+
 			/*
 			 * For inode marked NODATACOW or extent marked PREALLOC,
 			 * use the existing or preallocated extent, so does not
