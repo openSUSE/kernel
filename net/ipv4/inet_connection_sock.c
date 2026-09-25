@@ -919,6 +919,7 @@ void inet_csk_prepare_forced_close(struct sock *sk)
 	sock_put(sk);
 
 	/* The below has to be done to allow calling inet_csk_destroy_sock */
+	tcp_clear_sock_ops_cb_flags(sk);
 	sock_set_flag(sk, SOCK_DEAD);
 	percpu_counter_inc(sk->sk_prot->orphan_count);
 	inet_sk(sk)->inet_num = 0;
