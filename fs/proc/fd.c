@@ -152,21 +152,24 @@ static int proc_fd_link(struct dentry *dentry, struct path *path,
 	struct files_struct *files = NULL;
 	int ret = -ENOENT;
 
-        if (task)
+	if (task)
 		files = get_files_struct(task);
+
 	if (files) {
 		unsigned int fd = proc_fd(d_inode(dentry));
 		struct file *fd_file;
+
 		spin_lock(&files->file_lock);
 		fd_file = fcheck_files(files, fd);
 		if (fd_file) {
 			*path = fd_file->f_path;
 			path_get(&fd_file->f_path);
 			ret = 0;
-                }
+		}
 		spin_unlock(&files->file_lock);
 		put_files_struct(files);
-        }
+	}
+
 	return ret;
 }
 

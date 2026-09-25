@@ -1582,7 +1582,7 @@ static const char *proc_pid_get_link(struct dentry *dentry,
 		return ERR_PTR(-ECHILD);
 
 	error = call_proc_get_link(dentry, inode, &path);
-	if (error)
+	if (!error)
 		nd_jump_link(&path);
 	return ERR_PTR(error);
 }
