@@ -3831,6 +3831,10 @@ CIFSTCon(const unsigned int xid, struct cifs_ses *ses,
 		tcon->tid = smb_buffer_response->Tid;
 		bcc_ptr = pByteArea(smb_buffer_response);
 		bytes_left = get_bcc(smb_buffer_response);
+		if (bytes_left < 2) {
+			rc = -EIO;
+			goto out;
+		}
 		length = strnlen(bcc_ptr, bytes_left - 2);
 		if (smb_buffer->Flags2 & SMBFLG2_UNICODE)
 			is_unicode = true;
@@ -3873,6 +3877,7 @@ CIFSTCon(const unsigned int xid, struct cifs_ses *ses,
 		cifs_dbg(FYI, "Tcon flags: 0x%x\n", tcon->Flags);
 	}
 
+out:
 	cifs_buf_release(smb_buffer);
 	return rc;
 }
