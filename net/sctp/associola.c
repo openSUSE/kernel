@@ -544,6 +544,9 @@ void sctp_assoc_rm_peer(struct sctp_association *asoc,
 	    asoc->addip_last_asconf->transport == peer)
 		asoc->addip_last_asconf->transport = NULL;
 
+	if (asoc->new_transport == peer)
+		asoc->new_transport = NULL;
+
 	/* If we have something on the transmitted list, we have to
 	 * save it off.  The best place is the active path.
 	 */
@@ -618,6 +621,9 @@ struct sctp_transport *sctp_assoc_add_peer(struct sctp_association *asoc,
 		}
 		return peer;
 	}
+
+	if (asoc->peer.transport_count == U16_MAX)
+		return NULL;
 
 	peer = sctp_transport_new(asoc->base.net, addr, gfp);
 	if (!peer)
