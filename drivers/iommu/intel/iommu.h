@@ -1296,7 +1296,7 @@ void cache_tag_flush_range_np(struct dmar_domain *domain, unsigned long start,
 
 void intel_context_flush_present(struct device_domain_info *info,
 				 struct context_entry *context,
-				 u16 did, bool affect_domains);
+				 u16 did, u16 sid, bool affect_domains);
 
 #ifdef CONFIG_INTEL_IOMMU_SVM
 void intel_svm_check(struct intel_iommu *iommu);
@@ -1351,6 +1351,7 @@ static inline bool ecmd_has_pmu_essential(struct intel_iommu *iommu)
 
 extern int dmar_disabled;
 extern int intel_iommu_enabled;
+extern int intel_iommu_tboot_noforce;
 #else
 static inline int iommu_calculate_agaw(struct intel_iommu *iommu)
 {
@@ -1363,6 +1364,7 @@ static inline int iommu_calculate_max_sagaw(struct intel_iommu *iommu)
 #define dmar_disabled	(1)
 #define intel_iommu_enabled (0)
 #define intel_iommu_sm (0)
+#define intel_iommu_tboot_noforce (0)
 #endif
 
 static inline const char *decode_prq_descriptor(char *str, size_t size,
