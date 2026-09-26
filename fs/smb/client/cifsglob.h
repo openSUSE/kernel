@@ -783,6 +783,22 @@ static inline void cifs_server_unlock(struct TCP_Server_Info *server)
 	memalloc_nofs_restore(nofs_flag);
 }
 
+static inline int check_server_down(struct TCP_Server_Info *server)
+{
+	int status = READ_ONCE(server->tcpStatus);
+
+	if (likely(status == CifsGood))
+		return 0;
+
+	if (status == CifsNeedReconnect)
+		return -ECONNABORTED;
+
+	if (status == CifsExiting)
+		return -EHOSTDOWN;
+
+	return 0;
+}
+
 struct cifs_credits {
 	unsigned int value;
 	unsigned int instance;

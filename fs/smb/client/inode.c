@@ -974,6 +974,11 @@ int cifs_get_inode_info(struct inode **inode, const char *full_path,
 		return PTR_ERR(tlink);
 	tcon = tlink_tcon(tlink);
 	server = tcon->ses->server;
+	rc = check_server_down(server);
+	if (unlikely(rc)) {
+		cifs_put_tlink(tlink);
+		return rc;
+	}
 
 	/*
 	 * 1. Fetch file metadata if not provided (data)

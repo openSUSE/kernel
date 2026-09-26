@@ -195,6 +195,16 @@ smb_send_kvec(struct TCP_Server_Info *server, struct msghdr *smb_msg,
 
 	while (msg_data_left(smb_msg)) {
 		/*
+		 * Don't even attempt sending data over a dead connection.
+		 * (avoid stuck sends and -EPIPE errors)
+		 */
+		rc = check_server_down(server);
+		if (unlikely(rc)) {
+			wake_up_all(&server->response_q);
+			return rc;
+		}
+
+		/*
 		 * If blocking send, we try 3 times, since each can block
 		 * for 5 seconds. For nonblocking  we have to try more
 		 * but wait increasing amounts of time allowing time for
@@ -427,10 +437,13 @@ unmask:
 						  server->conn_id, server->hostname);
 	}
 smbd_done:
-	if (rc < 0 && rc != -EINTR)
-		cifs_server_dbg(VFS, "Error %d sending data on socket to server\n",
-			 rc);
-	else if (rc > 0)
+	if (rc < 0 && rc != -EINTR) {
+		if (rc != -ECONNABORTED) {
+			cifs_server_dbg(VFS, "Error %d sending data on socket to server\n", rc);
+			rc = -ECONNABORTED;
+		}
+		cifs_signal_cifsd_for_reconnect(server, false);
+	} else if (rc > 0)
 		rc = 0;
 out:
 	cifs_in_send_dec(server);
@@ -759,8 +772,9 @@ wait_for_response(struct TCP_Server_Info *server, struct mid_q_entry *midQ)
 		 * since there's no one else to do a reconnect.
 		 */
 		error = wait_event_killable_timeout(server->response_q,
-						    midQ->mid_state != MID_REQUEST_SUBMITTED &&
-						    midQ->mid_state != MID_RESPONSE_RECEIVED,
+						    (midQ->mid_state != MID_REQUEST_SUBMITTED &&
+						     midQ->mid_state != MID_RESPONSE_RECEIVED) ||
+						    check_server_down(server) != 0,
 						    10 * HZ);
 
 		/* timeout elapsed with no response */
@@ -768,14 +782,15 @@ wait_for_response(struct TCP_Server_Info *server, struct mid_q_entry *midQ)
 			return -EAGAIN;
 	} else {
 		error = wait_event_freezekillable_unsafe(server->response_q,
-							 midQ->mid_state != MID_REQUEST_SUBMITTED &&
-							 midQ->mid_state != MID_RESPONSE_RECEIVED);
+							 (midQ->mid_state != MID_REQUEST_SUBMITTED &&
+							  midQ->mid_state != MID_RESPONSE_RECEIVED) ||
+							 check_server_down(server) != 0);
 	}
 
 	if (error < 0)
 		return -ERESTARTSYS;
 
-	return 0;
+	return check_server_down(server);
 }
 
 struct mid_q_entry *
@@ -1240,8 +1255,11 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 
 	for (i = 0; i < num_rqst; i++) {
 		rc = wait_for_response(server, midQ[i]);
-		if (rc != 0)
+		if (rc != 0) {
+			if (rc == -ECONNABORTED)
+				rc = -EAGAIN;
 			break;
+		}
 	}
 	if (rc != 0) {
 		for (; i < num_rqst; i++) {
