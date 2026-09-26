@@ -1675,13 +1675,13 @@ xfs_buftarg_wait_rele(
 	return LRU_REMOVED;
 }
 
+/*
+ * Wait for outstanding I/O on the buftarg to complete.
+ */
 void
-xfs_wait_buftarg(
+xfs_buftarg_wait(
 	struct xfs_buftarg	*btp)
 {
-	LIST_HEAD(dispose);
-	int loop = 0;
-
 	/*
 	 * First wait on the buftarg I/O count for all in-flight buffers to be
 	 * released. This is critical as new buffers do not make the LRU until
@@ -1697,6 +1697,16 @@ xfs_wait_buftarg(
 	while (percpu_counter_sum(&btp->bt_io_count))
 		delay(100);
 	flush_workqueue(btp->bt_mount->m_buf_workqueue);
+}
+
+void
+xfs_buftarg_drain(
+	struct xfs_buftarg	*btp)
+{
+	LIST_HEAD(dispose);
+	int			loop = 0;
+
+	xfs_buftarg_wait(btp);
 
 	/* loop until there is nothing left on the lru list. */
 	while (list_lru_count(&btp->bt_lru)) {
