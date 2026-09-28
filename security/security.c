@@ -562,9 +562,14 @@ EXPORT_SYMBOL(security_path_rename);
 
 int security_path_truncate(const struct path *path)
 {
+	int ret;
+
 	if (unlikely(IS_PRIVATE(d_backing_inode(path->dentry))))
 		return 0;
-	return call_int_hook(path_truncate, 0, path);
+	ret = call_int_hook(path_truncate, 0, path);
+	if (ret)
+		return ret;
+	return ima_path_truncate(path);
 }
 
 int security_path_chmod(const struct path *path, umode_t mode)

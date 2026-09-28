@@ -333,6 +333,35 @@ int ima_file_check(struct file *file, int mask, int opened)
 }
 EXPORT_SYMBOL_GPL(ima_file_check);
 
+/*
+ * ima_reset_action_flags - invalidate action flags after a content change
+ * @inode: inode of the file whose content is about to be truncated
+ *
+ * Clear IMA_DONE_MASK so the file is re-collected, re-measured,
+ * re-audited, and re-appraised on next access.
+ */
+static void ima_reset_action_flags(struct inode *inode)
+{
+	struct integrity_iint_cache *iint;
+
+	if (!inode || !ima_policy_flag || !S_ISREG(inode->i_mode))
+		return;
+
+	iint = integrity_iint_find(inode);
+	if (!iint)
+		return;
+
+	iint->flags &= ~IMA_DONE_MASK;
+	iint->measured_pcrs = 0;
+	return;
+}
+
+int ima_path_truncate(const struct path *path)
+{
+	ima_reset_action_flags(d_backing_inode(path->dentry));
+	return 0;
+}
+
 /**
  * ima_post_path_mknod - mark as a new inode
  * @dentry: newly created dentry
