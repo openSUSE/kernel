@@ -653,8 +653,9 @@ sctp_disposition_t sctp_sf_do_5_1D_ce(const struct sctp_endpoint *ep,
 	struct sctp_chunk *repl;
 	struct sctp_ulpevent *ev, *ai_ev = NULL;
 	int error = 0;
-	struct sctp_chunk *err_chk_p;
+	struct sctp_chunk *err_chk_p = NULL;
 	struct sock *sk;
+	sctp_cid_t cid;
 
 	if (asoc && !sctp_vtag_verify(chunk, asoc))
 		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
@@ -726,6 +727,18 @@ sctp_disposition_t sctp_sf_do_5_1D_ce(const struct sctp_endpoint *ep,
 		}
 	}
 
+	peer_init = &chunk->subh.cookie_hdr->c.peer_init[0];
+	cid = peer_init->chunk_hdr.type;
+	if (!sctp_sk(sk)->hmac &&
+	    !sctp_verify_init(asoc, cid, peer_init, chunk,
+			      &err_chk_p)) {
+		sctp_association_free(new_asoc);
+		if (err_chk_p)
+			sctp_chunk_free(err_chk_p);
+		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
+	}
+	if (err_chk_p)
+		sctp_chunk_free(err_chk_p);
 
 	/* Delay state machine commands until later.
 	 *
@@ -735,8 +748,6 @@ sctp_disposition_t sctp_sf_do_5_1D_ce(const struct sctp_endpoint *ep,
 	/* This is a brand-new association, so these are not yet side
 	 * effects--it is safe to run them here.
 	 */
-	peer_init = &chunk->subh.cookie_hdr->c.peer_init[0];
-
 	if (!sctp_process_init(new_asoc, chunk,
 			       &chunk->subh.cookie_hdr->c.peer_addr,
 			       peer_init, GFP_ATOMIC))
@@ -1978,7 +1989,9 @@ sctp_disposition_t sctp_sf_do_5_2_4_dupcook(const struct sctp_endpoint *ep,
 	struct sctp_association *new_asoc;
 	int error = 0;
 	char action;
-	struct sctp_chunk *err_chk_p;
+	struct sctp_chunk *err_chk_p = NULL;
+	sctp_cid_t cid;
+	struct sctp_init_chunk *peer_init;
 
 	/* Make sure that the chunk has a valid length from the protocol
 	 * perspective.  In this case check to make sure we have at least
@@ -2035,6 +2048,24 @@ sctp_disposition_t sctp_sf_do_5_2_4_dupcook(const struct sctp_endpoint *ep,
 	 * current association.
 	 */
 	action = sctp_tietags_compare(new_asoc, asoc);
+
+	switch (action) {
+	case 'A': /* Association restart. */
+	case 'B': /* Collision case B. */
+		peer_init = &chunk->subh.cookie_hdr->c.peer_init[0];
+		cid = peer_init->chunk_hdr.type;
+		if (!sctp_sk(ep->base.sk)->hmac &&
+		    !sctp_verify_init(asoc, cid, peer_init, chunk,
+					&err_chk_p)) {
+			sctp_association_free(new_asoc);
+			if (err_chk_p)
+				sctp_chunk_free(err_chk_p);
+			return sctp_sf_pdiscard(ep, asoc, type, arg,
+						commands);
+		}
+		if (err_chk_p)
+			sctp_chunk_free(err_chk_p);
+	}
 
 	switch (action) {
 	case 'A': /* Association restart. */
