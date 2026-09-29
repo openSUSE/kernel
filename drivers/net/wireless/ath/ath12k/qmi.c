@@ -2511,15 +2511,25 @@ out:
 	return ret;
 }
 
+static void ath12k_qmi_m3_free(struct ath12k_base *ab)
+{
+	struct m3_mem_region *m3_mem = &ab->qmi.m3_mem;
+
+	if (!m3_mem->vaddr)
+		return;
+
+	dma_free_coherent(ab->dev, m3_mem->size,
+			  m3_mem->vaddr, m3_mem->paddr);
+	m3_mem->vaddr = NULL;
+	m3_mem->size = 0;
+}
+
 static int ath12k_qmi_m3_load(struct ath12k_base *ab)
 {
 	struct m3_mem_region *m3_mem = &ab->qmi.m3_mem;
 	const struct firmware *fw;
 	char path[100];
 	int ret;
-
-	if (m3_mem->vaddr || m3_mem->size)
-		return 0;
 
 	fw = ath12k_core_firmware_request(ab, ATH12K_M3_FILE);
 	if (IS_ERR(fw)) {
@@ -2528,6 +2538,17 @@ static int ath12k_qmi_m3_load(struct ath12k_base *ab)
 						 path, sizeof(path));
 		ath12k_err(ab, "failed to load %s: %d\n", path, ret);
 		return ret;
+	}
+
+	/* In recovery/resume cases, M3 buffer is not freed, try to reuse that */
+	if (m3_mem->vaddr) {
+		if (m3_mem->size >= fw->size) {
+			release_firmware(fw);
+			return 0;
+		}
+
+		/* Old buffer is too small, free and reallocate */
+		ath12k_qmi_m3_free(ab);
 	}
 
 	m3_mem->vaddr = dma_alloc_coherent(ab->dev,
@@ -2545,18 +2566,6 @@ static int ath12k_qmi_m3_load(struct ath12k_base *ab)
 	release_firmware(fw);
 
 	return 0;
-}
-
-static void ath12k_qmi_m3_free(struct ath12k_base *ab)
-{
-	struct m3_mem_region *m3_mem = &ab->qmi.m3_mem;
-
-	if (!m3_mem->vaddr)
-		return;
-
-	dma_free_coherent(ab->dev, m3_mem->size,
-			  m3_mem->vaddr, m3_mem->paddr);
-	m3_mem->vaddr = NULL;
 }
 
 static int ath12k_qmi_wlanfw_m3_info_send(struct ath12k_base *ab)
