@@ -482,14 +482,20 @@ BPF_CALL_4(bpf_get_stack, struct pt_regs *, regs, void *, buf, u32, size,
 		init_nr = 0;
 	else
 		init_nr = sysctl_perf_event_max_stack - num_elem;
+
+	preempt_disable();
 	trace = get_perf_callchain(regs, init_nr, kernel, user,
 				   sysctl_perf_event_max_stack, false, false);
-	if (unlikely(!trace))
+	if (unlikely(!trace)) {
+		preempt_enable();
 		goto err_fault;
+	}
 
 	trace_nr = trace->nr - init_nr;
-	if (trace_nr < skip)
+	if (trace_nr < skip) {
+		preempt_enable();
 		goto err_fault;
+	}
 
 	trace_nr -= skip;
 	trace_nr = (trace_nr <= num_elem) ? trace_nr : num_elem;
@@ -499,6 +505,7 @@ BPF_CALL_4(bpf_get_stack, struct pt_regs *, regs, void *, buf, u32, size,
 		stack_map_get_build_id_offset(buf, ips, trace_nr, user);
 	else
 		memcpy(buf, ips, copy_len);
+	preempt_enable();
 
 	if (size > copy_len)
 		memset(buf + copy_len, 0, size - copy_len);
