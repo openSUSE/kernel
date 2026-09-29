@@ -19,7 +19,9 @@
 #include <linux/uio.h>
 #include <linux/interrupt.h>
 #include <linux/set_memory.h>
+#ifndef __GENKSYMS__
 #include <linux/vmalloc.h>
+#endif
 #include <linux/export.h>
 #include <asm/page.h>
 #include <asm/mshyperv.h>
