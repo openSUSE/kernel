@@ -1230,4 +1230,8 @@ DEFINE_LSM(ima) = {
 	.blobs = &ima_blob_sizes,
 };
 
+#ifndef CONFIG_IMA_INIT_LATE_SYNC
 late_initcall(init_ima);	/* Start IMA after the TPM is available */
+#else
+late_initcall_sync(init_ima);	/* Start IMA after the TPM is available */
+#endif
