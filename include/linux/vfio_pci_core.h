@@ -80,6 +80,9 @@ struct vfio_pci_core_device {
 	bool			needs_pm_restore:1;
 	bool			pm_intx_masked:1;
 	bool			pm_runtime_engaged:1;
+#ifndef __GENKSYMS__
+	bool			disable_idle_d3:1;
+#endif
 	struct pci_saved_state	*pci_saved_state;
 	struct pci_saved_state	*pm_save;
 	int			ioeventfds_nr;
@@ -95,6 +98,61 @@ struct vfio_pci_core_device {
 	struct notifier_block	nb;
 	struct rw_semaphore	memory_lock;
 };
+
+struct __orig_vfio_pci_core_device {
+	struct vfio_device	vdev;
+	struct pci_dev		*pdev;
+	void __iomem		*barmap[PCI_STD_NUM_BARS];
+	bool			bar_mmap_supported[PCI_STD_NUM_BARS];
+	u8			*pci_config_map;
+	u8			*vconfig;
+	struct perm_bits	*msi_perm;
+	spinlock_t		irqlock;
+	struct mutex		igate;
+	struct xarray		ctx;
+	int			irq_type;
+	int			num_regions;
+	struct vfio_pci_region	*region;
+	u8			msi_qmax;
+	u8			msix_bar;
+	u16			msix_size;
+	u32			msix_offset;
+	u32			rbar[7];
+	bool			has_dyn_msix:1;
+	bool			pci_2_3:1;
+	bool			virq_disabled:1;
+	bool			reset_works:1;
+	bool			extended_caps:1;
+	bool			bardirty:1;
+	bool			has_vga:1;
+	bool			needs_reset:1;
+	bool			nointx:1;
+	bool			needs_pm_restore:1;
+	bool			pm_intx_masked:1;
+	bool			pm_runtime_engaged:1;
+	bool			disable_idle_d3:1;
+	struct pci_saved_state	*pci_saved_state;
+	struct pci_saved_state	*pm_save;
+	int			ioeventfds_nr;
+	struct eventfd_ctx	*err_trigger;
+	struct eventfd_ctx	*req_trigger;
+	struct eventfd_ctx	*pm_wake_eventfd_ctx;
+	struct list_head	dummy_resources_list;
+	struct mutex		ioeventfds_lock;
+	struct list_head	ioeventfds_list;
+	struct vfio_pci_vf_token	*vf_token;
+	struct list_head		sriov_pfs_item;
+	struct vfio_pci_core_device	*sriov_pf_core_dev;
+	struct notifier_block	nb;
+	struct rw_semaphore	memory_lock;
+};
+
+suse_kabi_static_assert(sizeof(struct vfio_pci_core_device) ==
+			 sizeof(struct __orig_vfio_pci_core_device));
+suse_kabi_static_assert(offsetof(struct vfio_pci_core_device, rbar) ==
+			 offsetof(struct __orig_vfio_pci_core_device, rbar));
+suse_kabi_static_assert(offsetof(struct vfio_pci_core_device, pci_saved_state) ==
+			 offsetof(struct __orig_vfio_pci_core_device, pci_saved_state));
 
 /* Will be exported for vfio pci drivers usage */
 int vfio_pci_core_register_dev_region(struct vfio_pci_core_device *vdev,
