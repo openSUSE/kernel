@@ -1683,6 +1683,8 @@ struct sctp_association *sctp_unpack_cookie(
 	bear_cookie = &cookie->c;
 
 	ch = (struct sctp_chunkhdr *)&bear_cookie->peer_init[0];
+	if (ch->type != SCTP_CID_INIT)
+		goto malformed;
 	chlen = ntohs(ch->length);
 	if (chlen < sizeof(struct sctp_init_chunk))
 		goto malformed;
@@ -1794,6 +1796,9 @@ no_hmac:
 
 	/* Set up our peer's port number.  */
 	retval->peer.port = ntohs(chunk->sctp_hdr->source);
+
+	if (!sctp_auth_verify_cookie_params(ep, bear_cookie))
+		goto malformed;
 
 	/* Populate the association from the cookie.  */
 	memcpy(&retval->c, bear_cookie, sizeof(*bear_cookie));
@@ -2237,7 +2242,8 @@ int sctp_verify_init(const struct sctp_association *asoc,
 	 * VIOLATION error.  We build the ERROR chunk here and let the normal
 	 * error handling code build and send the packet.
 	 */
-	if (param.v != (void*)chunk->chunk_end)
+	if (param.v != (void *)peer_init +
+		       WORD_ROUND(ntohs(peer_init->chunk_hdr.length)))
 		return sctp_process_inv_paramlength(asoc, param.p, chunk, errp);
 
 	/* The only missing mandatory param possible today is

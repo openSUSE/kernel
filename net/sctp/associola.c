@@ -318,6 +318,14 @@ static struct sctp_association *sctp_association_init(struct sctp_association *a
 
 	/* AUTH related initializations */
 	INIT_LIST_HEAD(&asoc->endpoint_shared_keys);
+
+	if (ep->auth_hmacs_list) {
+		if (ntohs(ep->auth_hmacs_list->param_hdr.length) >
+			  sizeof(asoc->c.auth_hmacs)) {
+			pr_warn_once("sctp: hmacs list too long\n");
+			goto fail_init;
+		}
+	}
 	err = sctp_auth_asoc_copy_shkeys(ep, asoc, gfp);
 	if (err)
 		goto fail_init;
