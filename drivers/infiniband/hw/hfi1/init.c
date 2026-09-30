@@ -1540,18 +1540,14 @@ static void postinit_cleanup(struct hfi1_devdata *dd)
 	hfi1_dev_affinity_clean_up(dd);
 
 	hfi1_pcie_ddcleanup(dd);
-	hfi1_pcie_cleanup(dd->pcidev);
 
 	cleanup_device_data(dd);
-
-	hfi1_free_devdata(dd);
 }
 
 static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	int ret = 0, pidx, initfail;
+	int ret;
 	struct hfi1_devdata *dd;
-	struct hfi1_pportdata *ppd;
 
 	/* First, lock the non-writable module parameters */
 	HFI1_CAP_LOCK();
@@ -1618,34 +1614,19 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto destroy_workqueues; /* error already printed */
 
 	/* do the generic initialization */
-	initfail = hfi1_init(dd, 0);
+	ret = hfi1_init(dd, 0);
+	if (ret)
+		goto free_rx;
 
 	ret = hfi1_register_ib_device(dd);
+	if (ret)
+		goto free_rx;
 
 	/*
 	 * Now ready for use.  this should be cleared whenever we
 	 * detect a reset, or initiate one.
 	 */
-	if (!initfail && !ret)
-		dd->flags |= HFI1_INITTED;
-
-	if (initfail || ret) {
-		msix_clean_up_interrupts(dd);
-		stop_timers(dd);
-		for (pidx = 0; pidx < dd->num_pports; ++pidx) {
-			hfi1_quiet_serdes(dd->pport + pidx);
-			ppd = dd->pport + pidx;
-			destroy_workqueue(ppd->hfi1_wq);
-			destroy_workqueue(ppd->link_wq);
-		}
-		if (!ret)
-			hfi1_unregister_ib_device(dd);
-		hfi1_free_rx(dd);
-		postinit_cleanup(dd);
-		if (initfail)
-			ret = initfail;
-		return ret;	/* everything already cleaned */
-	}
+	dd->flags |= HFI1_INITTED;
 
 	ret = hfi1_device_create(dd);
 	if (ret)
@@ -1656,6 +1637,12 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	hfi1_dbg_ibdev_init(&dd->verbs_dev);
 
 	return 0;
+
+free_rx:
+	hfi1_free_rx(dd);
+	shutdown_device(dd);
+	stop_timers(dd);
+	postinit_cleanup(dd);
 
 destroy_workqueues:
 	destroy_workqueues(dd);
@@ -1702,11 +1689,11 @@ static void remove_one(struct pci_dev *pdev)
 	 * clear dma engines, etc.
 	 */
 	shutdown_device(dd);
-	destroy_workqueues(dd);
-
 	stop_timers(dd);
-
 	postinit_cleanup(dd);
+	destroy_workqueues(dd);
+	hfi1_free_devdata(dd);
+	hfi1_pcie_cleanup(pdev);
 }
 
 static void shutdown_one(struct pci_dev *pdev)
