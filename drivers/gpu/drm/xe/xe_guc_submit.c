@@ -1260,6 +1260,7 @@ static void __guc_exec_queue_fini_async(struct work_struct *w)
 	 * (timeline name).
 	 */
 	kfree_rcu(ge, rcu);
+	xe_exec_queue_fini(q);
 	xe_pm_runtime_put(guc_to_xe(guc));
 
 	drm_dev_put(drm);
