@@ -740,31 +740,26 @@ static int create_workqueues(struct hfi1_devdata *dd)
 
 	for (pidx = 0; pidx < dd->num_pports; ++pidx) {
 		ppd = dd->pport + pidx;
-		if (!ppd->hfi1_wq) {
-			ppd->hfi1_wq =
-				alloc_workqueue(
-				    "hfi%d_%d",
-				    WQ_SYSFS | WQ_HIGHPRI | WQ_CPU_INTENSIVE |
-				    WQ_MEM_RECLAIM,
-				    HFI1_MAX_ACTIVE_WORKQUEUE_ENTRIES,
-				    dd->unit, pidx);
-			if (!ppd->hfi1_wq)
-				goto wq_error;
-		}
-		if (!ppd->link_wq) {
-			/*
-			 * Make the link workqueue single-threaded to enforce
-			 * serialization.
-			 */
-			ppd->link_wq =
-				alloc_workqueue(
-				    "hfi_link_%d_%d",
-				    WQ_SYSFS | WQ_MEM_RECLAIM | WQ_UNBOUND,
-				    1, /* max_active */
-				    dd->unit, pidx);
-			if (!ppd->link_wq)
-				goto wq_error;
-		}
+		ppd->hfi1_wq =
+			alloc_workqueue(
+			    "hfi%d_%d",
+			    WQ_SYSFS | WQ_HIGHPRI | WQ_CPU_INTENSIVE | WQ_MEM_RECLAIM,
+			    HFI1_MAX_ACTIVE_WORKQUEUE_ENTRIES,
+			    dd->unit, pidx);
+		if (!ppd->hfi1_wq)
+			goto wq_error;
+		/*
+		 * Make the link workqueue single-threaded to enforce
+		 * serialization.
+		 */
+		ppd->link_wq =
+			alloc_workqueue(
+			    "hfi_link_%d_%d",
+			    WQ_SYSFS | WQ_MEM_RECLAIM | WQ_UNBOUND,
+			    1, /* max_active */
+			    dd->unit, pidx);
+		if (!ppd->link_wq)
+			goto wq_error;
 	}
 	return 0;
 wq_error:
@@ -1650,14 +1645,8 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		for (pidx = 0; pidx < dd->num_pports; ++pidx) {
 			hfi1_quiet_serdes(dd->pport + pidx);
 			ppd = dd->pport + pidx;
-			if (ppd->hfi1_wq) {
-				destroy_workqueue(ppd->hfi1_wq);
-				ppd->hfi1_wq = NULL;
-			}
-			if (ppd->link_wq) {
-				destroy_workqueue(ppd->link_wq);
-				ppd->link_wq = NULL;
-			}
+			destroy_workqueue(ppd->hfi1_wq);
+			destroy_workqueue(ppd->link_wq);
 		}
 		if (!j)
 			hfi1_device_remove(dd);
