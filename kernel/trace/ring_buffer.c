@@ -2452,9 +2452,15 @@ static int __rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 	 * memory. It may not be accurate. But we don't care, we just want
 	 * to prevent doing any allocation when it is obvious that it is
 	 * not going to succeed.
+	 *
+	 * Skip this check during early boot: with CONFIG_DEFERRED_STRUCT_PAGE_INIT,
+	 * NR_FREE_PAGES only reflects the initial non-deferred pool at this
+	 * stage. si_mem_available() returns a false negative while actual
+	 * allocations succeed by growing the zone on demand via
+	 * deferred_grow_zone().
 	 */
 	i = si_mem_available();
-	if (i < nr_pages)
+	if (system_state != SYSTEM_BOOTING && i < nr_pages)
 		return -ENOMEM;
 
 	/*
