@@ -4713,7 +4713,8 @@ again:
 		}
 		read_unlock_bh(&head->lock);
 
-		if (ep) {
+		if (epb) {
+			WARN_ON_ONCE(ep != sctp_ep(epb));
 			err = cb(ep, p);
 			sctp_endpoint_put(ep);
 			if (err)
