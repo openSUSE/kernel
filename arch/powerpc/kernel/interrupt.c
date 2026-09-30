@@ -76,6 +76,18 @@ static notrace __always_inline bool prep_irq_for_enabled_exit(bool restartable)
 }
 
 /*
+ * Syscall work after which the exit must reload all registers from
+ * pt_regs: a tracer may have changed any of them at a syscall or seccomp
+ * stop, or under PTRACE_SYSEMU. Audit and the tracepoint are included to
+ * keep the pre-GENERIC_ENTRY behaviour.
+ */
+#define PPC_SYSCALL_WORK_RESTOREALL	(SYSCALL_WORK_SECCOMP |		\
+					 SYSCALL_WORK_SYSCALL_TRACEPOINT | \
+					 SYSCALL_WORK_SYSCALL_TRACE |	\
+					 SYSCALL_WORK_SYSCALL_EMU |	\
+					 SYSCALL_WORK_SYSCALL_AUDIT)
+
+/*
  * This should be called after a syscall returns, with r3 the return value
  * from the syscall. If this function returns non-zero, the system call
  * exit assembly should additionally load all GPR registers and CTR and XER
@@ -117,9 +129,9 @@ notrace unsigned long syscall_exit_prepare(unsigned long r3,
 		regs->gpr[3] = r3;
 	}
 
-	if (unlikely(ti_flags & _TIF_SYSCALL_DOTRACE)) {
+	if (unlikely(READ_ONCE(current_thread_info()->syscall_work) &
+		     PPC_SYSCALL_WORK_RESTOREALL))
 		ret |= _TIF_RESTOREALL;
-	}
 
 	syscall_exit_to_user_mode(regs);
 
