@@ -221,24 +221,19 @@ static inline void pebs_set_tlb_lock(u64 *val, bool tlb, bool lock)
 }
 
 /* Retrieve the latency data for e-core of ADL */
-u64 adl_latency_data_small(struct perf_event *event, u64 status)
+static u64 __grt_latency_data(struct perf_event *event, u64 status,
+			       u8 dse, bool tlb, bool lock, bool blk)
 {
-	union intel_x86_pebs_dse dse;
 	u64 val;
 
-	WARN_ON_ONCE(hybrid_pmu(event->pmu)->cpu_type == hybrid_big);
+	WARN_ON_ONCE(is_hybrid() &&
+		     hybrid_pmu(event->pmu)->cpu_type == hybrid_big);
 
-	dse.val = status;
+	val = hybrid_var(event->pmu, pebs_data_source)[dse];
 
-	val = hybrid_var(event->pmu, pebs_data_source)[dse.ld_dse];
+	pebs_set_tlb_lock(&val, tlb, lock);
 
-	/*
-	 * For the atom core on ADL,
-	 * bit 4: lock, bit 5: TLB access.
-	 */
-	pebs_set_tlb_lock(&val, dse.ld_locked, dse.ld_stlb_miss);
-
-	if (dse.ld_data_blk)
+	if (blk)
 		val |= P(BLK, DATA);
 	else
 		val |= P(BLK, NA);
@@ -246,15 +241,22 @@ u64 adl_latency_data_small(struct perf_event *event, u64 status)
 	return val;
 }
 
-static u64 load_latency_data(struct perf_event *event, u64 status)
+u64 grt_latency_data(struct perf_event *event, u64 status)
 {
 	union intel_x86_pebs_dse dse;
 	u64 val;
 
 	dse.val = status;
 
+	/* Gracemont uses bit 4 for lock and bit 5 for TLB access. */
+	if (event->hw.flags & PERF_X86_EVENT_PEBS_LAT_HYBRID)
+		return __grt_latency_data(event, status, dse.ld_dse,
+					  dse.ld_locked, dse.ld_stlb_miss,
+					  dse.ld_data_blk);
+
 	/*
-	 * use the mapping table for bit 0-3
+	 * For non-Gracemont load-latency events, use the mapping table
+	 * for bit 0-3 and retain the legacy TLB, lock and block decoding.
 	 */
 	val = hybrid_var(event->pmu, pebs_data_source)[dse.ld_dse];
 
@@ -838,7 +840,7 @@ struct event_constraint intel_glm_pebs_event_constraints[] = {
 struct event_constraint intel_grt_pebs_event_constraints[] = {
 	/* Allow all events as PEBS with no flags */
 	INTEL_HYBRID_LAT_CONSTRAINT(0x5d0, 0x3),
-	INTEL_HYBRID_LAT_CONSTRAINT(0x6d0, 0xf),
+	INTEL_HYBRID_LAT_CONSTRAINT(0x6d0, 0x3f),
 	EVENT_CONSTRAINT_END
 };
 
@@ -1511,7 +1513,7 @@ static u64 get_data_src(struct perf_event *event, u64 aux)
 	bool fst = fl & (PERF_X86_EVENT_PEBS_ST | PERF_X86_EVENT_PEBS_HSW_PREC);
 
 	if (fl & PERF_X86_EVENT_PEBS_LDLAT)
-		val = load_latency_data(event, aux);
+		val = grt_latency_data(event, aux);
 	else if (fl & PERF_X86_EVENT_PEBS_STLAT)
 		val = store_latency_data(event, aux);
 	else if (fl & PERF_X86_EVENT_PEBS_LAT_HYBRID)
