@@ -126,7 +126,6 @@ static void iso_sock_timeout(struct work_struct *work)
 	sk->sk_err = ETIMEDOUT;
 	sk->sk_state_change(sk);
 	release_sock(sk);
-	iso_sock_kill(sk);
 	sock_put(sk);
 }
 
@@ -263,6 +262,7 @@ static void iso_conn_del(struct hci_conn *hcon, int err)
 		iso_sock_clear_timer(sk);
 		iso_chan_del(sk, err);
 		release_sock(sk);
+		iso_sock_kill(sk);
 		sock_put(sk);
 	}
 
