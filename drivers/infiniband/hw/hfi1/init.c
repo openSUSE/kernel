@@ -1549,7 +1549,7 @@ static void postinit_cleanup(struct hfi1_devdata *dd)
 
 static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	int ret = 0, j, pidx, initfail;
+	int ret = 0, pidx, initfail;
 	struct hfi1_devdata *dd;
 	struct hfi1_pportdata *ppd;
 
@@ -1624,19 +1624,13 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/*
 	 * Now ready for use.  this should be cleared whenever we
-	 * detect a reset, or initiate one.  If earlier failure,
-	 * we still create devices, so diags, etc. can be used
-	 * to determine cause of problem.
+	 * detect a reset, or initiate one.
 	 */
 	if (!initfail && !ret) {
 		dd->flags |= HFI1_INITTED;
 		/* create debufs files after init and ib register */
 		hfi1_dbg_ibdev_init(&dd->verbs_dev);
 	}
-
-	j = hfi1_device_create(dd);
-	if (j)
-		dd_dev_err(dd, "Failed to create /dev devices: %d\n", -j);
 
 	if (initfail || ret) {
 		msix_clean_up_interrupts(dd);
@@ -1647,8 +1641,6 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			destroy_workqueue(ppd->hfi1_wq);
 			destroy_workqueue(ppd->link_wq);
 		}
-		if (!j)
-			hfi1_device_remove(dd);
 		if (!ret)
 			hfi1_unregister_ib_device(dd);
 		hfi1_free_rx(dd);
@@ -1657,6 +1649,11 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			ret = initfail;
 		return ret;	/* everything already cleaned */
 	}
+
+	ret = hfi1_device_create(dd);
+	if (ret)
+		dd_dev_err(dd, "Failed to create /dev devices: %pe\n",
+			   ERR_PTR(ret));
 
 	sdma_start(dd);
 
