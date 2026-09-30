@@ -1626,11 +1626,8 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	 * Now ready for use.  this should be cleared whenever we
 	 * detect a reset, or initiate one.
 	 */
-	if (!initfail && !ret) {
+	if (!initfail && !ret)
 		dd->flags |= HFI1_INITTED;
-		/* create debufs files after init and ib register */
-		hfi1_dbg_ibdev_init(&dd->verbs_dev);
-	}
 
 	if (initfail || ret) {
 		msix_clean_up_interrupts(dd);
@@ -1656,6 +1653,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			   ERR_PTR(ret));
 
 	sdma_start(dd);
+	hfi1_dbg_ibdev_init(&dd->verbs_dev);
 
 	return 0;
 
