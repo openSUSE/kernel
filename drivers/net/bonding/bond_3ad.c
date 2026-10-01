@@ -105,9 +105,6 @@ enum ad_link_speed_type {
 #define MAC_ADDRESS_EQUAL(A, B)	\
 	ether_addr_equal_64bits((const u8 *)A, (const u8 *)B)
 
-static const u8 null_mac_addr[ETH_ALEN + 2] __long_aligned = {
-	0, 0, 0, 0, 0, 0
-};
 static u16 ad_ticks_per_sec;
 static const int ad_delta_in_ticks = (AD_TIMER_INTERVAL * HZ) / 1000;
 
@@ -1452,7 +1449,7 @@ static void ad_port_selection_logic(struct port *port, bool *update_slave_arr)
 		     (aggregator->partner_system_priority == port->partner_oper.system_priority) &&
 		     (aggregator->partner_oper_aggregator_key == port->partner_oper.key)
 		    ) &&
-		    ((!MAC_ADDRESS_EQUAL(&(port->partner_oper.system), &(null_mac_addr)) && /* partner answers */
+		    ((__agg_has_partner(aggregator) && /* partner answers */
 		      !aggregator->is_individual)  /* but is not individual OR */
 		    )
 		   ) {
@@ -1896,9 +1893,7 @@ static void ad_enable_collecting_distributing(struct port *port,
 static void ad_disable_collecting_distributing(struct port *port,
 					       bool *update_slave_arr)
 {
-	if (port->aggregator &&
-	    !MAC_ADDRESS_EQUAL(&(port->aggregator->partner_system),
-			       &(null_mac_addr))) {
+	if (port->aggregator && __agg_has_partner(port->aggregator)) {
 		pr_debug("Disabling port %d(LAG %d)\n",
 			 port->actor_port_number,
 			 port->aggregator->aggregator_identifier);
