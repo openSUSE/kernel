@@ -986,7 +986,7 @@ static void bond_poll_controller(struct net_device *bond_dev)
 
 		if (BOND_MODE(bond) == BOND_MODE_8023AD) {
 			struct aggregator *agg =
-			    SLAVE_AD_INFO(slave)->port.aggregator;
+			    rcu_dereference(SLAVE_AD_INFO(slave)->port.aggregator);
 
 			if (agg &&
 			    agg->aggregator_identifier != ad_info.aggregator_id)
@@ -4132,11 +4132,12 @@ int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 		}
 		agg_id = ad_info.aggregator_id;
 	}
+	rcu_read_lock();
 	bond_for_each_slave(bond, slave, iter) {
 		if (BOND_MODE(bond) == BOND_MODE_8023AD) {
-			struct aggregator *agg;
+			const struct aggregator *agg;
 
-			agg = SLAVE_AD_INFO(slave)->port.aggregator;
+			agg = rcu_dereference(SLAVE_AD_INFO(slave)->port.aggregator);
 			if (!agg || agg->aggregator_identifier != agg_id)
 				continue;
 		}
@@ -4146,6 +4147,7 @@ int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 			continue;
 		new_arr->arr[new_arr->count++] = slave;
 	}
+	rcu_read_unlock();
 
 	old_arr = rtnl_dereference(bond->slave_arr);
 	rcu_assign_pointer(bond->slave_arr, new_arr);
