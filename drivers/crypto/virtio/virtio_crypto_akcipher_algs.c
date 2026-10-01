@@ -96,7 +96,8 @@ static void virtio_crypto_dataq_akcipher_callback(struct virtio_crypto_request *
 	akcipher_req = vc_akcipher_req->akcipher_req;
 	if (vc_akcipher_req->opcode != VIRTIO_CRYPTO_AKCIPHER_VERIFY) {
 		/* actuall length maybe less than dst buffer */
-		akcipher_req->dst_len = len - sizeof(vc_req->status);
+		akcipher_req->dst_len = min_t(unsigned int, len - sizeof(vc_req->status),
+				akcipher_req->dst_len);
 		sg_copy_from_buffer(akcipher_req->dst, sg_nents(akcipher_req->dst),
 				    vc_akcipher_req->dst_buf, akcipher_req->dst_len);
 	}
