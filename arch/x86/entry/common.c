@@ -334,8 +334,8 @@ __visible noinstr void do_int80_syscall_32(struct pt_regs *regs)
 	 */
 	nr = syscall_enter_from_user_mode(regs, nr);
 	instrumentation_begin();
-	add_random_kstack_offset();
 
+	add_random_kstack_offset();
 	do_syscall_32_irqs_on(regs, nr);
 
 	instrumentation_end();
