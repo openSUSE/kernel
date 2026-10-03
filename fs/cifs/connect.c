@@ -2969,6 +2969,17 @@ smbd_connected:
 	 * this will succeed. No need for try_module_get().
 	 */
 	__module_get(THIS_MODULE);
+	tcp_ses->min_offload = volume_info->min_offload;
+	/*
+	 * at this point we are the only ones with the pointer
+	 * to the struct since the kernel thread not created yet
+	 * no need to spinlock this update of tcpStatus
+	 */
+	tcp_ses->tcpStatus = CifsNeedNegotiate;
+
+	tcp_ses->nr_targets = 1;
+	tcp_ses->ignore_signature = volume_info->ignore_signature;
+
 	tcp_ses->tsk = kthread_run(cifs_demultiplex_thread,
 				  tcp_ses, "cifsd");
 	if (IS_ERR(tcp_ses->tsk)) {
@@ -2977,18 +2988,6 @@ smbd_connected:
 		module_put(THIS_MODULE);
 		goto out_err_crypto_release;
 	}
-	tcp_ses->min_offload = volume_info->min_offload;
-	/*
-	 * at this point we are the only ones with the pointer
-	 * to the struct since the kernel thread not created yet
-	 * no need to spinlock this update of tcpStatus
-	 */
-	spin_lock(&tcp_ses->srv_lock);
-	tcp_ses->tcpStatus = CifsNeedNegotiate;
-	spin_unlock(&tcp_ses->srv_lock);
-
-	tcp_ses->nr_targets = 1;
-	tcp_ses->ignore_signature = volume_info->ignore_signature;
 	/* thread spawned, put it on the list */
 	spin_lock(&cifs_tcp_ses_lock);
 	list_add(&tcp_ses->tcp_ses_list, &cifs_tcp_ses_list);
@@ -2998,6 +2997,12 @@ smbd_connected:
 
 	/* queue echo request delayed work */
 	queue_delayed_work(cifsiod_wq, &tcp_ses->echo, tcp_ses->echo_interval);
+
+	/*
+	 * Use split create/wake logic to ensure that tcp_ses is fully populated
+	 * and tcp_ses->tsk is valid
+	 */
+	wake_up_process(tcp_ses->tsk);
 
 	return tcp_ses;
 
