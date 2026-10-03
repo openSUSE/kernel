@@ -5276,6 +5276,9 @@ static ssize_t memory_max_write(struct kernfs_open_file *of,
 	for (;;) {
 		unsigned long nr_pages = page_counter_read(&memcg->memory);
 
+		if (max != READ_ONCE(memcg->memory.limit))
+			break;
+
 		if (nr_pages <= max)
 			break;
 
