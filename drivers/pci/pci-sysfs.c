@@ -1453,6 +1453,9 @@ static ssize_t resource##n##_resize_store(struct device *dev,		\
 	int ret, i;							\
 	u16 cmd;							\
 									\
+	if (!capable(CAP_SYS_ADMIN))					\
+		return -EPERM;						\
+									\
 	if (kstrtoul(buf, 0, &size) < 0)				\
 		return -EINVAL;						\
 									\
