@@ -869,7 +869,7 @@ static void kdamond_apply_schemes(struct damon_ctx *c)
 		if (!s->wmarks.activated)
 			continue;
 
-		if (!quota->ms && !quota->sz)
+		if (!quota->esz && !quota->ms && !quota->sz)
 			continue;
 
 		/* New charge window starts */
