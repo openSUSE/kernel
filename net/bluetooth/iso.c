@@ -194,7 +194,6 @@ static void iso_chan_del(struct sock *sk, int err)
 		if (conn->hcon) {
 			if (!test_and_set_bit(ISO_CONN_DROPPED, conn->flags))
 				hci_conn_drop(conn->hcon);
-			hci_conn_drop(conn->hcon);
 		}
 	}
 
