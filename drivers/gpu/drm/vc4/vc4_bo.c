@@ -751,9 +751,12 @@ int vc4_mmap(struct file *filp, struct vm_area_struct *vma)
 	gem_obj = vma->vm_private_data;
 	bo = to_vc4_bo(gem_obj);
 
-	if (bo->validated_shader && (vma->vm_flags & VM_WRITE)) {
-		DRM_DEBUG("mmaping of shader BOs for writing not allowed.\n");
-		return -EINVAL;
+	if (bo->validated_shader) {
+		if (vma->vm_flags & VM_WRITE) {
+			DRM_DEBUG("mmaping of shader BOs for writing not allowed.\n");
+			return -EINVAL;
+		}
+		vma->vm_flags &= ~VM_MAYWRITE;
 	}
 
 	if (bo->madv != VC4_MADV_WILLNEED) {
