@@ -147,7 +147,7 @@ struct super_block {
 	unsigned long				s_magic;
 	struct dentry				*s_root;
 	struct rw_semaphore			s_umount;
-	int					s_count;
+	refcount_t				s_passive;
 	atomic_t				s_active;
 #ifdef CONFIG_SECURITY
 	void					*s_security;
