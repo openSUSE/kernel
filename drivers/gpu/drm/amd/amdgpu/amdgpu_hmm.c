@@ -210,6 +210,7 @@ int amdgpu_hmm_range_get_pages(struct mmu_interval_notifier *notifier,
 retry:
 		r = hmm_range_fault(hmm_range);
 		if (unlikely(r)) {
+			schedule();
 			/*
 			 * FIXME: This timeout should encompass the retry from
 			 * mmu_interval_read_retry() as well.
@@ -223,7 +224,6 @@ retry:
 			break;
 		hmm_range->hmm_pfns += max_bytes >> PAGE_SHIFT;
 		hmm_range->start = hmm_range->end;
-		schedule();
 	} while (hmm_range->end < end);
 
 	hmm_range->start = start;
