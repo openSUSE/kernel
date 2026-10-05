@@ -25,6 +25,7 @@
 #include <linux/freezer.h>
 #include <linux/sched/signal.h>
 #include <linux/wait_bit.h>
+#include <linux/rmap.h>
 
 #include <asm/div64.h>
 #include "cifsfs.h"
@@ -2351,13 +2352,31 @@ int cifs_truncate_page(struct address_space *mapping, loff_t from)
 void cifs_setsize(struct inode *inode, loff_t offset)
 {
 	struct cifsInodeInfo *cifs_i = CIFS_I(inode);
+	loff_t old_size;
 
 	spin_lock(&inode->i_lock);
+	old_size = i_size_read(inode);
 	i_size_write(inode, offset);
 	spin_unlock(&inode->i_lock);
 
 	/* Cached inode must be refreshed on truncate */
 	cifs_i->time = 0;
+	/*
+	 * pagecache_isize_extended() is a no-op here (i_blkbits is 14), so
+	 * zero the tail of the page straddling the old EOF by hand.
+	 */
+	if (offset > old_size && (old_size & ~PAGE_MASK)) {
+		struct page *page = find_lock_page(inode->i_mapping,
+						   old_size >> PAGE_SHIFT);
+
+		if (page) {
+			zero_user_segment(page, old_size & ~PAGE_MASK, PAGE_SIZE);
+			if (page_mkclean(page))
+				set_page_dirty(page);
+			unlock_page(page);
+			put_page(page);
+		}
+	}
 	truncate_pagecache(inode, offset);
 }
 
