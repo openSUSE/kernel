@@ -689,6 +689,7 @@ int tty_port_open(struct tty_port *port, struct tty_struct *tty,
 		if (port->ops->activate) {
 			int retval = port->ops->activate(port, tty);
 			if (retval) {
+				set_bit(TTY_IO_ERROR, &tty->flags);
 				mutex_unlock(&port->mutex);
 				return retval;
 			}
