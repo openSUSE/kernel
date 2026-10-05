@@ -577,6 +577,7 @@ TEST_FAIL_NTH(basic_fail_nth, access_pin_domain)
 TEST_FAIL_NTH(basic_fail_nth, device)
 {
 	struct iommu_test_hw_info info;
+	uint32_t veventq_id, veventq_fd;
 	uint32_t ioas_id;
 	uint32_t ioas_id2;
 	uint32_t stdev_id;
@@ -638,6 +639,12 @@ TEST_FAIL_NTH(basic_fail_nth, device)
 
 	if (_test_cmd_vdevice_alloc(self->fd, viommu_id, idev_id, 0, &vdev_id))
 		return -1;
+
+	if (_test_cmd_veventq_alloc(self->fd, viommu_id,
+				    IOMMU_VEVENTQ_TYPE_SELFTEST, &veventq_id,
+				    &veventq_fd))
+		return -1;
+	close(veventq_fd);
 
 	return 0;
 }
