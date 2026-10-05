@@ -1301,6 +1301,9 @@ static void u32_bind_class(void *fh, u32 classid, unsigned long cl)
 {
 	struct tc_u_knode *n = fh;
 
+	if (TC_U32_KEY(n->handle) == 0)
+		return;
+
 	if (n && n->res.classid == classid)
 		n->res.class = cl;
 }
