@@ -173,6 +173,19 @@ finup:
 }
 EXPORT_SYMBOL_GPL(crypto_shash_finup);
 
+int crypto_shash_update(struct shash_desc *desc, const u8 *data,
+				      unsigned int len)
+{
+	return crypto_shash_finup(desc, data, len, NULL);
+}
+EXPORT_SYMBOL_GPL(crypto_shash_update);
+
+int crypto_shash_final(struct shash_desc *desc, u8 *out)
+{
+	return crypto_shash_finup(desc, NULL, 0, out);
+}
+EXPORT_SYMBOL_GPL(crypto_shash_final);
+
 static int shash_default_digest(struct shash_desc *desc, const u8 *data,
 				unsigned int len, u8 *out)
 {
