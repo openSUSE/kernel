@@ -1509,9 +1509,11 @@ static int pbl_chunk_list_create(struct efa_dev *dev, struct pbl_context *pbl)
 				(EFA_CHUNK_PAYLOAD_SIZE * i);
 
 			if (payload_idx == EFA_PTRS_PER_CHUNK) {
-				chunk_idx++;
-				cur_chunk_buf = chunk_list->chunks[chunk_idx].buf;
 				payload_idx = 0;
+				chunk_idx++;
+				if (chunk_idx >= chunk_list_size)
+					break;
+				cur_chunk_buf = chunk_list->chunks[chunk_idx].buf;
 			}
 		}
 	}
