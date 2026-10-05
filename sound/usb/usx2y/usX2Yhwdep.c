@@ -31,6 +31,7 @@
 #include "usbusx2y.h"
 #include "usX2Yhwdep.h"
 
+#define US428_SHAREDMEM_PAGES   PAGE_ALIGN(sizeof(struct us428ctls_sharedmem))
 static int snd_us428ctls_vm_fault(struct vm_area_struct *area,
 				  struct vm_fault *vmf)
 {
@@ -43,6 +44,8 @@ static int snd_us428ctls_vm_fault(struct vm_area_struct *area,
 		   vmf->pgoff);
 	
 	offset = vmf->pgoff << PAGE_SHIFT;
+	if (offset >= US428_SHAREDMEM_PAGES)
+		return VM_FAULT_SIGBUS;
 	vaddr = (char*)((struct usX2Ydev *)area->vm_private_data)->us428ctls_sharedmem + offset;
 	page = virt_to_page(vaddr);
 	get_page(page);
