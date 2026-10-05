@@ -2980,8 +2980,8 @@ smbd_connected:
 	tcp_ses->nr_targets = 1;
 	tcp_ses->ignore_signature = volume_info->ignore_signature;
 
-	tcp_ses->tsk = kthread_run(cifs_demultiplex_thread,
-				  tcp_ses, "cifsd");
+	tcp_ses->tsk = kthread_create(cifs_demultiplex_thread,
+				      tcp_ses, "cifsd");
 	if (IS_ERR(tcp_ses->tsk)) {
 		rc = PTR_ERR(tcp_ses->tsk);
 		cifs_dbg(VFS, "error %d create cifsd thread\n", rc);
