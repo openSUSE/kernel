@@ -1803,9 +1803,14 @@ EXPORT_SYMBOL(security_path_rename);
  */
 int security_path_truncate(const struct path *path)
 {
+	int ret;
+
 	if (unlikely(IS_PRIVATE(d_backing_inode(path->dentry))))
 		return 0;
-	return call_int_hook(path_truncate, 0, path);
+	ret = call_int_hook(path_truncate, 0, path);
+	if (ret)
+		return ret;
+	return ima_path_truncate(path);
 }
 
 /**
@@ -2800,7 +2805,6 @@ int security_file_open(struct file *file)
 
 	return fsnotify_perm(file, MAY_OPEN);
 }
-
 /**
  * security_file_truncate() - Check if truncating a file is allowed
  * @file: file
@@ -2813,7 +2817,12 @@ int security_file_open(struct file *file)
  */
 int security_file_truncate(struct file *file)
 {
-	return call_int_hook(file_truncate, 0, file);
+	int ret;
+
+	ret = call_int_hook(file_truncate, 0, file);
+	if (ret)
+		return ret;
+	return ima_file_truncate(file);
 }
 
 /**
