@@ -651,6 +651,8 @@ static void snd_usX2Y_hwdep_pcm_vm_close(struct vm_area_struct *area)
 {
 }
 
+#define USX2Y_HWDEP_PCM_PAGES   \
+        PAGE_ALIGN(sizeof(struct snd_usX2Y_hwdep_pcm_shm))
 
 static int snd_usX2Y_hwdep_pcm_vm_fault(struct vm_fault *vmf)
 {
@@ -658,6 +660,8 @@ static int snd_usX2Y_hwdep_pcm_vm_fault(struct vm_fault *vmf)
 	void *vaddr;
 
 	offset = vmf->pgoff << PAGE_SHIFT;
+	if (offset >= USX2Y_HWDEP_PCM_PAGES)
+		return VM_FAULT_SIGBUS;
 	vaddr = (char *)((struct usX2Ydev *)vmf->vma->vm_private_data)->hwdep_pcm_shm + offset;
 	vmf->page = virt_to_page(vaddr);
 	get_page(vmf->page);
