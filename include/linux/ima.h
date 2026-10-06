@@ -18,6 +18,8 @@ struct linux_binprm;
 extern enum hash_algo ima_get_current_hash_algo(void);
 extern int ima_bprm_check(struct linux_binprm *bprm);
 extern int ima_file_check(struct file *file, int mask);
+extern int ima_path_truncate(const struct path *path);
+extern int ima_file_truncate(struct file *file);
 extern void ima_post_create_tmpfile(struct mnt_idmap *idmap,
 				    struct inode *inode);
 extern void ima_file_free(struct file *file);
@@ -58,6 +60,16 @@ static inline enum hash_algo ima_get_current_hash_algo(void)
 }
 
 static inline int ima_bprm_check(struct linux_binprm *bprm)
+{
+	return 0;
+}
+
+static inline int ima_path_truncate(const struct path *path)
+{
+	return 0;
+}
+
+static inline int ima_file_truncate(struct file *file)
 {
 	return 0;
 }
