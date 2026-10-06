@@ -156,14 +156,16 @@ noinline __u8 *
 hid_bpf_get_data(struct hid_bpf_ctx *ctx, unsigned int offset, const size_t rdwr_buf_size)
 {
 	struct hid_bpf_ctx_kern *ctx_kern;
+	size_t end;
 
 	if (!ctx)
 		return NULL;
 
 	ctx_kern = container_of(ctx, struct hid_bpf_ctx_kern, ctx);
 
-	if (rdwr_buf_size + offset > ctx->allocated_size)
-		return NULL;
+	if (check_add_overflow(rdwr_buf_size, offset, &end) ||
+		end > ctx->allocated_size)
+			return NULL;
 
 	return ctx_kern->data + offset;
 }

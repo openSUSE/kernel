@@ -445,6 +445,7 @@ static long __bpf_get_stack(struct pt_regs *regs, struct task_struct *task,
 
 	max_depth = stack_map_calculate_max_depth(size, elem_size, flags);
 
+	preempt_disable();
 	if (trace_in) {
 		trace = trace_in;
 		trace->nr = min_t(u32, trace->nr, max_depth);
@@ -455,11 +456,10 @@ static long __bpf_get_stack(struct pt_regs *regs, struct task_struct *task,
 					   crosstask, false);
 	}
 
-	if (unlikely(!trace))
+	if (unlikely(!trace) || trace->nr < skip) {
+		preempt_enable();
 		goto err_fault;
-
-	if (trace->nr < skip)
-		goto err_fault;
+	}
 
 	trace_nr = trace->nr - skip;
 	copy_len = trace_nr * elem_size;
@@ -469,6 +469,7 @@ static long __bpf_get_stack(struct pt_regs *regs, struct task_struct *task,
 		stack_map_get_build_id_offset(buf, ips, trace_nr, user);
 	else
 		memcpy(buf, ips, copy_len);
+	preempt_enable();
 
 	if (size > copy_len)
 		memset(buf + copy_len, 0, size - copy_len);

@@ -62,7 +62,6 @@ struct irdma_hmc_pble {
 struct irdma_cq_mr {
 	struct irdma_hmc_pble cq_pbl;
 	dma_addr_t shadow;
-	bool split;
 };
 
 struct irdma_qp_mr {
@@ -110,6 +109,7 @@ struct irdma_mr {
 	u64 len;
 	u64 pgaddrmem[IRDMA_MAX_SAVED_PHY_PGADDR];
 	struct irdma_pbl iwpbl;
+	refcount_t user_ring_refs;
 };
 
 struct irdma_cq {
@@ -127,6 +127,8 @@ struct irdma_cq {
 	struct list_head resize_list;
 	struct irdma_cq_poll_info cur_cqe;
 	struct list_head cmpl_generated;
+	struct irdma_pbl *iwpbl;
+	struct irdma_pbl *iwpbl_shadow;
 };
 
 struct irdma_cmpl_gen {

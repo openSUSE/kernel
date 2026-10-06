@@ -1829,7 +1829,7 @@ void aggr_reset_state(struct aggr_info_conn *aggr_conn)
 		return;
 
 	if (aggr_conn->timer_scheduled) {
-		del_timer(&aggr_conn->timer);
+		del_timer_sync(&aggr_conn->timer);
 		aggr_conn->timer_scheduled = false;
 	}
 

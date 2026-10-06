@@ -790,20 +790,32 @@ static int tls_push_record(struct sock *sk, int flags,
 	i = msg_pl->sg.end;
 	sk_msg_iter_var_prev(i);
 
+	/* msg_pl->sg.data is a ring; data[MAX+1] is reserved for the wrap
+	 * link (frags won't use it). 'i' is now the last filled entry:
+	 *
+	 *         i   end              start
+	 *         v    v                 v            [ rsv ]
+	 *  [ d ][ d ][   ][   ]...[   ][ d ][ d ][ d ][chain]
+	 *    ^   END                                     v
+	 *     `-----------------------------------------'
+	 *
+	 * Note that SGL does not allow chain-after-chain, so for TLS 1.3,
+	 * we must make sure we don't create the wrap entry and then chain
+	 * link to content_type immediately at index 0.
+	 */
+	if (i < msg_pl->sg.start)
+		sg_chain(msg_pl->sg.data, ARRAY_SIZE(msg_pl->sg.data),
+			 msg_pl->sg.data);
+
 	rec->content_type = record_type;
 	if (prot->version == TLS_1_3_VERSION) {
 		/* Add content type to end of message.  No padding added */
 		sg_set_buf(&rec->sg_content_type, &rec->content_type, 1);
 		sg_mark_end(&rec->sg_content_type);
-		sg_chain(msg_pl->sg.data, msg_pl->sg.end + 1,
-			 &rec->sg_content_type);
+		sg_chain(msg_pl->sg.data, i + 2, &rec->sg_content_type);
 	} else {
 		sg_mark_end(sk_msg_elem(msg_pl, i));
 	}
-
-	if (msg_pl->sg.end < msg_pl->sg.start)
-		sg_chain(msg_pl->sg.data, ARRAY_SIZE(msg_pl->sg.data),
-			 msg_pl->sg.data);
 
 	i = msg_pl->sg.start;
 	sg_chain(rec->sg_aead_in, 2, &msg_pl->sg.data[i]);
@@ -1355,6 +1367,10 @@ tls_rx_rec_wait(struct sock *sk, struct sk_psock *psock, bool nonblock,
 	int ret = 0;
 	long timeo;
 
+	/* a rekey is pending, let userspace deal with it */
+	if (unlikely(ctx->key_update_pending))
+		return -EKEYEXPIRED;
+
 	timeo = sock_rcvtimeo(sk, nonblock);
 
 	while (!tls_strp_msg_ready(ctx)) {
@@ -1764,6 +1780,36 @@ tls_decrypt_device(struct sock *sk, struct msghdr *msg,
 	return 1;
 }
 
+static int tls_check_pending_rekey(struct sock *sk, struct tls_context *ctx,
+				   struct sk_buff *skb)
+{
+	const struct strp_msg *rxm = strp_msg(skb);
+	const struct tls_msg *tlm = tls_msg(skb);
+	char hs_type;
+	int err;
+
+	if (likely(tlm->control != TLS_RECORD_TYPE_HANDSHAKE))
+		return 0;
+
+	if (rxm->full_len < 1)
+		return 0;
+
+	err = skb_copy_bits(skb, rxm->offset, &hs_type, 1);
+	if (err < 0) {
+		DEBUG_NET_WARN_ON_ONCE(1);
+		return err;
+	}
+
+	if (hs_type == TLS_HANDSHAKE_KEYUPDATE) {
+		struct tls_sw_context_rx *rx_ctx = ctx->priv_ctx_rx;
+
+		WRITE_ONCE(rx_ctx->key_update_pending, true);
+		TLS_INC_STATS(sock_net(sk), LINUX_MIB_TLSRXREKEYRECEIVED);
+	}
+
+	return 0;
+}
+
 static int tls_rx_one_record(struct sock *sk, struct msghdr *msg,
 			     struct tls_decrypt_arg *darg)
 {
@@ -1783,7 +1829,7 @@ static int tls_rx_one_record(struct sock *sk, struct msghdr *msg,
 	rxm->full_len -= prot->overhead_size;
 	tls_advance_record_sn(sk, prot, &tls_ctx->rx);
 
-	return 0;
+	return tls_check_pending_rekey(sk, tls_ctx, darg->skb);
 }
 
 int decrypt_skb(struct sock *sk, struct scatterlist *sgout)
@@ -2356,6 +2402,17 @@ int tls_sw_read_sock(struct sock *sk, read_descriptor_t *desc,
 			goto read_sock_requeue;
 		}
 
+		/* An empty data record (legal in TLS 1.3) gives a zero
+		 * read_actor return, indistinguishable from the consumer
+		 * stalling; the used <= 0 path would requeue it at the
+		 * head of rx_list and block all later records. Consume it
+		 * here instead.
+		 */
+		if (rxm->full_len == 0) {
+			consume_skb(skb);
+			continue;
+		}
+
 		used = read_actor(desc, skb, rxm->offset, rxm->full_len);
 		if (used <= 0) {
 			if (!copied)
@@ -2738,12 +2795,22 @@ int init_prot_info(struct tls_prot_info *prot,
 	return 0;
 }
 
-int tls_set_sw_offload(struct sock *sk, int tx)
+static void tls_finish_key_update(struct sock *sk, struct tls_context *tls_ctx)
 {
+	struct tls_sw_context_rx *ctx = tls_ctx->priv_ctx_rx;
+
+	WRITE_ONCE(ctx->key_update_pending, false);
+	/* wake-up pre-existing poll() */
+	ctx->saved_data_ready(sk);
+}
+
+int tls_set_sw_offload(struct sock *sk, int tx,
+		       struct tls_crypto_info *new_crypto_info)
+{
+	struct tls_crypto_info *crypto_info, *src_crypto_info;
 	struct tls_sw_context_tx *sw_ctx_tx = NULL;
 	struct tls_sw_context_rx *sw_ctx_rx = NULL;
 	const struct tls_cipher_desc *cipher_desc;
-	struct tls_crypto_info *crypto_info;
 	char *iv, *rec_seq, *key, *salt;
 	struct cipher_context *cctx;
 	struct tls_prot_info *prot;
@@ -2755,44 +2822,47 @@ int tls_set_sw_offload(struct sock *sk, int tx)
 	ctx = tls_get_ctx(sk);
 	prot = &ctx->prot_info;
 
-	if (tx) {
-		ctx->priv_ctx_tx = init_ctx_tx(ctx, sk);
-		if (!ctx->priv_ctx_tx)
-			return -ENOMEM;
+	/* new_crypto_info != NULL means rekey */
+	if (!new_crypto_info) {
+		if (tx) {
+			ctx->priv_ctx_tx = init_ctx_tx(ctx, sk);
+			if (!ctx->priv_ctx_tx)
+				return -ENOMEM;
+		} else {
+			ctx->priv_ctx_rx = init_ctx_rx(ctx);
+			if (!ctx->priv_ctx_rx)
+				return -ENOMEM;
+		}
+	}
 
+	if (tx) {
 		sw_ctx_tx = ctx->priv_ctx_tx;
 		crypto_info = &ctx->crypto_send.info;
 		cctx = &ctx->tx;
 		aead = &sw_ctx_tx->aead_send;
 	} else {
-		ctx->priv_ctx_rx = init_ctx_rx(ctx);
-		if (!ctx->priv_ctx_rx)
-			return -ENOMEM;
-
 		sw_ctx_rx = ctx->priv_ctx_rx;
 		crypto_info = &ctx->crypto_recv.info;
 		cctx = &ctx->rx;
 		aead = &sw_ctx_rx->aead_recv;
 	}
 
-	cipher_desc = get_cipher_desc(crypto_info->cipher_type);
+	src_crypto_info = new_crypto_info ?: crypto_info;
+
+	cipher_desc = get_cipher_desc(src_crypto_info->cipher_type);
 	if (!cipher_desc) {
 		rc = -EINVAL;
 		goto free_priv;
 	}
 
-	rc = init_prot_info(prot, crypto_info, cipher_desc);
+	rc = init_prot_info(prot, src_crypto_info, cipher_desc);
 	if (rc)
 		goto free_priv;
 
-	iv = crypto_info_iv(crypto_info, cipher_desc);
-	key = crypto_info_key(crypto_info, cipher_desc);
-	salt = crypto_info_salt(crypto_info, cipher_desc);
-	rec_seq = crypto_info_rec_seq(crypto_info, cipher_desc);
-
-	memcpy(cctx->iv, salt, cipher_desc->salt);
-	memcpy(cctx->iv + cipher_desc->salt, iv, cipher_desc->iv);
-	memcpy(cctx->rec_seq, rec_seq, cipher_desc->rec_seq);
+	iv = crypto_info_iv(src_crypto_info, cipher_desc);
+	key = crypto_info_key(src_crypto_info, cipher_desc);
+	salt = crypto_info_salt(src_crypto_info, cipher_desc);
+	rec_seq = crypto_info_rec_seq(src_crypto_info, cipher_desc);
 
 	if (!*aead) {
 		*aead = crypto_alloc_aead(cipher_desc->cipher_name, 0, 0);
@@ -2805,25 +2875,48 @@ int tls_set_sw_offload(struct sock *sk, int tx)
 
 	ctx->push_pending_record = tls_sw_push_pending_record;
 
+	/* setkey is the last operation that could fail during a
+	 * rekey. if it succeeds, we can start modifying the
+	 * context.
+	 */
 	rc = crypto_aead_setkey(*aead, key, cipher_desc->key);
-	if (rc)
-		goto free_aead;
+	if (rc) {
+		if (new_crypto_info)
+			goto out;
+		else
+			goto free_aead;
+	}
 
-	rc = crypto_aead_setauthsize(*aead, prot->tag_size);
-	if (rc)
-		goto free_aead;
+	if (!new_crypto_info) {
+		rc = crypto_aead_setauthsize(*aead, prot->tag_size);
+		if (rc)
+			goto free_aead;
+	}
 
-	if (sw_ctx_rx) {
+	if (!tx && !new_crypto_info) {
 		tfm = crypto_aead_tfm(sw_ctx_rx->aead_recv);
 
 		tls_update_rx_zc_capable(ctx);
 		sw_ctx_rx->async_capable =
-			crypto_info->version != TLS_1_3_VERSION &&
+			src_crypto_info->version != TLS_1_3_VERSION &&
 			!!(tfm->__crt_alg->cra_flags & CRYPTO_ALG_ASYNC);
 
 		rc = tls_strp_init(&sw_ctx_rx->strp, sk);
 		if (rc)
 			goto free_aead;
+	}
+
+	memcpy(cctx->iv, salt, cipher_desc->salt);
+	memcpy(cctx->iv + cipher_desc->salt, iv, cipher_desc->iv);
+	memcpy(cctx->rec_seq, rec_seq, cipher_desc->rec_seq);
+
+	if (new_crypto_info) {
+		unsafe_memcpy(crypto_info, new_crypto_info,
+			      cipher_desc->crypto_info,
+			      /* size was checked in do_tls_setsockopt_conf */);
+		memzero_explicit(new_crypto_info, cipher_desc->crypto_info);
+		if (!tx)
+			tls_finish_key_update(sk, ctx);
 	}
 
 	goto out;
@@ -2832,12 +2925,14 @@ free_aead:
 	crypto_free_aead(*aead);
 	*aead = NULL;
 free_priv:
-	if (tx) {
-		kfree(ctx->priv_ctx_tx);
-		ctx->priv_ctx_tx = NULL;
-	} else {
-		kfree(ctx->priv_ctx_rx);
-		ctx->priv_ctx_rx = NULL;
+	if (!new_crypto_info) {
+		if (tx) {
+			kfree(ctx->priv_ctx_tx);
+			ctx->priv_ctx_tx = NULL;
+		} else {
+			kfree(ctx->priv_ctx_rx);
+			ctx->priv_ctx_rx = NULL;
+		}
 	}
 out:
 	return rc;
