@@ -2314,6 +2314,9 @@ intel_hdcp_set_streams(struct intel_digital_port *dig_port,
 		if (conn_dig_port != dig_port)
 			continue;
 
+		if (drm_WARN_ON(&i915->drm, data->k >= INTEL_NUM_PIPES(i915)))
+			return -EINVAL;
+
 		data->streams[data->k].stream_id =
 			intel_conn_to_vcpi(&state->base, connector);
 		data->k++;
@@ -2324,7 +2327,7 @@ intel_hdcp_set_streams(struct intel_digital_port *dig_port,
 	}
 	drm_connector_list_iter_end(&conn_iter);
 
-	if (drm_WARN_ON(&i915->drm, data->k > INTEL_NUM_PIPES(i915) || data->k == 0))
+	if (drm_WARN_ON(&i915->drm, !data->k))
 		return -EINVAL;
 
 	return 0;
