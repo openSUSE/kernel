@@ -1622,7 +1622,7 @@ static int tcp_mtu_probe(struct sock *sk)
 	struct sk_buff *skb, *nskb, *next;
 	int len;
 	int probe_size;
-	int size_needed;
+	u64 size_needed;
 	int copy;
 	int mss_now;
 
@@ -1640,7 +1640,7 @@ static int tcp_mtu_probe(struct sock *sk)
 	/* Very simple search strategy: just double the MSS. */
 	mss_now = tcp_current_mss(sk);
 	probe_size = 2 * tp->mss_cache;
-	size_needed = probe_size + (tp->reordering + 1) * tp->mss_cache;
+	size_needed = probe_size + (tp->reordering + 1) * (u64)tp->mss_cache;
 	if (probe_size > tcp_mtu_to_mss(sk, icsk->icsk_mtup.search_high)) {
 		/* TODO: set timer for probe_converge_event */
 		return -1;
