@@ -552,6 +552,7 @@ typedef unsigned char *sk_buff_data_t;
  *	@_nfct: Associated connection, if any (with nfctinfo bits)
  *	@nf_bridge: Saved data about a bridged frame - see br_netfilter.c
  *	@skb_iif: ifindex of device we arrived on
+ *	@tc_depth: counter for packet duplication
  *	@tc_index: Traffic control index
  *	@hash: the packet hash
  *	@queue_mapping: Queue mapping for multiqueue devices
@@ -726,6 +727,7 @@ struct sk_buff {
 	__u8			decrypted:1;
 #endif
 
+	__u8			tc_depth:2;
 #ifdef CONFIG_NET_SCHED
 	__u16			tc_index;	/* traffic control index */
 #endif
