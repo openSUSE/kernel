@@ -765,8 +765,14 @@ static void xe_pci_remove(struct pci_dev *pdev)
 		xe_pci_sriov_configure(pdev, 0);
 
 	xe_device_remove(xe);
-	xe_pm_runtime_fini(xe);
 	pci_set_drvdata(pdev, NULL);
+
+	/*
+	 * Preserve remove-time flush after moving destroy work to module
+	 * lifetime.
+	 */
+	xe_destroy_wq_flush();
+	xe_pm_runtime_fini(xe);
 }
 
 static int xe_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)

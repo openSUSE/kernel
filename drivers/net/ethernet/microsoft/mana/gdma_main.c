@@ -1412,7 +1412,7 @@ int mana_gd_create_mana_eq(struct gdma_dev *gd,
 	queue->id = INVALID_QUEUE_ID;
 
 	gmi = &queue->mem_info;
-	err = mana_gd_alloc_memory(gc, spec->queue_size, gmi, false);
+	err = mana_gd_alloc_memory(gc, spec->queue_size, gmi, true);
 	if (err) {
 		dev_err(gc->dev, "GDMA queue type: %d, size: %u, gdma memory allocation err: %d\n",
 			spec->type, spec->queue_size, err);
@@ -1465,7 +1465,7 @@ int mana_gd_create_mana_wq_cq(struct gdma_dev *gd,
 		return -ENOMEM;
 
 	gmi = &queue->mem_info;
-	err = mana_gd_alloc_memory(gc, spec->queue_size, gmi, false);
+	err = mana_gd_alloc_memory(gc, spec->queue_size, gmi, true);
 	if (err) {
 		dev_err(gc->dev, "GDMA queue type: %d, size: %u, memory allocation err: %d\n",
 			spec->type, spec->queue_size, err);
