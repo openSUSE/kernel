@@ -11687,6 +11687,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		goto out;
 	}
 
+	if (kvm_x86_call(unhandleable_emulation_required)(vcpu)) {
+		kvm_prepare_emulation_failure_exit(vcpu);
+		goto out;
+	}
+
 	r = kvm_x86_call(vcpu_pre_run)(vcpu);
 	if (r <= 0)
 		goto out;
