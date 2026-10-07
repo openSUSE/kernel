@@ -5838,8 +5838,12 @@ static int btrfs_trim_free_extents(struct btrfs_device *device,
 
 	*trimmed = 0;
 
-	/* Not writeable = nothing to do. */
-	if (!device->writeable)
+	/*
+	 * The caller only filters out MISSING devices, but a device that was
+	 * missing at mount and later rescanned has MISSING cleared while bdev
+	 * is still NULL and WRITEABLE is still unset. Skip those here.
+	 */
+	if (!device->writeable || !device->bdev)
 		return 0;
 
 	/* No free space = nothing to do. */
