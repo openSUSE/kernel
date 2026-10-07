@@ -3892,8 +3892,8 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 	int rc;
 	unsigned int xid;
 	struct cifsFileInfo *cfile = file->private_data;
-	__le64 eof;
-	__u64  count, old_eof;
+	u64 count;
+	loff_t old_eof, new_eof;
 
 	xid = get_xid();
 
@@ -3906,8 +3906,15 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 		goto out;
 	}
 
+	if (check_add_overflow(old_eof, len, &new_eof)) {
+		rc = -EFBIG;
+		goto out;
+	}
+	rc = inode_newsize_ok(file->f_inode, new_eof);
+	if (rc)
+		goto out;
+
 	count = old_eof - off;
-	eof = cpu_to_le64(old_eof + len);
 	fscache_invalidate(CIFS_I(file->f_inode)->fscache);
 
 	rc = filemap_write_and_wait_range(file->f_inode->i_mapping,
@@ -3923,7 +3930,7 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 	truncate_pagecache_range(file->f_inode, round_down(off, PAGE_SIZE), -1);
 
 	rc = SMB2_set_eof(xid, tcon, cfile->fid.persistent_fid,
-			  cfile->fid.volatile_fid, cfile->pid, &eof);
+			  cfile->fid.volatile_fid, cfile->pid, &new_eof);
 	if (rc < 0)
 		goto out;
 
