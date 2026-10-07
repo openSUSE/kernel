@@ -2923,7 +2923,7 @@ again:
 	} else if (space_info->chunk_alloc) {
 		wait_for_alloc = 1;
 	} else {
-		space_info->chunk_alloc = 1;
+		space_info->chunk_alloc = true;
 	}
 
 	spin_unlock(&space_info->lock);
@@ -2976,7 +2976,7 @@ again:
 	if (ret < 0 && ret != -ENOSPC)
 		goto out;
 	if (ret)
-		space_info->full = 1;
+		space_info->full = true;
 	else {
 		ret = 1;
 		space_info->max_extent_size = 0;
@@ -2984,7 +2984,7 @@ again:
 
 	space_info->force_alloc = CHUNK_ALLOC_NO_FORCE;
 out:
-	space_info->chunk_alloc = 0;
+	space_info->chunk_alloc = false;
 	spin_unlock(&space_info->lock);
 	mutex_unlock(&fs_info->chunk_mutex);
 	/*
