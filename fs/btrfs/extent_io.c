@@ -2185,7 +2185,20 @@ int repair_io_failure(struct btrfs_inode *inode, u64 start, u64 length,
 			bio_put(bio);
 			return -EIO;
 		}
-		BUG_ON(mirror_num != bbio->mirror_num);
+		/*
+		 * This happens when dev-replace is also running, and the
+		 * mirror_num indicates the dev-replace target.
+		 *
+		 * In this case, we don't need to do anything, as the read
+		 * error just means the replace progress hasn't reached our
+		 * read range, and later replace routine would handle it well.
+		 */
+		if (mirror_num != bbio->mirror_num) {
+			btrfs_put_bbio(bbio);
+			btrfs_bio_counter_dec(fs_info);
+			bio_put(bio);
+			return 0;
+		}
 	}
 
 	sector = bbio->stripes[bbio->mirror_num - 1].physical >> 9;
