@@ -12,6 +12,7 @@
 #include <linux/uuid.h>
 #include <crypto/aead.h>
 #include <uapi/linux/magic.h>
+#include <linux/fscache.h>
 #include "cifsfs.h"
 #include "cifsglob.h"
 #include "smb2pdu.h"
@@ -3488,6 +3489,8 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 			return rc;
 		}
 
+	fscache_invalidate(cifsi->fscache);
+
 	cifs_dbg(FYI, "Offset %lld len %lld\n", offset, len);
 
 	fsctl_buf.FileOffset = cpu_to_le64(offset);
@@ -3555,6 +3558,7 @@ static long smb3_punch_hole(struct file *file, struct cifs_tcon *tcon,
 	 * caches first, otherwise the data may be inconsistent with the server.
 	 */
 	truncate_pagecache_range(inode, offset, offset + len - 1);
+	fscache_invalidate(CIFS_I(inode)->fscache);
 
 	cifs_dbg(FYI, "Offset %lld len %lld\n", offset, len);
 
@@ -3841,6 +3845,8 @@ static long smb3_collapse_range(struct file *file, struct cifs_tcon *tcon,
 	loff_t old_eof;
 
 	xid = get_xid();
+	fscache_invalidate(CIFS_I(file->f_inode)->fscache);
+
 	inode_lock(file->f_inode);
 
 	old_eof = i_size_read(file->f_inode);
@@ -3902,6 +3908,7 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 
 	count = old_eof - off;
 	eof = cpu_to_le64(old_eof + len);
+	fscache_invalidate(CIFS_I(file->f_inode)->fscache);
 
 	rc = filemap_write_and_wait_range(file->f_inode->i_mapping,
 					  round_down(off, PAGE_SIZE),
