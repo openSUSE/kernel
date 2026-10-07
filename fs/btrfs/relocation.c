@@ -2709,6 +2709,7 @@ again:
 			}
 			ret = merge_reloc_root(rc, root);
 			if (ret) {
+				root->reloc_root = NULL;
 				if (list_empty(&reloc_root->root_list))
 					list_add_tail(&reloc_root->root_list,
 						      &reloc_roots);
