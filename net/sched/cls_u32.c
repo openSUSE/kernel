@@ -1060,6 +1060,13 @@ static int u32_change(struct net *net, struct sk_buff *in_skb,
 	if (nla_len(tb[TCA_U32_SEL]) < sel_size)
 		return -EINVAL;
 
+	if (s->offshift >= 16) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "offshift must be less than 16");
+		err = -EINVAL;
+		goto erridr;
+	}
+
 	n = kzalloc(offsetof(typeof(*n), sel) + sel_size, GFP_KERNEL);
 	if (n == NULL) {
 		err = -ENOBUFS;
