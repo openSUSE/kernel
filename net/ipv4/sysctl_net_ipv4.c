@@ -25,6 +25,7 @@
 #include <net/ping.h>
 
 static int zero;
+static int one = 1;
 static int tcp_retr1_max = 255;
 static int ip_local_port_range_min[] = { 1, 1 };
 static int ip_local_port_range_max[] = { 65535, 65535 };
@@ -38,6 +39,9 @@ static int tcp_syn_retries_min = 1;
 static int tcp_syn_retries_max = MAX_TCP_SYNCNT;
 static int ip_ping_group_range_min[] = { 0, 0 };
 static int ip_ping_group_range_max[] = { GID_T_MAX, GID_T_MAX };
+
+/* not an actual sysctl but we need a pointer for proc_dointvec_minmax */
+static int sysctl_tcp_max_reordering = TCP_MAX_REORDERING;
 
 /* Update system visible IP port range */
 static void set_local_port_range(int range[2])
@@ -436,7 +440,9 @@ static struct ctl_table ipv4_table[] = {
 		.data		= &sysctl_tcp_reordering,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &one,
+		.extra2		= &sysctl_tcp_max_reordering,
 	},
 	{
 		.procname	= "tcp_ecn",
