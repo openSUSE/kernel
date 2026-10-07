@@ -2141,8 +2141,14 @@ int repair_io_failure(struct btrfs_inode *inode, u64 start, u64 length,
 	struct btrfs_bio *bbio = NULL;
 	int ret;
 
-	ASSERT(!(fs_info->sb->s_flags & MS_RDONLY));
 	BUG_ON(!mirror_num);
+
+	/*
+	 * The fs either mounted RO or hit critical errors, no need
+	 * to continue repairing.
+	 */
+	if (unlikely(fs_info->sb->s_flags & MS_RDONLY))
+		return 0;
 
 	bio = btrfs_io_bio_alloc(GFP_NOFS, 1);
 	if (!bio)
