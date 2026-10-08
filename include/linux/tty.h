@@ -623,7 +623,8 @@ extern int tty_port_carrier_raised(struct tty_port *port);
 extern void tty_port_raise_dtr_rts(struct tty_port *port);
 extern void tty_port_lower_dtr_rts(struct tty_port *port);
 extern void tty_port_hangup(struct tty_port *port);
-extern void tty_port_tty_hangup(struct tty_port *port, bool check_clocal);
+extern void __tty_port_tty_hangup(struct tty_port *port, bool check_clocal,
+				  bool async);
 extern void tty_port_tty_wakeup(struct tty_port *port);
 extern int tty_port_block_til_ready(struct tty_port *port,
 				struct tty_struct *tty, struct file *filp);
@@ -639,6 +640,16 @@ extern int tty_port_open(struct tty_port *port,
 static inline int tty_port_users(struct tty_port *port)
 {
 	return port->count + port->blocked_open;
+}
+
+static inline void tty_port_tty_hangup(struct tty_port *port, bool check_clocal)
+{
+	__tty_port_tty_hangup(port, check_clocal, true);
+}
+
+static inline void tty_port_tty_vhangup(struct tty_port *port)
+{
+	__tty_port_tty_hangup(port, false, false);
 }
 
 extern int tty_register_ldisc(int disc, struct tty_ldisc_ops *new_ldisc);
