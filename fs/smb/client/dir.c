@@ -428,6 +428,7 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 	__u32 oplock;
 	struct cifsFileInfo *file_info;
 	struct cifs_open_info_data buf = {};
+	int retries = 0;
 
 	if (unlikely(cifs_forced_shutdown(CIFS_SB(inode->i_sb))))
 		return -EIO;
@@ -464,7 +465,7 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 
 	cifs_dbg(FYI, "parent inode = 0x%p name is: %pd and dentry = 0x%p\n",
 		 inode, direntry, direntry);
-
+retry_open:
 	tlink = cifs_sb_tlink(CIFS_SB(inode->i_sb));
 	if (IS_ERR(tlink)) {
 		rc = PTR_ERR(tlink);
@@ -478,6 +479,12 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 		goto out;
 
 	server = tcon->ses->server;
+	rc = check_server_down(server);
+	if (unlikely(rc)) {
+		if (rc == -ECONNABORTED)
+			rc = -EAGAIN;
+		goto out;
+	}
 
 	if (server->ops->new_lease_key)
 		server->ops->new_lease_key(&fid);
@@ -488,6 +495,18 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 			    &oplock, &fid, &buf);
 	if (rc) {
 		cifs_del_pending_open(&open);
+
+		if (rc == -EAGAIN || rc == -ECONNABORTED ||
+		    check_server_down(server) == -ECONNABORTED) {
+			if (retries++ < 30) {
+				cifs_put_tlink(tlink);
+				cifs_free_open_info(&buf);
+				buf.symlink_target = NULL;
+				msleep(100);
+				goto retry_open;
+			}
+			rc = -EAGAIN;
+		}
 		goto out;
 	}
 

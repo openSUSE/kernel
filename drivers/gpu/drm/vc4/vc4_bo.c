@@ -730,9 +730,12 @@ static int vc4_gem_object_mmap(struct drm_gem_object *obj, struct vm_area_struct
 {
 	struct vc4_bo *bo = to_vc4_bo(obj);
 
-	if (bo->validated_shader && (vma->vm_flags & VM_WRITE)) {
-		DRM_DEBUG("mmaping of shader BOs for writing not allowed.\n");
-		return -EINVAL;
+	if (bo->validated_shader) {
+		if (vma->vm_flags & VM_WRITE) {
+			DRM_DEBUG("mmaping of shader BOs for writing not allowed.\n");
+			return -EINVAL;
+		}
+		vma->vm_flags &= ~VM_MAYWRITE;
 	}
 
 	if (bo->madv != VC4_MADV_WILLNEED) {

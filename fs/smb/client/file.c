@@ -2781,6 +2781,7 @@ retry:
 		if (nr_pages == 0) {
 			kref_put(&wdata->refcount, cifs_writedata_release);
 			add_credits_and_wake_if(server, credits, 0);
+			cond_resched();
 			continue;
 		}
 
@@ -2821,6 +2822,7 @@ retry:
 
 		if (wbc->sync_mode == WB_SYNC_ALL && rc == -EAGAIN) {
 			index = saved_index;
+			cond_resched();
 			continue;
 		}
 
@@ -2830,8 +2832,11 @@ retry:
 			break;
 		}
 
-		if (rc != 0 && saved_rc == 0)
-			saved_rc = rc;
+		if (rc != 0) {
+			if (saved_rc == 0)
+				saved_rc = rc;
+			cond_resched();
+		}
 
 		wbc->nr_to_write -= nr_pages;
 		if (wbc->nr_to_write <= 0)
@@ -2847,6 +2852,7 @@ retry:
 		 */
 		scanned = true;
 		index = 0;
+		cond_resched();
 		goto retry;
 	}
 
@@ -2981,7 +2987,7 @@ int cifs_strict_fsync(struct file *file, loff_t start, loff_t end,
 		      int datasync)
 {
 	unsigned int xid;
-	int rc = 0;
+	int rc = 0, retries = 0;
 	struct cifs_tcon *tcon;
 	struct TCP_Server_Info *server;
 	struct cifsFileInfo *smbfile = file->private_data;
@@ -3015,15 +3021,31 @@ int cifs_strict_fsync(struct file *file, loff_t start, loff_t end,
 			goto strict_fsync_exit;
 		}
 
+		rc = 0;
+
 		if ((OPEN_FMODE(smbfile->f_flags) & FMODE_WRITE) == 0) {
+find_flush:
 			smbfile = find_writable_file(CIFS_I(inode), FIND_WR_ANY);
 			if (smbfile) {
 				rc = server->ops->flush(xid, tcon, &smbfile->fid);
 				cifsFileInfo_put(smbfile);
-			} else
+			} else if (!rc)
 				cifs_dbg(FYI, "ignore fsync for file not open for write\n");
-		} else
+		} else {
+retry_flush:
 			rc = server->ops->flush(xid, tcon, &smbfile->fid);
+			if (rc == -EAGAIN || rc == -ECONNABORTED ||
+			    check_server_down(server) == -ECONNABORTED) {
+				if (retries++ < 10) {
+					msleep(100);
+					goto retry_flush;
+				}
+				rc = -EAGAIN;
+			} else if (rc == -EBADF) {
+				msleep(100);
+				goto find_flush;
+			}
+		}
 	}
 
 strict_fsync_exit:
@@ -3034,7 +3056,7 @@ strict_fsync_exit:
 int cifs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	unsigned int xid;
-	int rc = 0;
+	int rc = 0, retries = 0;
 	struct cifs_tcon *tcon;
 	struct TCP_Server_Info *server;
 	struct cifsFileInfo *smbfile = file->private_data;
@@ -3060,15 +3082,31 @@ int cifs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 			goto fsync_exit;
 		}
 
+		rc = 0;
+
 		if ((OPEN_FMODE(smbfile->f_flags) & FMODE_WRITE) == 0) {
+find_flush:
 			smbfile = find_writable_file(CIFS_I(inode), FIND_WR_ANY);
 			if (smbfile) {
 				rc = server->ops->flush(xid, tcon, &smbfile->fid);
 				cifsFileInfo_put(smbfile);
-			} else
+			} else if (!rc)
 				cifs_dbg(FYI, "ignore fsync for file not open for write\n");
-		} else
+		} else {
+retry_flush:
 			rc = server->ops->flush(xid, tcon, &smbfile->fid);
+			if (rc == -EAGAIN || rc == -ECONNABORTED ||
+			    check_server_down(server) == -ECONNABORTED) {
+				if (retries++ < 10) {
+					msleep(100);
+					goto retry_flush;
+				}
+				rc = -EAGAIN;
+			} else if (rc == -EBADF) {
+				msleep(100);
+				goto find_flush;
+			}
+		}
 	}
 
 fsync_exit:
