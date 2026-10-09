@@ -70,6 +70,10 @@ struct ieee802154_local {
 	/* Asynchronous tasks */
 	struct list_head rx_beacon_list;
 	struct work_struct rx_beacon_work;
+	/* Serializes rx_beacon_list and rx_mac_cmd_list against the RX
+	 * softirq producer, the mac_wq workers and the teardown flush.
+	 */
+	spinlock_t rx_lock;
 
 	bool started;
 	bool suspended;
@@ -274,6 +278,11 @@ static inline bool mac802154_is_beaconing(struct ieee802154_local *local)
 {
 	return test_bit(IEEE802154_IS_BEACONING, &local->ongoing);
 }
+
+void mac802154_flush_list(struct list_head *list,
+			  struct ieee802154_sub_if_data *sdata);
+void mac802154_flush_queued_pkts(struct ieee802154_local *local,
+				 struct ieee802154_sub_if_data *sdata);
 
 /* interface handling */
 int ieee802154_iface_init(void);
