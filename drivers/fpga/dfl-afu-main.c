@@ -723,6 +723,9 @@ afu_ioctl_dma_map(struct dfl_feature_platform_data *pdata, void __user *arg)
 	ret = afu_dma_map_region(pdata, map.user_addr, map.length, &map.iova);
 	if (ret)
 		return ret;
+	if (map.length >> PAGE_SHIFT > (u64)INT_MAX)
+		return -EINVAL;
+
 
 	if (copy_to_user(arg, &map, sizeof(map))) {
 		afu_dma_unmap_region(pdata, map.iova);
