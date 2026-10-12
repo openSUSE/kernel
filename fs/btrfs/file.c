@@ -2669,8 +2669,10 @@ int btrfs_punch_hole_range(struct inode *inode, struct btrfs_path *path,
 		cur_offset = drop_end;
 
 		ret = btrfs_update_inode(trans, root, inode);
-		if (ret)
+		if (unlikely(ret)) {
+			btrfs_abort_transaction(trans, ret);
 			break;
+		}
 
 		btrfs_end_transaction(trans);
 		btrfs_btree_balance_dirty(fs_info);
