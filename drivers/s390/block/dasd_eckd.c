@@ -20,6 +20,7 @@
 #include <linux/compat.h>
 #include <linux/init.h>
 #include <linux/seq_file.h>
+#include <linux/overflow.h>
 
 #include <asm/css_chars.h>
 #include <asm/debug.h>
@@ -2834,11 +2835,10 @@ static int dasd_eckd_check_device_format(struct dasd_device *base,
 {
 	struct dasd_eckd_private *private = base->private;
 	struct eckd_count *fmt_buffer;
+	size_t fmt_buffer_size;
+	size_t trkcount, rpt_max, rpt_exp;
 	struct irb irb;
-	int rpt_max, rpt_exp;
-	int fmt_buffer_size;
 	int trk_per_cyl;
-	int trkcount;
 	int tpm = 0;
 	int rc;
 
@@ -2849,7 +2849,9 @@ static int dasd_eckd_check_device_format(struct dasd_device *base,
 	rpt_exp = recs_per_track(&private->rdc_data, 0, cdata->expect.blksize);
 
 	trkcount = cdata->expect.stop_unit - cdata->expect.start_unit + 1;
-	fmt_buffer_size = trkcount * rpt_max * sizeof(struct eckd_count);
+	if (check_mul_overflow(trkcount, rpt_max, &fmt_buffer_size) ||
+	    check_mul_overflow(fmt_buffer_size, sizeof(struct eckd_count), &fmt_buffer_size))
+		return -EINVAL;
 
 	fmt_buffer = kzalloc(fmt_buffer_size, GFP_KERNEL | GFP_DMA);
 	if (!fmt_buffer)
