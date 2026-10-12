@@ -67,6 +67,14 @@ struct rtrs_clt_stats {
 	struct rtrs_clt_stats_reconnects	reconnects;
 	atomic_t				inflight;
 };
+struct __orig_rtrs_clt_con {
+	struct rtrs_con	c;
+	struct rtrs_iu		*rsp_ius;
+	u32			queue_num;
+	unsigned int		cpu;
+	struct mutex		con_mutex;
+	int			cm_err;
+};
 
 struct rtrs_clt_con {
 	struct rtrs_con	c;
@@ -75,9 +83,13 @@ struct rtrs_clt_con {
 	unsigned int		cpu;
 	struct mutex		con_mutex;
 	int			cm_err;
+#ifndef __GENKSYMS__
 	/* Set under con_mutex before CQ/QP teardown. */
 	bool			destroyed;
+#endif
 };
+suse_kabi_static_assert(sizeof(struct __orig_rtrs_clt_con) ==
+			sizeof(struct rtrs_clt_con));
 
 /**
  * rtrs_permit - permits the memory allocation for future RDMA operation.
