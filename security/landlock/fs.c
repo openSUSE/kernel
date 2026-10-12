@@ -5,8 +5,11 @@
  * Copyright © 2016-2020 Mickaël Salaün <mic@digikod.net>
  * Copyright © 2018-2020 ANSSI
  * Copyright © 2021-2022 Microsoft Corporation
+ * Copyright © 2022 Günther Noack <gnoack3000@gmail.com>
+ * Copyright © 2023-2024 Google LLC
  */
 
+#include <asm/ioctls.h>
 #include <kunit/test.h>
 #include <linux/atomic.h>
 #include <linux/bitops.h>
@@ -29,6 +32,7 @@
 #include <linux/types.h>
 #include <linux/wait_bit.h>
 #include <linux/workqueue.h>
+#include <uapi/linux/fiemap.h>
 #include <uapi/linux/landlock.h>
 
 #include "common.h"
@@ -83,6 +87,112 @@ static void release_inode(struct landlock_object *const object)
 static const struct landlock_object_underops landlock_fs_underops = {
 	.release = release_inode
 };
+
+/* IOCTL helpers */
+
+/**
+ * is_masked_device_ioctl - Determine whether an IOCTL command is always
+ * permitted with Landlock for device files.  These commands can not be
+ * restricted on device files by enforcing a Landlock policy.
+ *
+ * @cmd: The IOCTL command that is supposed to be run.
+ *
+ * By default, any IOCTL on a device file requires the
+ * LANDLOCK_ACCESS_FS_IOCTL_DEV right.  However, we blanket-permit some
+ * commands, if:
+ *
+ * 1. The command is implemented in fs/ioctl.c's do_vfs_ioctl(),
+ *    not in f_ops->unlocked_ioctl() or f_ops->compat_ioctl().
+ *
+ * 2. The command is harmless when invoked on devices.
+ *
+ * We also permit commands that do not make sense for devices, but where the
+ * do_vfs_ioctl() implementation returns a more conventional error code.
+ *
+ * Any new IOCTL commands that are implemented in fs/ioctl.c's do_vfs_ioctl()
+ * should be considered for inclusion here.
+ *
+ * Returns: true if the IOCTL @cmd can not be restricted with Landlock for
+ * device files.
+ */
+static __attribute_const__ bool is_masked_device_ioctl(const unsigned int cmd)
+{
+	switch (cmd) {
+	/*
+	 * FIOCLEX, FIONCLEX, FIONBIO and FIOASYNC manipulate the FD's
+	 * close-on-exec and the file's buffered-IO and async flags.  These
+	 * operations are also available through fcntl(2), and are
+	 * unconditionally permitted in Landlock.
+	 */
+	case FIOCLEX:
+	case FIONCLEX:
+	case FIONBIO:
+	case FIOASYNC:
+	/*
+	 * FIOQSIZE queries the size of a regular file, directory, or link.
+	 *
+	 * We still permit it, because it always returns -ENOTTY for
+	 * other file types.
+	 */
+	case FIOQSIZE:
+	/*
+	 * FIFREEZE and FITHAW freeze and thaw the file system which the
+	 * given file belongs to.  Requires CAP_SYS_ADMIN.
+	 *
+	 * These commands operate on the file system's superblock rather
+	 * than on the file itself.  The same operations can also be
+	 * done through any other file or directory on the same file
+	 * system, so it is safe to permit these.
+	 */
+	case FIFREEZE:
+	case FITHAW:
+	/*
+	 * FS_IOC_FIEMAP queries information about the allocation of
+	 * blocks within a file.
+	 *
+	 * This IOCTL command only makes sense for regular files and is
+	 * not implemented by devices. It is harmless to permit.
+	 */
+	case FS_IOC_FIEMAP:
+	/*
+	 * FIGETBSZ queries the file system's block size for a file or
+	 * directory.
+	 *
+	 * This command operates on the file system's superblock rather
+	 * than on the file itself.  The same operation can also be done
+	 * through any other file or directory on the same file system,
+	 * so it is safe to permit it.
+	 */
+	case FIGETBSZ:
+	/*
+	 * FICLONE, FICLONERANGE and FIDEDUPERANGE make files share
+	 * their underlying storage ("reflink") between source and
+	 * destination FDs, on file systems which support that.
+	 *
+	 * These IOCTL commands only apply to regular files
+	 * and are harmless to permit for device files.
+	 */
+	case FICLONE:
+	case FICLONERANGE:
+	case FIDEDUPERANGE:
+		return true;
+
+	/*
+	 * FIONREAD, FS_IOC_GETFLAGS, FS_IOC_SETFLAGS, FS_IOC_FSGETXATTR and
+	 * FS_IOC_FSSETXATTR are forwarded to device implementations.
+	 */
+
+	/*
+	 * file_ioctl() commands (FIBMAP, FS_IOC_RESVSP, FS_IOC_RESVSP64,
+	 * FS_IOC_UNRESVSP, FS_IOC_UNRESVSP64 and FS_IOC_ZERO_RANGE) are
+	 * forwarded to device implementations, so not permitted.
+	 */
+
+	/* Other commands are guarded by the access right. */
+	default:
+		return false;
+	}
+}
 
 /* Ruleset management */
 
@@ -148,7 +258,8 @@ retry:
 	LANDLOCK_ACCESS_FS_EXECUTE | \
 	LANDLOCK_ACCESS_FS_WRITE_FILE | \
 	LANDLOCK_ACCESS_FS_READ_FILE | \
-	LANDLOCK_ACCESS_FS_TRUNCATE)
+	LANDLOCK_ACCESS_FS_TRUNCATE | \
+	LANDLOCK_ACCESS_FS_IOCTL_DEV)
 /* clang-format on */
 
 /*
@@ -1331,11 +1442,18 @@ static int hook_file_alloc_security(struct file *const file)
 	return 0;
 }
 
+static bool is_device(const struct file *const file)
+{
+	const struct inode *inode = file_inode(file);
+
+	return S_ISBLK(inode->i_mode) || S_ISCHR(inode->i_mode);
+}
+
 static int hook_file_open(struct file *const file)
 {
 	layer_mask_t layer_masks[LANDLOCK_NUM_ACCESS_FS] = {};
-	access_mask_t open_access_request, full_access_request, allowed_access;
-	const access_mask_t optional_access = LANDLOCK_ACCESS_FS_TRUNCATE;
+	access_mask_t open_access_request, full_access_request, allowed_access,
+		optional_access;
 	const struct landlock_ruleset *const dom =
 		get_fs_domain(landlock_cred(file->f_cred)->domain);
 
@@ -1353,6 +1471,10 @@ static int hook_file_open(struct file *const file)
 	 * We look up more access than what we immediately need for open(), so
 	 * that we can later authorize operations on opened files.
 	 */
+	optional_access = LANDLOCK_ACCESS_FS_TRUNCATE;
+	if (is_device(file))
+		optional_access |= LANDLOCK_ACCESS_FS_IOCTL_DEV;
+
 	full_access_request = open_access_request | optional_access;
 
 	if (is_access_to_paths_allowed(
@@ -1409,6 +1531,29 @@ static int hook_file_truncate(struct file *const file)
 	return -EACCES;
 }
 
+static int hook_file_ioctl(struct file *file, unsigned int cmd,
+			   unsigned long arg)
+{
+	access_mask_t allowed_access = landlock_file(file)->allowed_access;
+
+	/*
+	 * It is the access rights at the time of opening the file which
+	 * determine whether IOCTL can be used on the opened file later.
+	 *
+	 * The access right is attached to the opened file in hook_file_open().
+	 */
+	if (allowed_access & LANDLOCK_ACCESS_FS_IOCTL_DEV)
+		return 0;
+
+	if (!is_device(file))
+		return 0;
+
+	if (is_masked_device_ioctl(cmd))
+		return 0;
+
+	return -EACCES;
+}
+
 static struct security_hook_list landlock_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(inode_free_security, hook_inode_free_security),
 
@@ -1431,6 +1576,7 @@ static struct security_hook_list landlock_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(file_alloc_security, hook_file_alloc_security),
 	LSM_HOOK_INIT(file_open, hook_file_open),
 	LSM_HOOK_INIT(file_truncate, hook_file_truncate),
+	LSM_HOOK_INIT(file_ioctl, hook_file_ioctl),
 };
 
 __init void landlock_add_fs_hooks(void)
