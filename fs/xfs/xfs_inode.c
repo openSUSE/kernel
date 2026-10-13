@@ -799,7 +799,7 @@ xfs_ialloc(
 	xfs_nlink_t	nlink,
 	dev_t		rdev,
 	prid_t		prid,
-	xfs_buf_t	**ialloc_context,
+	struct xfs_buf	**ialloc_context,
 	xfs_inode_t	**ipp)
 {
 	struct inode	*dir = pip ? VFS_I(pip) : NULL;
@@ -956,7 +956,7 @@ xfs_dir_ialloc(
 {
 	xfs_trans_t	*tp;
 	xfs_inode_t	*ip;
-	xfs_buf_t	*ialloc_context = NULL;
+	struct xfs_buf	*ialloc_context = NULL;
 	int		code;
 	void		*dqinfo;
 	uint		tflags;
