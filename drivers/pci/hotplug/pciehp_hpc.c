@@ -361,28 +361,13 @@ int pciehp_check_link_status(struct controller *ctrl)
 
 static int __pciehp_link_set(struct controller *ctrl, bool enable)
 {
-	u16 lnk_ctrl;
-	int retval = 0;
+	struct pci_dev *pdev = ctrl->pcie->port;
 
-	retval = pciehp_readw(ctrl, PCI_EXP_LNKCTL, &lnk_ctrl);
-	if (retval) {
-		ctrl_err(ctrl, "Cannot read LNKCTRL register\n");
-		return retval;
-	}
+	pcie_capability_clear_and_set_word(pdev, PCI_EXP_LNKCTL,
+					   PCI_EXP_LNKCTL_LD,
+					   enable ? 0 : PCI_EXP_LNKCTL_LD);
 
-	if (enable)
-		lnk_ctrl &= ~PCI_EXP_LNKCTL_LD;
-	else
-		lnk_ctrl |= PCI_EXP_LNKCTL_LD;
-
-	retval = pciehp_writew(ctrl, PCI_EXP_LNKCTL, lnk_ctrl);
-	if (retval) {
-		ctrl_err(ctrl, "Cannot write LNKCTRL register\n");
-		return retval;
-	}
-	ctrl_dbg(ctrl, "%s: lnk_ctrl = %x\n", __func__, lnk_ctrl);
-
-	return retval;
+	return 0;
 }
 
 static int pciehp_link_enable(struct controller *ctrl)
