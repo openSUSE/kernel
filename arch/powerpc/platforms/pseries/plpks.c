@@ -402,7 +402,7 @@ static int plpks_confirm_object_flushed(struct label *label,
 				 virt_to_phys(auth), virt_to_phys(label),
 				 label->size);
 
-		status = retbuf[0];
+		status = (u8)retbuf[0];
 		if (rc) {
 			timed_out = false;
 			if (rc == H_NOT_FOUND && status == 1)
@@ -607,13 +607,13 @@ static int plpks_read_var(u8 consumer, struct plpks_var *var)
 	}
 
 	if (!var->data || var->datalen > retbuf[0])
-		var->datalen = retbuf[0];
+		var->datalen = (u16)retbuf[0];
 
 	if (var->data)
 		memcpy(var->data, output, var->datalen);
 
 out_copy_policy:
-	var->policy = retbuf[1];
+	var->policy = (u32)retbuf[1];
 out_free_output:
 	kfree_sensitive(output);
 out_free_label:
