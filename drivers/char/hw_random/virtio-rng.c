@@ -86,6 +86,15 @@ static int virtio_read(struct hwrng *rng, void *buf, size_t size, bool wait)
 
 	vi->busy = false;
 
+	/*
+	 * vi->data_avail was set from the device-reported used.len.
+	 * A malicious or buggy virtio-rng backend can drive it past
+	 * the requested size. Clamp at point of use so the data returned
+	 * cannot be steered into adjacent slab memory.
+	 */
+	if (vi->data_avail > size)
+		vi->data_avail = size;
+
 	return vi->data_avail;
 }
 
