@@ -1732,9 +1732,7 @@ int io_connect_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	conn->addr_len =  READ_ONCE(sqe->addr2);
 	conn->in_progress = conn->seen_econnaborted = false;
 
-	if(io_uring_alloc_async_data(NULL, req))
-		return -ENOMEM;
-	addr = req->async_data;
+	addr = io_uring_alloc_async_data(NULL, req);
 	if (unlikely(!addr))
 		return -ENOMEM;
 
@@ -1799,9 +1797,7 @@ int io_bind_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	uaddr = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	bind->addr_len =  READ_ONCE(sqe->addr2);
 
-	if (io_uring_alloc_async_data(NULL, req))
-		return -ENOMEM;
-	addr = req->async_data;
+	addr = io_uring_alloc_async_data(NULL, req);
 	if (unlikely(!addr))
 		return -ENOMEM;
 	return move_addr_to_kernel(uaddr, bind->addr_len, addr);
