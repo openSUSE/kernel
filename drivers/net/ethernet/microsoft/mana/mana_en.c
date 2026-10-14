@@ -2276,10 +2276,15 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 {
 	struct gdma_context *gc = gd->gdma_context;
 	struct mana_context *ac = gd->driver_data;
-	struct device *dev = gc->dev;
+	struct device *dev;
 	struct net_device *ndev;
 	int err;
 	int i;
+
+	if (!gc || !ac)
+		return;
+
+	dev = gc->dev;
 
 	for (i = 0; i < ac->num_ports; i++) {
 		ndev = ac->ports[i];
