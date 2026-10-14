@@ -1001,11 +1001,21 @@ void smb2_deferred_work_close(struct work_struct *work)
 {
 	struct cifsFileInfo *cfile = container_of(work,
 			struct cifsFileInfo, deferred.work);
+	struct cifsInodeInfo *cinode = CIFS_I(d_inode(cfile->dentry));
 
-	spin_lock(&CIFS_I(d_inode(cfile->dentry))->deferred_lock);
+	spin_lock(&cinode->deferred_lock);
 	cifs_del_deferred_close(cfile);
 	cfile->deferred_close_scheduled = false;
-	spin_unlock(&CIFS_I(d_inode(cfile->dentry))->deferred_lock);
+	spin_unlock(&cinode->deferred_lock);
+	/*
+	 * Refresh time_last_write immediately before the actual server close
+	 * so the protection window is anchored to the real close time, not
+	 * the earlier userspace close time stored by cifs_close().
+	 */
+	if (OPEN_FMODE(cfile->f_flags) & FMODE_WRITE) {
+		/* Pairs with smp_load_acquire() in is_size_safe_to_change(). */
+		smp_store_release(&cinode->time_last_write, jiffies);
+	}
 	_cifsFileInfo_put(cfile, true, false);
 }
 
@@ -1021,6 +1031,10 @@ int cifs_close(struct inode *inode, struct file *file)
 	if (file->private_data != NULL) {
 		cfile = file->private_data;
 		file->private_data = NULL;
+		if (file->f_mode & FMODE_WRITE) {
+		/* Pairs with smp_load_acquire() in is_size_safe_to_change(). */
+			smp_store_release(&cinode->time_last_write, jiffies);
+		}
 		dclose = kmalloc(sizeof(struct cifs_deferred_close), GFP_KERNEL);
 		if ((cifs_sb->ctx->closetimeo && cinode->oplock == CIFS_CACHE_RHW_FLG)
 		    && cinode->lease_granted &&
