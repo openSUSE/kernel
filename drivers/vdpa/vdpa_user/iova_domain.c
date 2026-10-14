@@ -115,7 +115,7 @@ static int vduse_domain_map_bounce_page(struct vduse_iova_domain *domain,
 	while (iova <= last) {
 		map = &domain->bounce_maps[iova >> PAGE_SHIFT];
 		if (!map->bounce_page) {
-			map->bounce_page = alloc_page(GFP_ATOMIC);
+			map->bounce_page = alloc_page(GFP_ATOMIC | __GFP_ZERO);
 			if (!map->bounce_page)
 				return -ENOMEM;
 		}
