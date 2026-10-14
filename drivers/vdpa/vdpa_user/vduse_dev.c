@@ -854,7 +854,7 @@ static void *vduse_dev_alloc_coherent(struct device *dev, size_t size,
 
 	*dma_addr = DMA_MAPPING_ERROR;
 	addr = vduse_domain_alloc_coherent(domain, size,
-				(dma_addr_t *)&iova, flag, attrs);
+				(dma_addr_t *)&iova, flag | __GFP_ZERO, attrs);
 	if (!addr)
 		return NULL;
 
