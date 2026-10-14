@@ -169,7 +169,7 @@ static int vc4_hvs_upload_linear_kernel(struct vc4_hvs *hvs,
 static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 {
 	struct platform_device *pdev = to_platform_device(dev);
-	struct drm_device *drm = dev_get_drvdata(master);
+	struct drm_device *drm = data;
 	struct vc4_dev *vc4 = drm->dev_private;
 	struct vc4_hvs *hvs = NULL;
 	int ret;
