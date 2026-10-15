@@ -642,6 +642,36 @@ static void io_worker_handle_work(struct io_worker *worker)
 	} while (1);
 }
 
+/*
+ * The worker has decided to exit, and has given up its ->nr_workers slot and
+ * its place on the free list. io_wqe_enqueue() may have picked it from that
+ * list, or seen it running, after it last looked at the work list. Leave
+ * ->nr_running as well and check again. Returns false if the worker has to
+ * stay.
+ */
+static bool io_worker_retire(struct io_wqe *wqe, struct io_worker *worker)
+{
+	struct io_wqe_acct *acct = io_wqe_get_acct(worker);
+
+	/* turns io_wqe_dec_running() and the scheduler hooks into no-ops */
+	worker->flags &= ~IO_WORKER_F_UP;
+	atomic_dec(&acct->nr_running);
+	if (!io_acct_run_queue(acct))
+		return true;
+
+	raw_spin_lock(&wqe->lock);
+	if (acct->nr_workers >= acct->max_workers) {
+		/* a worker was created in our place, the work is its business */
+		raw_spin_unlock(&wqe->lock);
+		return true;
+	}
+	acct->nr_workers++;
+	raw_spin_unlock(&wqe->lock);
+	atomic_inc(&acct->nr_running);
+	worker->flags |= IO_WORKER_F_UP;
+	return false;
+}
+
 static int io_wqe_worker(void *data)
 {
 	struct io_worker *worker = data;
@@ -670,9 +700,16 @@ static int io_wqe_worker(void *data)
 		 */
 		if (last_timeout && (exit_mask || acct->nr_workers > 1)) {
 			acct->nr_workers--;
+			if (worker->flags & IO_WORKER_F_FREE) {
+				worker->flags &= ~IO_WORKER_F_FREE;
+				hlist_nulls_del_init_rcu(&worker->nulls_node);
+			}
 			raw_spin_unlock(&wqe->lock);
 			__set_current_state(TASK_RUNNING);
-			break;
+			if (io_worker_retire(wqe, worker))
+				break;
+			last_timeout = false;
+			continue;
 		}
 		last_timeout = false;
 		__io_worker_idle(wqe, worker);
