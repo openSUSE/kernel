@@ -362,6 +362,9 @@ struct io_ring_ctx {
 	bool				iowq_limits_set;
 
 	struct callback_head		poll_wq_task_work;
+	/* deferred ->poll_wq wake up for local task_work */
+	struct rcu_head			poll_wq_rcu;
+	atomic_t			poll_wq_rcu_pending;
 	struct list_head		defer_list;
 	unsigned			sq_thread_idle;
 	/* protected by ->completion_lock */
