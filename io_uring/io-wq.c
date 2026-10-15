@@ -600,8 +600,15 @@ static void io_worker_handle_work(struct io_wq_acct *acct,
 
 			next_hashed = wq_next_work(work);
 
+			/*
+			 * io_wq_exit_workers() signals us once, so that we
+			 * don't sleep for ever. If that was before this work
+			 * became the current one, the signal is gone.
+			 */
 			if (unlikely(do_kill) && (work->flags & IO_WQ_WORK_UNBOUND))
 				work->flags |= IO_WQ_WORK_CANCEL;
+			else if (unlikely(do_kill))
+				set_notify_signal(current);
 			wq->do_work(work);
 			io_assign_current_work(worker, NULL);
 
