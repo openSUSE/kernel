@@ -1348,22 +1348,6 @@ static void __io_submit_flush_completions(struct io_ring_ctx *ctx)
 	INIT_WQ_LIST(&state->compl_reqs);
 }
 
-/*
- * Drop reference to request, return next in chain (if there is one) if this
- * was the last reference to this request.
- */
-static inline struct io_kiocb *io_put_req_find_next(struct io_kiocb *req)
-{
-	struct io_kiocb *nxt = NULL;
-
-	if (req_ref_put_and_test(req)) {
-		if (unlikely(req->flags & IO_REQ_LINK_FLAGS))
-			nxt = io_req_find_next(req);
-		io_free_req(req);
-	}
-	return nxt;
-}
-
 static unsigned io_cqring_events(struct io_ring_ctx *ctx)
 {
 	/* See comment at the top of this file */
@@ -1781,12 +1765,30 @@ int io_poll_issue(struct io_kiocb *req, bool *locked)
 	return io_issue_sqe(req, IO_URING_F_NONBLOCK|IO_URING_F_MULTISHOT);
 }
 
-struct io_wq_work *io_wq_free_work(struct io_wq_work *work)
+/*
+ * io-wq is done with @work. Returns true if it held the last reference, and
+ * hands out the next request of the link then. The caller has to make sure
+ * that cancellations can find the latter before it calls io_wq_free_work().
+ */
+bool io_wq_put_work(struct io_wq_work *work, struct io_wq_work **linked)
 {
 	struct io_kiocb *req = container_of(work, struct io_kiocb, work);
+	struct io_kiocb *nxt = NULL;
 
-	req = io_put_req_find_next(req);
-	return req ? &req->work : NULL;
+	*linked = NULL;
+	if (!req_ref_put_and_test(req))
+		return false;
+
+	if (unlikely(req->flags & IO_REQ_LINK_FLAGS))
+		nxt = io_req_find_next(req);
+	if (nxt)
+		*linked = &nxt->work;
+	return true;
+}
+
+void io_wq_free_work(struct io_wq_work *work)
+{
+	io_free_req(container_of(work, struct io_kiocb, work));
 }
 
 void io_wq_submit_work(struct io_wq_work *work)
@@ -1797,7 +1799,7 @@ void io_wq_submit_work(struct io_wq_work *work)
 	bool needs_poll = false;
 	int ret = 0, err = -ECANCELED;
 
-	/* one will be dropped by ->io_free_work() after returning to io-wq */
+	/* one will be dropped by ->put_work() after returning to io-wq */
 	if (!(req->flags & REQ_F_REFCOUNT))
 		__io_req_set_refcount(req, 2);
 	else
