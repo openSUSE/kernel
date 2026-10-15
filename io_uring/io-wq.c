@@ -53,6 +53,8 @@ struct io_worker {
 
 	struct io_wq_work *cur_work;
 	struct io_wq_work *next_work;
+	/* rest of the hashed chain ->next_work or ->cur_work came with */
+	struct io_wq_work *chain_work;
 	raw_spinlock_t lock;
 
 	struct completion ref_done;
@@ -548,6 +550,9 @@ static void io_assign_current_work(struct io_worker *worker,
 	raw_spin_lock(&worker->lock);
 	worker->cur_work = work;
 	worker->next_work = NULL;
+	/* stays valid while in between two items of a chain */
+	if (work)
+		worker->chain_work = wq_next_work(work);
 	raw_spin_unlock(&worker->lock);
 }
 
@@ -584,6 +589,7 @@ static void io_worker_handle_work(struct io_worker *worker)
 			 */
 			raw_spin_lock(&worker->lock);
 			worker->next_work = work;
+			worker->chain_work = wq_next_work(work);
 			raw_spin_unlock(&worker->lock);
 		} else {
 			break;
@@ -1073,6 +1079,7 @@ static bool __io_wq_worker_cancel(struct io_worker *worker,
 static bool io_wq_worker_cancel(struct io_worker *worker, void *data)
 {
 	struct io_cb_cancel_data *match = data;
+	struct io_wq_work *work;
 
 	/*
 	 * Hold the lock to avoid ->cur_work going out of scope, caller
@@ -1082,6 +1089,19 @@ static bool io_wq_worker_cancel(struct io_worker *worker, void *data)
 	if (__io_wq_worker_cancel(worker, match, worker->cur_work) ||
 	    __io_wq_worker_cancel(worker, match, worker->next_work))
 		match->nr_running++;
+	/*
+	 * Hashed work is taken off the work list a chain at a time, what the
+	 * worker hasn't started yet can only be found here. It doesn't move on
+	 * without the lock. Just mark the work, it fails once it is its turn.
+	 */
+	for (work = worker->chain_work; work; work = wq_next_work(work)) {
+		if (match->nr_running && !match->cancel_all)
+			break;
+		if (match->fn(work, match->data)) {
+			work->flags |= IO_WQ_WORK_CANCEL;
+			match->nr_running++;
+		}
+	}
 	raw_spin_unlock(&worker->lock);
 
 	return match->nr_running && !match->cancel_all;
