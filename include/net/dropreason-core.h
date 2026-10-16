@@ -423,24 +423,18 @@ enum skb_drop_reason {
 	 * shouldn't be used as a real 'reason' - only for tracing code gen
 	 */
 	SKB_DROP_REASON_MAX,
-#ifndef __GENKSYMS__
-        /**
-	 * @SKB_DROP_REASON_RECURSION_LIMIT: Dead loop on virtual device.
-	 *
-	 * In order to prevent kABI breakage, but keeping the sources as is,
-	 * keep the newly introduced RECURSION_LIMIT enum entry, but
-	 * define it to an existing value.
-	 */
-        SKB_DROP_REASON_RECURSION_LIMIT = SKB_DROP_REASON_NOT_SPECIFIED,
-#endif
 
 #ifndef __GENKSYMS__
-	/**
-	 * SKB_DROP_REASON_SKB_BAD_GSO: malicious gso packet.
-	 * To avoid kABI breakage, this is defined as an alias for
-	 * SKB_DROP_REASON_NOT_SPECIFIED rather than a new drop reason.
+        /**
+	 * In order to prevent kABI breakage, but keeping the sources as is,
+	 * keep the newly introduced enum entries, but define them to an
+	 * existing value.
 	 */
-	SKB_DROP_REASON_SKB_BAD_GSO = SKB_DROP_REASON_NOT_SPECIFIED,
+
+        /** @SKB_DROP_REASON_SKB_BAD_GSO: malicious gso packet. */
+        SKB_DROP_REASON_SKB_BAD_GSO = SKB_DROP_REASON_NOT_SPECIFIED,
+        /** @SKB_DROP_REASON_RECURSION_LIMIT: Dead loop on virtual device. */
+        SKB_DROP_REASON_RECURSION_LIMIT = SKB_DROP_REASON_NOT_SPECIFIED,
 #endif
 
 	/**
