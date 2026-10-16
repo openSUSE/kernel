@@ -3196,6 +3196,13 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 	trace_smb3_zero_enter(xid, cfile->fid.persistent_fid, tcon->tid,
 			      ses->Suid, offset, len);
 
+	new_size = offset + len;
+	if (!keep_size && i_size_read(inode) < new_size) {
+		rc = inode_newsize_ok(inode, new_size);
+		if (rc)
+			goto out;
+	}
+
 	inode_lock(inode);
 	filemap_invalidate_lock(inode->i_mapping);
 
@@ -3226,6 +3233,7 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
  zero_range_exit:
 	filemap_invalidate_unlock(inode->i_mapping);
 	inode_unlock(inode);
+out:
 	free_xid(xid);
 	if (rc)
 		trace_smb3_zero_err(xid, cfile->fid.persistent_fid, tcon->tid,
