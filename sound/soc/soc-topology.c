@@ -1902,6 +1902,7 @@ static int soc_tplg_pcm_elems_load(struct soc_tplg *tplg,
 	struct snd_soc_tplg_pcm *pcm, *_pcm;
 	int count = hdr->count;
 	int i;
+	int ret;
 	bool abi_match;
 
 	if (tplg->pass != SOC_TPLG_PASS_PCM_DAI)
