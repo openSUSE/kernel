@@ -2733,13 +2733,36 @@ int cifs_truncate_page(struct address_space *mapping, loff_t from)
 	return rc;
 }
 
+/*
+ * Zero the tail of the folio straddling the old EOF.  Unlike
+ * pagecache_isize_extended(), this does not bail out when i_blkbits >=
+ * PAGE_SHIFT (cifs uses 14), so data dirtied past EOF via mmap is not
+ * exposed once the file is extended.
+ */
+static void cifs_zero_post_eof(struct inode *inode, loff_t old_size)
+{
+	struct folio *folio;
+
+	folio = filemap_lock_folio(inode->i_mapping, old_size >> PAGE_SHIFT);
+	if (IS_ERR(folio))
+		return;
+	folio_zero_segment(folio, offset_in_folio(folio, old_size),
+			   folio_size(folio));
+	folio_unlock(folio);
+	folio_put(folio);
+}
+
 void cifs_setsize(struct inode *inode, loff_t offset)
 {
 	struct cifsInodeInfo *cifs_i = CIFS_I(inode);
+	loff_t old_size;
 
 	spin_lock(&inode->i_lock);
+	old_size = i_size_read(inode);
 	i_size_write(inode, offset);
 	spin_unlock(&inode->i_lock);
+	if (offset > old_size)
+		cifs_zero_post_eof(inode, old_size);
 
 	/* Cached inode must be refreshed on truncate */
 	cifs_i->time = 0;
