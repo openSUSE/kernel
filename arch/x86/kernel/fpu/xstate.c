@@ -15,6 +15,7 @@
 #include <linux/proc_fs.h>
 #include <linux/vmalloc.h>
 #include <linux/coredump.h>
+#include <linux/sort.h>
 
 #include <asm/fpu/api.h>
 #include <asm/fpu/regset.h>
@@ -91,6 +92,31 @@ static unsigned int xstate_offsets[XFEATURE_MAX] __ro_after_init =
 static unsigned int xstate_sizes[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
 static unsigned int xstate_flags[XFEATURE_MAX] __ro_after_init;
+
+/*
+ * Ordering of xstate components in uncompacted format:  The xfeature
+ * number does not necessarily indicate its position in the XSAVE buffer.
+ * This array defines the traversal order of xstate features.
+ */
+static unsigned int xfeature_uncompact_order[XFEATURE_MAX] __ro_after_init =
+	{ [ 0 ... XFEATURE_MAX - 1] = -1};
+
+static inline unsigned int next_xfeature_order(unsigned int i, u64 mask)
+{
+	for (; xfeature_uncompact_order[i] != -1; i++) {
+		if (mask & BIT_ULL(xfeature_uncompact_order[i]))
+			break;
+	}
+
+	return i;
+}
+
+/* Iterate xstate features in uncompacted order: */
+#define for_each_extended_xfeature_in_order(i, mask)	\
+	for (i = 0;					\
+	     i = next_xfeature_order(i, mask),		\
+	     xfeature_uncompact_order[i] != -1;		\
+	     i++)
 
 #define XSTATE_FLAG_SUPERVISOR	BIT(0)
 #define XSTATE_FLAG_ALIGNED64	BIT(1)
@@ -213,16 +239,20 @@ static bool xfeature_enabled(enum xfeature xfeature)
 	return fpu_kernel_cfg.max_features & BIT_ULL(xfeature);
 }
 
+static int compare_xstate_offsets(const void *xfeature1, const void *xfeature2)
+{
+	return  xstate_offsets[*(unsigned int *)xfeature1] -
+		xstate_offsets[*(unsigned int *)xfeature2];
+}
+
 /*
  * Record the offsets and sizes of various xstates contained
- * in the XSAVE state memory layout.
+ * in the XSAVE state memory layout. Also, create an ordered
+ * list of xfeatures for handling out-of-order offsets.
  */
 static void __init setup_xstate_cache(void)
 {
-	u32 eax, ebx, ecx, edx, i;
-	/* start at the beginning of the "extended state" */
-	unsigned int last_good_offset = offsetof(struct xregs_state,
-						 extended_state_area);
+	u32 eax, ebx, ecx, edx, xfeature, i = 0;
 	/*
 	 * The FP xstates and SSE xstates are legacy states. They are always
 	 * in the fixed offsets in the xsave area in either compacted form
@@ -236,31 +266,30 @@ static void __init setup_xstate_cache(void)
 	xstate_sizes[XFEATURE_SSE]	= sizeof_field(struct fxregs_state,
 						       xmm_space);
 
-	for_each_extended_xfeature(i, fpu_kernel_cfg.max_features) {
-		cpuid_count(XSTATE_CPUID, i, &eax, &ebx, &ecx, &edx);
+	for_each_extended_xfeature(xfeature, fpu_kernel_cfg.max_features) {
+		cpuid_count(XSTATE_CPUID, xfeature, &eax, &ebx, &ecx, &edx);
 
-		xstate_sizes[i] = eax;
-		xstate_flags[i] = ecx;
+		xstate_sizes[xfeature] = eax;
+		xstate_flags[xfeature] = ecx;
 
 		/*
 		 * If an xfeature is supervisor state, the offset in EBX is
 		 * invalid, leave it to -1.
 		 */
-		if (xfeature_is_supervisor(i))
+		if (xfeature_is_supervisor(xfeature))
 			continue;
 
-		xstate_offsets[i] = ebx;
+		xstate_offsets[xfeature] = ebx;
 
-		/*
-		 * In our xstate size checks, we assume that the highest-numbered
-		 * xstate feature has the highest offset in the buffer.  Ensure
-		 * it does.
-		 */
-		WARN_ONCE(last_good_offset > xstate_offsets[i],
-			  "x86/fpu: misordered xstate at %d\n", last_good_offset);
-
-		last_good_offset = xstate_offsets[i];
+		/* Populate the list of xfeatures before sorting */
+		xfeature_uncompact_order[i++] = xfeature;
 	}
+
+	/*
+	 * Sort xfeatures by their offsets to support out-of-order
+	 * offsets in the uncompacted format.
+	 */
+	sort(xfeature_uncompact_order, i, sizeof(unsigned int), compare_xstate_offsets, NULL);
 }
 
 static void __init print_xstate_feature(u64 xstate_mask)
@@ -572,13 +601,20 @@ static bool __init check_xstate_against_struct(int nr)
 static unsigned int xstate_calculate_size(u64 xfeatures, bool compacted)
 {
 	unsigned int topmost = fls64(xfeatures) -  1;
-	unsigned int offset = xstate_offsets[topmost];
+	unsigned int offset, i;
 
 	if (topmost <= XFEATURE_SSE)
 		return sizeof(struct xregs_state);
 
-	if (compacted)
+	if (compacted) {
 		offset = xfeature_get_offset(xfeatures, topmost);
+	} else {
+		/* Walk through the xfeature order to pick the last */
+		for_each_extended_xfeature_in_order(i, xfeatures)
+			topmost = xfeature_uncompact_order[i];
+		offset = xstate_offsets[topmost];
+	}
+
 	return offset + xstate_sizes[topmost];
 }
 
@@ -734,6 +770,8 @@ static int __init init_xstate_size(void)
  */
 static void __init fpu__init_disable_system_xstate(unsigned int legacy_size)
 {
+	pr_info("x86/fpu: XSAVE disabled\n");
+
 	fpu_kernel_cfg.max_features = 0;
 	cr4_clear_bits(X86_CR4_OSXSAVE);
 	setup_clear_cpu_cap(X86_FEATURE_XSAVE);
@@ -828,7 +866,7 @@ void __init fpu__init_system_xstate(unsigned int legacy_size)
 		 * This is a problematic CPU configuration where two
 		 * conflicting state components are both enumerated.
 		 */
-		pr_err("x86/fpu: Both APX/MPX present in the CPU's xstate features: 0x%llx, disabling XSAVE.\n",
+		pr_err("x86/fpu: Both APX/MPX present in the CPU's xstate features: 0x%llx.\n",
 		       fpu_kernel_cfg.max_features);
 		goto out_disable;
 	}
@@ -911,7 +949,7 @@ void __init fpu__init_system_xstate(unsigned int legacy_size)
 	init_fpstate.xfeatures		= fpu_kernel_cfg.default_features;
 
 	if (init_fpstate.size > sizeof(init_fpstate.regs)) {
-		pr_warn("x86/fpu: init_fpstate buffer too small (%zu < %d), disabling XSAVE\n",
+		pr_warn("x86/fpu: init_fpstate buffer too small (%zu < %d)\n",
 			sizeof(init_fpstate.regs), init_fpstate.size);
 		goto out_disable;
 	}
@@ -923,7 +961,7 @@ void __init fpu__init_system_xstate(unsigned int legacy_size)
 	 * xfeatures mask.
 	 */
 	if (xfeatures != fpu_kernel_cfg.max_features) {
-		pr_err("x86/fpu: xfeatures modified from 0x%016llx to 0x%016llx during init, disabling XSAVE\n",
+		pr_err("x86/fpu: xfeatures modified from 0x%016llx to 0x%016llx during init\n",
 		       xfeatures, fpu_kernel_cfg.max_features);
 		goto out_disable;
 	}
@@ -1130,10 +1168,9 @@ void __copy_xstate_to_uabi_buf(struct membuf to, struct fpstate *fpstate,
 	const unsigned int off_mxcsr = offsetof(struct fxregs_state, mxcsr);
 	struct xregs_state *xinit = &init_fpstate.regs.xsave;
 	struct xregs_state *xsave = &fpstate->regs.xsave;
+	unsigned int zerofrom, i, xfeature;
 	struct xstate_header header;
-	unsigned int zerofrom;
 	u64 mask;
-	int i;
 
 	memset(&header, 0, sizeof(header));
 	header.xfeatures = xsave->header.xfeatures;
@@ -1202,15 +1239,16 @@ void __copy_xstate_to_uabi_buf(struct membuf to, struct fpstate *fpstate,
 	 */
 	mask = header.xfeatures;
 
-	for_each_extended_xfeature(i, mask) {
+	for_each_extended_xfeature_in_order(i, mask) {
+		xfeature = xfeature_uncompact_order[i];
 		/*
 		 * If there was a feature or alignment gap, zero the space
 		 * in the destination buffer.
 		 */
-		if (zerofrom < xstate_offsets[i])
-			membuf_zero(&to, xstate_offsets[i] - zerofrom);
+		if (zerofrom < xstate_offsets[xfeature])
+			membuf_zero(&to, xstate_offsets[xfeature] - zerofrom);
 
-		if (i == XFEATURE_PKRU) {
+		if (xfeature == XFEATURE_PKRU) {
 			struct pkru_state pkru = {0};
 			/*
 			 * PKRU is not necessarily up to date in the
@@ -1220,14 +1258,14 @@ void __copy_xstate_to_uabi_buf(struct membuf to, struct fpstate *fpstate,
 			membuf_write(&to, &pkru, sizeof(pkru));
 		} else {
 			membuf_write(&to,
-				     __raw_xsave_addr(xsave, i),
-				     xstate_sizes[i]);
+				     __raw_xsave_addr(xsave, xfeature),
+				     xstate_sizes[xfeature]);
 		}
 		/*
 		 * Keep track of the last copied state in the non-compacted
 		 * target buffer for gap zeroing.
 		 */
-		zerofrom = xstate_offsets[i] + xstate_sizes[i];
+		zerofrom = xstate_offsets[xfeature] + xstate_sizes[xfeature];
 	}
 
 out:

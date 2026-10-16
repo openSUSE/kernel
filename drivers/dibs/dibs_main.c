@@ -19,7 +19,9 @@
 MODULE_DESCRIPTION("Direct Internal Buffer Sharing class");
 MODULE_LICENSE("GPL");
 
-static struct class *dibs_class;
+static const struct class dibs_class = {
+	.name		= "dibs",
+};
 
 /* use an array rather a list for fast mapping: */
 static struct dibs_client *clients[MAX_DIBS_CLIENTS];
@@ -137,8 +139,9 @@ struct dibs_dev *dibs_dev_alloc(void)
 	dibs = kzalloc(sizeof(*dibs), GFP_KERNEL);
 	if (!dibs)
 		return dibs;
+	spin_lock_init(&dibs->lock);
 	dibs->dev.release = dibs_dev_release;
-	dibs->dev.class = dibs_class;
+	dibs->dev.class = &dibs_class;
 	device_initialize(&dibs->dev);
 
 	return dibs;
@@ -185,7 +188,6 @@ int dibs_dev_add(struct dibs_dev *dibs)
 	int i, ret;
 
 	max_dmbs = dibs->ops->max_dmbs();
-	spin_lock_init(&dibs->lock);
 	dibs->dmb_clientid_arr = kzalloc(max_dmbs, GFP_KERNEL);
 	if (!dibs->dmb_clientid_arr)
 		return -ENOMEM;
@@ -247,21 +249,27 @@ static int __init dibs_init(void)
 {
 	int rc;
 
-	dibs_class = class_create("dibs");
-	if (IS_ERR(dibs_class))
-		return PTR_ERR(dibs_class);
+	rc = class_register(&dibs_class);
+	if (rc)
+		goto err;
 
 	rc = dibs_loopback_init();
 	if (rc)
-		pr_err("%s fails with %d\n", __func__, rc);
+		goto err_unregister;
 
+	return rc;
+
+err_unregister:
+	class_unregister(&dibs_class);
+err:
+	pr_err("%s fails with %d\n", __func__, rc);
 	return rc;
 }
 
 static void __exit dibs_exit(void)
 {
 	dibs_loopback_exit();
-	class_destroy(dibs_class);
+	class_unregister(&dibs_class);
 }
 
 subsys_initcall(dibs_init);
