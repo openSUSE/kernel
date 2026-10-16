@@ -3024,16 +3024,16 @@ void blk_mq_submit_bio(struct bio *bio)
 		if (unlikely(bio_may_exceed_limits(bio, &q->limits))) {
 			bio = __bio_split_to_limits(bio, &q->limits, &nr_segs);
 			if (!bio) {
-				blk_mq_free_request(rq);
+				rq_list_add(&plug->cached_rq, rq);
 				return;
 			}
 		}
 		if (!bio_integrity_prep(bio)) {
-			blk_mq_free_request(rq);
+			rq_list_add(&plug->cached_rq, rq);
 			return;
 		}
 		if (blk_mq_attempt_bio_merge(q, bio, nr_segs)) {
-			blk_mq_free_request(rq);
+			rq_list_add(&plug->cached_rq, rq);
 			return;
 		}
 		rq_qos_throttle(rq->q, bio);
