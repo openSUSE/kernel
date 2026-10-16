@@ -3608,7 +3608,8 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 	unsigned int xid;
 	struct cifsFileInfo *cfile = file->private_data;
 	struct inode *inode = file_inode(file);
-	__u64 count, old_eof, new_eof;
+	u64 count;
+	loff_t old_eof, new_eof;
 
 	xid = get_xid();
 
@@ -3619,6 +3620,14 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 		rc = -EINVAL;
 		goto out;
 	}
+
+	if (check_add_overflow(old_eof, len, &new_eof)) {
+		rc = -EFBIG;
+		goto out;
+	}
+	rc = inode_newsize_ok(inode, new_eof);
+	if (rc)
+		goto out;
 
 	count = old_eof - off;
 	new_eof = old_eof + len;
