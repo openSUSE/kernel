@@ -239,12 +239,14 @@ enum {
 static int io_poll_check_events(struct io_kiocb *req, bool *locked)
 {
 	struct io_ring_ctx *ctx = req->ctx;
+	bool again;
 	int v;
 
 	if (unlikely(io_should_terminate_tw(ctx)))
 		return -ECANCELED;
 
 	do {
+		again = false;
 		v = atomic_read(&req->poll_refs);
 
 		/* tw handler should be the owner, and so have some references */
@@ -305,10 +307,17 @@ static int io_poll_check_events(struct io_kiocb *req, bool *locked)
 		} else {
 			int ret;
 
-			/* multiple refs and HUP, ensure we loop once more */
+			/*
+			 * Multiple refs and HUP, ensure we loop once more. Drop
+			 * down to one ref now, so the next pass ends unless a
+			 * wake up came in.
+			 */
 			if ((req->cqe.res & (POLLHUP | POLLRDHUP)) &&
-			    (v & IO_POLL_REF_MASK) != 1)
-				v--;
+			    (v & IO_POLL_REF_MASK) != 1) {
+				atomic_sub((v & IO_POLL_REF_MASK) - 1,
+					   &req->poll_refs);
+				again = true;
+			}
 			ret = io_poll_issue(req, locked);
 			io_kbuf_recycle(req, 0);
 
@@ -326,7 +335,7 @@ static int io_poll_check_events(struct io_kiocb *req, bool *locked)
 		 * task_work while we were executing it.
 		 */
 		v &= IO_POLL_REF_MASK;
-	} while (atomic_cmpxchg(&req->poll_refs, v, 0) != v);
+	} while (again || atomic_cmpxchg(&req->poll_refs, v, 0) != v);
 
 	return IOU_POLL_NO_ACTION;
 }
