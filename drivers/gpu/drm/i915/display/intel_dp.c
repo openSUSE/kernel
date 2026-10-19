@@ -5248,7 +5248,7 @@ intel_dp_check_mst_status(struct intel_dp *intel_dp)
 
 	if (!tries) {
 		drm_dbg_kms(&i915->drm, "DPRX ESI not clearing, device may be stuck\n");
-		link_ok = false;
+		reprobe_needed = true;
 	}
 
 	if (!link_ok || intel_dp->link.force_retrain)
