@@ -225,9 +225,7 @@ int regcache_init(struct regmap *map, const struct regmap_config *config)
 	if (map->cache_ops->init) {
 		dev_dbg(map->dev, "Initializing %s cache\n",
 			map->cache_ops->name);
-		map->lock(map->lock_arg);
 		ret = map->cache_ops->init(map);
-		map->unlock(map->lock_arg);
 		if (ret)
 			goto err_free_reg_defaults;
 	}
@@ -259,9 +257,7 @@ err_free:
 err_exit:
 	if (map->cache_ops->exit) {
 		dev_dbg(map->dev, "Destroying %s cache\n", map->cache_ops->name);
-		map->lock(map->lock_arg);
 		map->cache_ops->exit(map);
-		map->unlock(map->lock_arg);
 	}
 err_free_reg_defaults:
 	kfree(map->reg_defaults);
@@ -281,9 +277,7 @@ void regcache_exit(struct regmap *map)
 	if (map->cache_ops->exit) {
 		dev_dbg(map->dev, "Destroying %s cache\n",
 			map->cache_ops->name);
-		map->lock(map->lock_arg);
 		map->cache_ops->exit(map);
-		map->unlock(map->lock_arg);
 	}
 
 	kfree(map->reg_defaults);
@@ -412,11 +406,16 @@ static int rbtree_all(const void *key, const struct rb_node *node)
  * volatile.  In general drivers can choose not to use the provided
  * syncing functionality if they so require.
  *
+ * This pushes cached changes made while cache_only (e.g. suspend) down
+ * to hardware. The caller must disable cache_only before calling this
+ * function.
+ *
  * Return a negative value on failure, 0 on success.
  */
 int regcache_sync(struct regmap *map)
 {
-	int ret = 0;
+	int sync_ret = 0;
+	int selector_ret = 0;
 	unsigned int i;
 	const char *name;
 	bool bypass;
@@ -428,6 +427,12 @@ int regcache_sync(struct regmap *map)
 	BUG_ON(!map->cache_ops);
 
 	map->lock(map->lock_arg);
+
+	if (WARN_ON(map->cache_only)) {
+		map->unlock(map->lock_arg);
+		return -EINVAL;
+	}
+
 	/* Remember the initial bypass state */
 	bypass = map->cache_bypass;
 	dev_dbg(map->dev, "Syncing %s cache\n",
@@ -441,21 +446,21 @@ int regcache_sync(struct regmap *map)
 	/* Apply any patch first */
 	map->cache_bypass = true;
 	for (i = 0; i < map->patch_regs; i++) {
-		ret = _regmap_write(map, map->patch[i].reg, map->patch[i].def);
-		if (ret != 0) {
+		sync_ret = _regmap_write(map, map->patch[i].reg, map->patch[i].def);
+		if (sync_ret != 0) {
 			dev_err(map->dev, "Failed to write %x = %x: %d\n",
-				map->patch[i].reg, map->patch[i].def, ret);
+				map->patch[i].reg, map->patch[i].def, sync_ret);
 			goto out;
 		}
 	}
 	map->cache_bypass = false;
 
 	if (map->cache_ops->sync)
-		ret = map->cache_ops->sync(map, 0, map->max_register);
+		sync_ret = map->cache_ops->sync(map, 0, map->max_register);
 	else
-		ret = regcache_default_sync(map, 0, map->max_register);
+		sync_ret = regcache_default_sync(map, 0, map->max_register);
 
-	if (ret == 0)
+	if (sync_ret == 0)
 		map->cache_dirty = false;
 
 out:
@@ -477,10 +482,11 @@ out:
 		if (regcache_read(map, this->selector_reg, &i) != 0)
 			continue;
 
-		ret = _regmap_write(map, this->selector_reg, i);
-		if (ret != 0) {
+		selector_ret = _regmap_write(map, this->selector_reg, i);
+		if (selector_ret != 0) {
+			map->cache_dirty = true;
 			dev_err(map->dev, "Failed to write %x = %x: %d\n",
-				this->selector_reg, i, ret);
+				this->selector_reg, i, selector_ret);
 			break;
 		}
 	}
@@ -491,7 +497,7 @@ out:
 
 	trace_regcache_sync(map, name, "stop");
 
-	return ret;
+	return sync_ret ? sync_ret : selector_ret;
 }
 EXPORT_SYMBOL_GPL(regcache_sync);
 
@@ -521,6 +527,10 @@ int regcache_sync_region(struct regmap *map, unsigned int min,
 
 	map->lock(map->lock_arg);
 
+	if (WARN_ON(map->cache_only)) {
+		map->unlock(map->lock_arg);
+		return -EINVAL;
+	}
 	/* Remember the initial bypass state */
 	bypass = map->cache_bypass;
 

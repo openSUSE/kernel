@@ -32,6 +32,7 @@
 #include <sound/cs-amp-lib.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
+#include <sound/sdw.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/tlv.h>
@@ -46,48 +47,49 @@
 static DEFINE_MUTEX(cs35l56_component_register_lock);
 static bool cs35l56_shutting_down;
 
-void cs35l56_mask_soundwire_interrupts(struct sdw_slave *peripheral)
+void cs35l56_mask_soundwire_interrupts(struct cs35l56_private *cs35l56)
 {
 	 /*
+	  * Mask unconditionally.
+	  *
 	  * The read of GEN_INT_STAT_1 is required as per the SoundWire spec
 	  * for interrupt status bits to clear.
 	  * GEN_INT_MASK_1 masks the _inputs_ to GEN_INT_STAT1.
 	  */
-	sdw_write_no_pm(peripheral, CS35L56_SDW_GEN_INT_MASK_1, 0);
-	sdw_read_no_pm(peripheral, CS35L56_SDW_GEN_INT_STAT_1);
-	sdw_write_no_pm(peripheral, CS35L56_SDW_GEN_INT_STAT_1, 0xFF);
+	sdw_write_no_pm(cs35l56->sdw_peripheral, CS35L56_SDW_GEN_INT_MASK_1, 0);
+	sdw_read_no_pm(cs35l56->sdw_peripheral, CS35L56_SDW_GEN_INT_STAT_1);
+	sdw_write_no_pm(cs35l56->sdw_peripheral, CS35L56_SDW_GEN_INT_STAT_1, 0xFF);
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_mask_soundwire_interrupts, "SND_SOC_CS35L56_CORE");
 
-void cs35l56_unmask_soundwire_interrupts(struct sdw_slave *peripheral)
+void cs35l56_unmask_soundwire_interrupts(struct cs35l56_private *cs35l56)
 {
-	sdw_write_no_pm(peripheral, CS35L56_SDW_GEN_INT_MASK_1, CS35L56_SDW_INT_MASK_CODEC_IRQ);
+	if (!cs35l56->base.irq)
+		return;
+
+	sdw_write_no_pm(cs35l56->sdw_peripheral, CS35L56_SDW_GEN_INT_MASK_1,
+			CS35L56_SDW_INT_MASK_CODEC_IRQ);
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_unmask_soundwire_interrupts, "SND_SOC_CS35L56_CORE");
 
-void cs35l56_disable_sdw_interrupts(struct cs35l56_private *cs35l56)
+static void cs35l56_disable_sdw_interrupts(struct cs35l56_private *cs35l56)
 {
 	if (!cs35l56->sdw_peripheral)
 		return;
 
-	cs35l56->sdw_irq_no_unmask = true;
-	flush_work(&cs35l56->sdw_irq_work);
-
-	/* Mask interrupts and flush in case sdw_irq_work was queued again */
-	cs35l56_mask_soundwire_interrupts(cs35l56->sdw_peripheral);
-	flush_work(&cs35l56->sdw_irq_work);
+	cs35l56_mask_soundwire_interrupts(cs35l56);
+	if (cs35l56->base.irq)
+		disable_irq(cs35l56->base.irq);
 }
-EXPORT_SYMBOL_NS_GPL(cs35l56_disable_sdw_interrupts, "SND_SOC_CS35L56_CORE");
 
-void cs35l56_enable_sdw_interrupts(struct cs35l56_private *cs35l56)
+static void cs35l56_enable_sdw_interrupts(struct cs35l56_private *cs35l56)
 {
-	if (!cs35l56->sdw_peripheral)
+	if (!cs35l56->sdw_peripheral || !cs35l56->base.irq)
 		return;
 
-	cs35l56->sdw_irq_no_unmask = false;
-	cs35l56_unmask_soundwire_interrupts(cs35l56->sdw_peripheral);
+	enable_irq(cs35l56->base.irq);
+	cs35l56_unmask_soundwire_interrupts(cs35l56);
 }
-EXPORT_SYMBOL_NS_GPL(cs35l56_enable_sdw_interrupts, "SND_SOC_CS35L56_CORE");
 
 static int cs35l56_dsp_event(struct snd_soc_dapm_widget *w,
 			     struct snd_kcontrol *kcontrol, int event);
@@ -323,6 +325,7 @@ static const struct snd_soc_dapm_widget cs35l56_dapm_widgets[] = {
 	SND_SOC_DAPM_SIGGEN("VDDBMON ADC"),
 	SND_SOC_DAPM_SIGGEN("VBSTMON ADC"),
 	SND_SOC_DAPM_SIGGEN("TEMPMON ADC"),
+	SND_SOC_DAPM_SIGGEN("OT25 Reference"),
 
 	SND_SOC_DAPM_INPUT("Calibrate"),
 };
@@ -387,6 +390,8 @@ static const struct snd_soc_dapm_route cs35l56_audio_map[] = {
 	{ "SDW1 Capture", NULL, "SDW1 TX2 Source" },
 	{ "SDW1 Capture", NULL, "SDW1 TX3 Source" },
 	{ "SDW1 Capture", NULL, "SDW1 TX4 Source" },
+
+	{ "OT25", NULL, "OT25 Reference" },
 };
 
 static int cs35l56_dsp_event(struct snd_soc_dapm_widget *w,
@@ -711,10 +716,48 @@ static int cs35l56_sdw_dai_set_stream(struct snd_soc_dai *dai,
 	return 0;
 }
 
+static int cs35l56_ot25_dai_hw_params(struct snd_pcm_substream *substream,
+				      struct snd_pcm_hw_params *params,
+				      struct snd_soc_dai *dai)
+{
+	struct cs35l56_private *cs35l56 = snd_soc_component_get_drvdata(dai->component);
+	struct sdw_stream_runtime *sdw_stream = snd_soc_dai_get_dma_data(dai, substream);
+	struct sdw_stream_config sconfig = { };
+	struct sdw_port_config pconfig = { };
+	int ret;
+
+	dev_dbg(cs35l56->base.dev, "%s: rate %d\n", __func__, params_rate(params));
+
+	if (!cs35l56->base.init_done)
+		return -ENODEV;
+
+	if (!sdw_stream)
+		return -EINVAL;
+
+	snd_sdw_params_to_config(substream, params, &sconfig, &pconfig);
+	pconfig.num = CS35L56_OT25_CAPTURE_PORT;
+
+	ret = sdw_stream_add_slave(cs35l56->sdw_peripheral, &sconfig, &pconfig,
+				   1, sdw_stream);
+	if (ret) {
+		dev_err(dai->dev, "Failed to add OT25 stream: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 static const struct snd_soc_dai_ops cs35l56_sdw_dai_ops = {
 	.set_tdm_slot = cs35l56_sdw_dai_set_tdm_slot,
 	.shutdown = cs35l56_sdw_dai_shutdown,
 	.hw_params = cs35l56_sdw_dai_hw_params,
+	.hw_free = cs35l56_sdw_dai_hw_free,
+	.set_stream = cs35l56_sdw_dai_set_stream,
+};
+
+static const struct snd_soc_dai_ops cs35l56_ot25_dai_ops = {
+	.shutdown = cs35l56_sdw_dai_shutdown,
+	.hw_params = cs35l56_ot25_dai_hw_params,
 	.hw_free = cs35l56_sdw_dai_hw_free,
 	.set_stream = cs35l56_sdw_dai_set_stream,
 };
@@ -766,6 +809,18 @@ static struct snd_soc_dai_driver cs35l56_dai[] = {
 		},
 		.symmetric_rate = 1,
 		.ops = &cs35l56_sdw_dai_ops,
+	},
+	{
+		.name = "cs35l56-ot25",
+		.id = 3,
+		.capture = {
+			.stream_name = "OT25",
+			.channels_min = 1,
+			.channels_max = 2,
+			.rates = CS35L56_RATES,
+			.formats = CS35L56_TX_FORMATS,
+		},
+		.ops = &cs35l56_ot25_dai_ops,
 	},
 };
 
@@ -837,11 +892,7 @@ static void cs35l56_patch(struct cs35l56_private *cs35l56, bool firmware_missing
 {
 	int ret;
 
-	/*
-	 * Disable SoundWire interrupts to prevent race with IRQ work.
-	 * Setting sdw_irq_no_unmask prevents the handler re-enabling
-	 * the SoundWire interrupt.
-	 */
+	/* Disable SoundWire interrupts to prevent race with IRQ handler thread */
 	cs35l56_disable_sdw_interrupts(cs35l56);
 
 	ret = cs35l56_firmware_shutdown(&cs35l56->base);
@@ -1405,6 +1456,7 @@ static int _cs35l56_component_probe(struct snd_soc_component *component)
 						     ARRAY_SIZE(cs35l56_controls));
 		break;
 	case 0x63:
+	case 0x62:
 		ret = snd_soc_add_component_controls(component, cs35l63_controls,
 						     ARRAY_SIZE(cs35l63_controls));
 		break;

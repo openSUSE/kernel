@@ -45,27 +45,24 @@
 #include <linux/rseq.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include <linux/kmemleak.h>
 #include <linux/wait_bit.h>
 
 #include <vdso/futex.h>
 
+#include <asm/runtime-const.h>
+
 #include "futex.h"
 #include "../locking/rtmutex_common.h"
 
-/*
- * The base of the bucket array and its size are always used together
- * (after initialization only in futex_hash()), so ensure that they
- * reside in the same cacheline.
- */
-static struct {
-	unsigned long            hashmask;
-	unsigned int		 hashshift;
-	struct futex_hash_bucket *queues[MAX_NUMNODES];
-} __futex_data __read_mostly __aligned(2*sizeof(long));
+static u32 __futex_mask __ro_after_init;
+static u32 __futex_shift __ro_after_init;
+static struct futex_hash_bucket **__futex_queues __ro_after_init;
 
-#define futex_hashmask	(__futex_data.hashmask)
-#define futex_hashshift	(__futex_data.hashshift)
-#define futex_queues	(__futex_data.queues)
+static __always_inline struct futex_hash_bucket **futex_queues(void)
+{
+	return runtime_const_ptr(__futex_queues);
+}
 
 struct futex_private_hash {
 	int		state;
@@ -404,13 +401,13 @@ __futex_hash(union futex_key *key, struct futex_private_hash *fph, struct futex_
 		 * NOTE: this isn't perfectly uniform, but it is fast and
 		 * handles sparse node masks.
 		 */
-		node = (hash >> futex_hashshift) % nr_node_ids;
+		node = runtime_const_shift_right_32(hash, __futex_shift) % nr_node_ids;
 		if (!node_possible(node)) {
 			node = find_next_bit_wrap(node_possible_map.bits, nr_node_ids, node);
 		}
 	}
 
-	return &futex_queues[node][hash & futex_hashmask];
+	return &futex_queues()[node][runtime_const_mask_32(hash, __futex_mask)];
 }
 
 /**
@@ -442,12 +439,35 @@ struct hrtimer_sleeper *futex_setup_timer(ktime_t *time, struct hrtimer_sleeper 
 }
 
 /*
- * Generate a machine wide unique identifier for this inode.
+ * Generate a machine wide unique identifier for this object (inode or mm).
  *
  * This relies on u64 not wrapping in the life-time of the machine; which with
  * 1ns resolution means almost 585 years.
- *
- * This further relies on the fact that a well formed program will not unmap
+ */
+static u64 get_object_id(atomic64_t *object_seq)
+{
+	static atomic64_t last_assigned_seq;
+	u64 old;
+
+	/* Does the object already have a sequence number? */
+	old = atomic64_read(object_seq);
+	if (likely(old))
+		return old;
+
+	for (;;) {
+		u64 new = atomic64_inc_return(&last_assigned_seq);
+		if (WARN_ON_ONCE(!new))
+			continue;
+
+		old = 0;
+		if (!atomic64_try_cmpxchg_relaxed(object_seq, &old, new))
+			return old;
+		return new;
+	}
+}
+
+/*
+ * This relies on the fact that a well formed program will not unmap
  * the file while it has a (shared) futex waiting on it. This mapping will have
  * a file reference which pins the mount and inode.
  *
@@ -461,24 +481,7 @@ struct hrtimer_sleeper *futex_setup_timer(ktime_t *time, struct hrtimer_sleeper 
  */
 static u64 get_inode_sequence_number(struct inode *inode)
 {
-	static atomic64_t i_seq;
-	u64 old;
-
-	/* Does the inode already have a sequence number? */
-	old = atomic64_read(&inode->i_sequence);
-	if (likely(old))
-		return old;
-
-	for (;;) {
-		u64 new = atomic64_inc_return(&i_seq);
-		if (WARN_ON_ONCE(!new))
-			continue;
-
-		old = 0;
-		if (!atomic64_try_cmpxchg_relaxed(&inode->i_sequence, &old, new))
-			return old;
-		return new;
-	}
+	return get_object_id(&inode->i_sequence);
 }
 
 /**
@@ -529,7 +532,7 @@ int get_futex_key(u32 __user *uaddr, unsigned int flags, union futex_key *key,
 	 * The futex address must be "naturally" aligned.
 	 */
 	key->both.offset = address % PAGE_SIZE;
-	if (unlikely((address % size) != 0))
+	if (unlikely((address & (size-1)) != 0))
 		return -EINVAL;
 	address -= key->both.offset;
 
@@ -686,8 +689,8 @@ again:
 			goto out;
 		}
 
-		key->both.offset |= FUT_OFF_MMSHARED; /* ref taken on mm */
-		key->private.mm = mm;
+		key->both.offset |= FUT_OFF_MMSHARED;
+		key->private.mm_seq = get_object_id(&mm->futex.unique_id);
 		key->private.address = address;
 
 	} else {
@@ -1546,30 +1549,27 @@ static void futex_cleanup_end(struct task_struct *tsk)
 	mutex_unlock(&tsk->futex.exit_mutex);
 }
 
-void futex_exit_release(struct task_struct *tsk)
+/*
+ * Invoked from mm_exit_exec_release() to cleanup the robust lists and pi state
+ * of the outgoing task.
+ *
+ * exec() makes it interesting for futexes because the TID of the task stays the
+ * same, but from a futex perspective the task has to be treated like an exiting
+ * task. This is especially important for the sanity check for private futexes
+ * in attach_to_pi_owner() which compares the owner's mm with the waiter's mm.
+ *
+ * That check would give the wrong answer if futex_cleanup_end() would
+ * set the state to FUTEX_STATE_OK as long as the task still has the old
+ * mm.
+ *
+ * After the task has switched to the new mm it sets it to
+ * FUTEX_STATE_OK again in futex_exec_done().
+ */
+void futex_exit_exec_release(struct task_struct *tsk)
 {
 	futex_cleanup_begin(tsk);
 	futex_cleanup(tsk);
 	futex_cleanup_end(tsk);
-}
-
-void futex_exec_release(struct task_struct *tsk)
-{
-	/*
-	 * exec() makes it interesting for futexes because the TID of the task
-	 * stays the same, but from a futex perspective the task has to be
-	 * treated like an exiting task. This is especially important for the
-	 * sanity check for private futexes in attach_to_pi_owner() which
-	 * compares the owner's mm with the waiter's mm.
-	 *
-	 * That check would give the wrong answer if futex_cleanup_end() would
-	 * set the state to FUTEX_STATE_OK as long as the task still has the old
-	 * mm.
-	 *
-	 * After the task has switched to the new mm it sets it to
-	 * FUTEX_STATE_OK again in futex_exec_done().
-	 */
-	futex_exit_release(tsk);
 }
 
 /*
@@ -1804,8 +1804,7 @@ void futex_hash_free(struct mm_struct *mm)
 	free_percpu(mm->futex.phash.ref);
 	kvfree(mm->futex.phash.hash_new);
 	fph = rcu_dereference_raw(mm->futex.phash.hash);
-	if (fph)
-		kvfree(fph);
+	kvfree(fph);
 }
 
 static bool futex_pivot_pending(struct mm_struct *mm)
@@ -1883,8 +1882,8 @@ static int futex_hash_allocate(unsigned int hash_slots, unsigned int flags)
 			free_percpu(ref);
 	}
 
-	fph = kvzalloc(struct_size(fph, queues, hash_slots),
-		       GFP_KERNEL_ACCOUNT | __GFP_NOWARN);
+	fph = kvzalloc_flex(*fph, queues, hash_slots,
+			    GFP_KERNEL_ACCOUNT | __GFP_NOWARN);
 	if (!fph)
 		return -ENOMEM;
 
@@ -2009,7 +2008,7 @@ int futex_hash_allocate_default(void)
 	 *   16 <= threads * 4 <= global hash size
 	 */
 	buckets = roundup_pow_of_two(4 * threads);
-	buckets = clamp(buckets, 16, futex_hashmask + 1);
+	buckets = clamp(buckets, 16, __futex_mask + 1);
 
 	if (current_buckets >= buckets)
 		return 0;
@@ -2062,13 +2061,12 @@ static void futex_robust_unlock_init_mm(struct futex_mm_data *fd)
 static inline void futex_robust_unlock_init_mm(struct futex_mm_data *fd) { }
 #endif /* !CONFIG_FUTEX_ROBUST_UNLOCK */
 
-#if defined(CONFIG_FUTEX_PRIVATE_HASH) || defined(CONFIG_FUTEX_ROBUST_UNLOCK)
 void futex_mm_init(struct mm_struct *mm)
 {
+	atomic64_set(&mm->futex.unique_id, 0);
 	futex_hash_init_mm(&mm->futex);
 	futex_robust_unlock_init_mm(&mm->futex);
 }
-#endif
 
 int futex_hash_prctl(unsigned long arg2, unsigned long arg3, unsigned long arg4)
 {
@@ -2107,9 +2105,21 @@ static int __init futex_init(void)
 	hashsize = max(4, hashsize);
 	hashsize = roundup_pow_of_two(hashsize);
 #endif
-	futex_hashshift = ilog2(hashsize);
+	__futex_mask = hashsize - 1;
+	__futex_shift = ilog2(hashsize);
 	size = sizeof(struct futex_hash_bucket) * hashsize;
 	order = get_order(size);
+
+	__futex_queues = kzalloc_objs(*__futex_queues, nr_node_ids);
+	kmemleak_not_leak(__futex_queues);
+
+	runtime_const_init(shift, __futex_shift);
+	runtime_const_init(mask,  __futex_mask);
+	runtime_const_init(ptr,   __futex_queues);
+
+	barrier();
+
+	BUG_ON(!futex_queues());
 
 	for_each_node(n) {
 		struct futex_hash_bucket *table;
@@ -2124,10 +2134,9 @@ static int __init futex_init(void)
 		for (i = 0; i < hashsize; i++)
 			futex_hash_bucket_init(&table[i]);
 
-		futex_queues[n] = table;
+		futex_queues()[n] = table;
 	}
 
-	futex_hashmask = hashsize - 1;
 	pr_info("futex hash table entries: %lu (%lu bytes on %d NUMA nodes, total %lu KiB, %s).\n",
 		hashsize, size, num_possible_nodes(), size * num_possible_nodes() / 1024,
 		order > MAX_PAGE_ORDER ? "vmalloc" : "linear");

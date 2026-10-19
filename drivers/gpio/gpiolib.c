@@ -1185,7 +1185,7 @@ int gpiochip_add_data_with_key(struct gpio_chip *gc, void *data,
 	int base = 0;
 	int ret;
 
-	gdev = kzalloc(sizeof(*gdev), GFP_KERNEL);
+	gdev = kzalloc_obj(*gdev);
 	if (!gdev)
 		return -ENOMEM;
 	gc->gpiodev = gdev;
@@ -1225,7 +1225,7 @@ int gpiochip_add_data_with_key(struct gpio_chip *gc, void *data,
 		goto err_put_device;
 	gdev->ngpio = gc->ngpio;
 
-	gdev->descs = kcalloc(gc->ngpio, sizeof(*gdev->descs), GFP_KERNEL);
+	gdev->descs = kzalloc_objs(*gdev->descs, gc->ngpio);
 	if (!gdev->descs) {
 		ret = -ENOMEM;
 		goto err_put_device;
@@ -3954,16 +3954,17 @@ int gpiod_set_array_value_complex(bool raw, bool can_sleep,
 		} while ((i < array_size) &&
 			 gpio_device_chip_cmp(desc_array[i]->gdev, guard.gc));
 		/* push collected bits to outputs */
-		if (count != 0) {
+		ret = 0;
+		if (count != 0)
 			ret = gpiochip_set_multiple(guard.gc, mask, bits);
-			if (ret)
-				return ret;
-		}
 
 		if (mask != fastpath_mask)
 			bitmap_free(mask);
 		if (bits != fastpath_bits)
 			bitmap_free(bits);
+
+		if (ret)
+			return ret;
 	}
 	return 0;
 }

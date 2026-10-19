@@ -695,7 +695,7 @@ static bool parse_ntfs_boot_sector(struct ntfs_volume *vol,
 		 * = -log2(mft_record_size) bytes. mft_record_size normaly is
 		 * 1024 bytes, which is encoded as 0xF6 (-10 in decimal).
 		 */
-		vol->mft_record_size = 1 << -clusters_per_mft_record;
+		vol->mft_record_size = 1U << -clusters_per_mft_record;
 	vol->mft_record_size_mask = vol->mft_record_size - 1;
 	vol->mft_record_size_bits = ffs(vol->mft_record_size) - 1;
 	ntfs_debug("vol->mft_record_size = %i (0x%x)", vol->mft_record_size,
@@ -732,7 +732,7 @@ static bool parse_ntfs_boot_sector(struct ntfs_volume *vol,
 		 * index_record_size normaly equals 4096 bytes, which is
 		 * encoded as 0xF4 (-12 in decimal).
 		 */
-		vol->index_record_size = 1 << -clusters_per_index_record;
+		vol->index_record_size = 1U << -clusters_per_index_record;
 	vol->index_record_size_mask = vol->index_record_size - 1;
 	vol->index_record_size_bits = ffs(vol->index_record_size) - 1;
 	ntfs_debug("vol->index_record_size = %i (0x%x)",
@@ -2545,7 +2545,7 @@ static int ntfs_init_fs_context(struct fs_context *fc)
 	struct ntfs_volume *vol;
 
 	/* Allocate a new struct ntfs_volume and place it in sb->s_fs_info. */
-	vol = kmalloc(sizeof(struct ntfs_volume), GFP_NOFS);
+	vol = kmalloc_obj(struct ntfs_volume, GFP_NOFS);
 	if (!vol)
 		return -ENOMEM;
 
@@ -2698,6 +2698,9 @@ static void __exit exit_ntfs_fs(void)
 	 * destroy cache.
 	 */
 	rcu_barrier();
+#ifdef CONFIG_NTFS_FS_WOF_COMPRESSION
+	ntfs_wof_free_workspaces();
+#endif
 	kmem_cache_destroy(ntfs_big_inode_cache);
 	kmem_cache_destroy(ntfs_inode_cache);
 	kmem_cache_destroy(ntfs_name_cache);

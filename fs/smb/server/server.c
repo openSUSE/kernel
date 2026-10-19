@@ -24,6 +24,8 @@
 #include "auth.h"
 #include "stats.h"
 #include "compress.h"
+#include "mgmt/share_config.h"
+#include "mgmt/tree_connect.h"
 
 int ksmbd_debug_types;
 
@@ -258,6 +260,15 @@ static void __handle_ksmbd_work(struct ksmbd_work *work,
 					else
 						conn->ops->set_rsp_status(work,
 							STATUS_NETWORK_NAME_DELETED);
+					goto send;
+				}
+
+				if (work->tcon &&
+				    test_share_config_flag(work->tcon->share_conf,
+							   KSMBD_SHARE_FLAG_ENCRYPT_DATA) &&
+				    !work->encrypted) {
+					conn->ops->set_rsp_status(work,
+								  STATUS_ACCESS_DENIED);
 					goto send;
 				}
 			}
@@ -620,11 +631,16 @@ static int ksmbd_server_shutdown(void)
 {
 	WRITE_ONCE(server_conf.state, SERVER_STATE_SHUTTING_DOWN);
 
-	ksmbd_proc_cleanup();
 	class_unregister(&ksmbd_control_class);
 	ksmbd_workqueue_destroy();
 	ksmbd_ipc_release();
 	ksmbd_conn_transport_destroy();
+	/*
+	 * ksmbd_conn_transport_destroy() calls delete_proc_clients() and destroys
+	 * sessions. ksmbd_session_destroy() removes each session's proc entry.
+	 * Keep the procfs tree alive until these entries have been removed.
+	 */
+	ksmbd_proc_cleanup();
 	ksmbd_crypto_destroy();
 	ksmbd_free_global_file_table();
 	destroy_lease_table(NULL);

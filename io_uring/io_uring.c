@@ -59,6 +59,7 @@
 #include <linux/audit.h>
 #include <linux/security.h>
 #include <linux/jump_label.h>
+#include <linux/kcov.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/io_uring.h>
@@ -293,6 +294,7 @@ static __cold struct io_ring_ctx *io_ring_ctx_alloc(struct io_uring_params *p)
 	INIT_HLIST_HEAD(&ctx->cancelable_uring_cmd);
 	io_napi_init(ctx);
 	mutex_init(&ctx->mmap_lock);
+	ctx->kcov_handle = kcov_common_handle();
 
 	return ctx;
 
@@ -405,7 +407,7 @@ static void io_prep_async_link(struct io_kiocb *req)
 	}
 }
 
-static void io_queue_iowq(struct io_kiocb *req)
+void io_queue_iowq(struct io_kiocb *req)
 {
 	struct io_uring_task *tctx = req->tctx;
 
@@ -431,17 +433,6 @@ static void io_queue_iowq(struct io_kiocb *req)
 
 	trace_io_uring_queue_async_work(req, io_wq_is_hashed(&req->work));
 	io_wq_enqueue(tctx->io_wq, &req->work);
-}
-
-static void io_req_queue_iowq_tw(struct io_tw_req tw_req, io_tw_token_t tw)
-{
-	io_queue_iowq(tw_req.req);
-}
-
-void io_req_queue_iowq(struct io_kiocb *req)
-{
-	req->io_task_work.func = io_req_queue_iowq_tw;
-	io_req_task_work_add(req);
 }
 
 unsigned io_linked_nr(struct io_kiocb *req)
@@ -742,7 +733,8 @@ bool io_cqe_cache_refill(struct io_ring_ctx *ctx, bool overflow, bool cqe32)
 	 * Post dummy CQE if a 32b CQE is needed and there's only room for a
 	 * 16b CQE before the ring wraps.
 	 */
-	if (cqe32 && off + 1 == ctx->cq_entries) {
+	if (cqe32 && (ctx->flags & IORING_SETUP_CQE_MIXED) &&
+	    off + 1 == ctx->cq_entries) {
 		if (!io_fill_nop_cqe(ctx, off))
 			return false;
 		off = 0;
@@ -751,12 +743,13 @@ bool io_cqe_cache_refill(struct io_ring_ctx *ctx, bool overflow, bool cqe32)
 	free = ctx->cq_entries - io_cqring_queued(ctx);
 	/* we need a contiguous range, limit based on the current array offset */
 	len = min(free, ctx->cq_entries - off);
-	if (len < (cqe32 + 1))
-		return false;
-
 	if (ctx->flags & IORING_SETUP_CQE32) {
+		if (!len)
+			return false;
 		off <<= 1;
 		len <<= 1;
+	} else if (len < (cqe32 + 1)) {
+		return false;
 	}
 
 	ctx->cqe_cached = &rings->cqes[off];
@@ -790,7 +783,7 @@ static bool io_fill_cqe_aux(struct io_ring_ctx *ctx, u64 user_data, s32 res,
 		WRITE_ONCE(cqe->res, res);
 		WRITE_ONCE(cqe->flags, cflags);
 
-		if (cqe32) {
+		if (cqe32 || (ctx->flags & IORING_SETUP_CQE32)) {
 			WRITE_ONCE(cqe->big_cqe[0], 0);
 			WRITE_ONCE(cqe->big_cqe[1], 0);
 		}
@@ -3248,7 +3241,7 @@ static int __init io_uring_init(void)
 	io_uring_optable_init();
 
 	/* imu->dir is u8 */
-	BUILD_BUG_ON((IO_IMU_DEST | IO_IMU_SOURCE) > U8_MAX);
+	BUILD_BUG_ON((IO_BUF_DEST | IO_BUF_SOURCE) > U8_MAX);
 
 	/*
 	 * Allow user copy in the per-command field, which starts after the
