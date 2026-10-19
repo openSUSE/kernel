@@ -221,6 +221,11 @@ nfqnl_flush(struct nfqnl_instance *queue, nfqnl_cmpfn cmpfn, unsigned long data)
 	spin_unlock_bh(&queue->lock);
 }
 
+static int nf_queue_checksum_help(struct sk_buff *entskb)
+{
+	return skb_checksum_help(entskb);
+}
+
 static struct sk_buff *
 nfqnl_build_packet_message(struct nfqnl_instance *queue,
 			   struct nf_queue_entry *entry)
@@ -257,7 +262,7 @@ nfqnl_build_packet_message(struct nfqnl_instance *queue,
 
 	case NFQNL_COPY_PACKET:
 		if (entskb->ip_summed == CHECKSUM_PARTIAL &&
-		    skb_checksum_help(entskb))
+		    nf_queue_checksum_help(entskb))
 			return NULL;
 
 		data_len = ACCESS_ONCE(queue->copy_range);
