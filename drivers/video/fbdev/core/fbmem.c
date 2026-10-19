@@ -984,8 +984,11 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 		    ret = fb_notifier_call_chain(FB_EVENT_MODE_DELETE, &event);
 		}
 
-		if (!ret)
+		if (!ret) {
+			if (info->mode && fb_mode_is_equal(info->mode, &mode1))
+				info->mode = NULL;
 		    fb_delete_videomode(&mode1, &info->modelist);
+		}
 
 
 		ret = (ret) ? -EINVAL : 0;
