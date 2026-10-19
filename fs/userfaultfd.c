@@ -245,6 +245,16 @@ static inline bool userfaultfd_huge_must_wait(struct userfaultfd_ctx *ctx,
 	pte = huge_ptep_get(vma->vm_mm, vmf->address, ptep);
 
 	/*
+	 * Concurrent migration may have replaced the present PTE with a
+	 * non-marker swap entry between fault delivery and this lockless
+	 * re-check. huge_pte_write() on a swap entry decodes random offset
+	 * bits, so gate it on pte_present(). The migration completion path
+	 * will re-deliver the fault if it still needs userspace.
+	 */
+	if (!pte_present(pte))
+		return false;
+
+	/*
 	 * Lockless access: we're in a wait_event so it's ok if it
 	 * changes under us.  PTE markers should be handled the same as none
 	 * ptes here.
@@ -324,6 +334,19 @@ again:
 	 * ptes here.
 	 */
 	ptent = ptep_get(pte);
+
+	/*
+	 * Concurrent swap-out / migration may have replaced the present PTE
+	 * with a non-marker swap entry between fault delivery and this
+	 * lockless re-check. pte_write() on a swap entry decodes random
+	 * offset bits, so gate it on pte_present(). The page-in path will
+	 * re-deliver the fault if it still needs userspace.
+	 */
+	if (!pte_present(ptent)) {
+		ret = false;
+		goto out;
+	}
+
 	if (pte_none_mostly(ptent))
 		ret = true;
 	if (!pte_write(ptent) && (reason & VM_UFFD_WP))
