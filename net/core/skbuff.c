@@ -726,6 +726,9 @@ EXPORT_SYMBOL(kfree_skb_list);
  */
 void skb_tx_error(struct sk_buff *skb)
 {
+	if (skb_cloned(skb))
+		return;
+
 	if (skb_shinfo(skb)->tx_flags & SKBTX_DEV_ZEROCOPY) {
 		struct ubuf_info *uarg;
 
