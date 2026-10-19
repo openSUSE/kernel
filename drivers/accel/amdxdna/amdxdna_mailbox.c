@@ -535,6 +535,9 @@ int xdna_mailbox_destroy_channel(struct mailbox_channel *mb_chann)
 	struct mailbox_msg *mb_msg;
 	unsigned long msg_id;
 
+	if (!mb_chann)
+		return 0;
+
 	MB_DBG(mb_chann, "IRQ disabled and RX work cancelled");
 	free_irq(mb_chann->msix_irq, mb_chann);
 	destroy_workqueue(mb_chann->work_q);
@@ -552,6 +555,9 @@ int xdna_mailbox_destroy_channel(struct mailbox_channel *mb_chann)
 
 void xdna_mailbox_stop_channel(struct mailbox_channel *mb_chann)
 {
+	if (!mb_chann)
+		return;
+
 	/* Disable an irq and wait. This might sleep. */
 	disable_irq(mb_chann->msix_irq);
 
