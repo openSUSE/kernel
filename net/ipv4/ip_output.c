@@ -464,6 +464,11 @@ int ip_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
 
 	dev = rt->dst.dev;
 
+	/* for offloaded checksums cleanup checksum before fragmentation */
+	if (skb->ip_summed == CHECKSUM_PARTIAL &&
+	    (err = skb_checksum_help(skb)))
+		goto fail;
+
 	/*
 	 *	Point into the IP datagram header.
 	 */
