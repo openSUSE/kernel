@@ -2435,15 +2435,23 @@ static int __rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 	 * to prevent doing any allocation when it is obvious that it is
 	 * not going to succeed.
 	 *
-	 * Skip this check during early boot: with CONFIG_DEFERRED_STRUCT_PAGE_INIT,
-	 * NR_FREE_PAGES only reflects the initial non-deferred pool at this
-	 * stage. si_mem_available() returns a false negative while actual
-	 * allocations succeed by growing the zone on demand via
-	 * deferred_grow_zone().
+	 * With CONFIG_DEFERRED_STRUCT_PAGE_INIT, NR_FREE_PAGES only reflects
+	 * the initial non-deferred pool during early boot and throughout SMP
+	 * bring-up (smp_init() runs before page_alloc_init_late() completes
+	 * deferred initialization). si_mem_available() returns a false negative
+	 * across this entire window while actual allocations succeed by growing
+	 * the zone on demand via deferred_grow_zone(). Only re-enable the check
+	 * from SYSTEM_FREEING_INITMEM onward, after page_alloc_init_late() has
+	 * finished and si_mem_available() is accurate.
 	 */
 	i = si_mem_available();
-	if (system_state != SYSTEM_BOOTING && i < nr_pages)
+#ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
+	if (system_state >= SYSTEM_FREEING_INITMEM && i < nr_pages)
 		return -ENOMEM;
+#else
+	if (i < nr_pages)
+		return -ENOMEM;
+#endif
 
 	/*
 	 * If a user thread allocates too much, and si_mem_available()
