@@ -823,7 +823,6 @@ int pmd_clear_huge(pmd_t *pmd)
  */
 int pud_free_pmd_page(pud_t *pud, unsigned long addr)
 {
-	struct ptdesc *pt;
 	pmd_t *pmd;
 	pte_t *pte;
 	int i;
@@ -842,7 +841,7 @@ int pud_free_pmd_page(pud_t *pud, unsigned long addr)
 
 	for (i = 0; i < PTRS_PER_PMD; i++) {
 		if (!pmd_none(pmd[i])) {
-			pt = page_ptdesc(pmd_page(pmd[i]));
+			pte = (pte_t *)pmd_page_vaddr(pmd[i]);
 			free_page((unsigned long)pte);
 		}
 	}
