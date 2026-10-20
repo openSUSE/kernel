@@ -565,6 +565,8 @@ int netfs_read_folio(struct file *file, struct folio *folio)
 	struct netfs_inode *ctx = netfs_inode(mapping->host);
 	int ret;
 
+	folio_wait_writeback(folio);
+
 	if (folio_test_dirty(folio)) {
 		trace_netfs_folio(folio, netfs_folio_trace_read_gaps);
 		return netfs_read_gaps(file, folio);
@@ -751,9 +753,9 @@ retry:
 
 	netfs_read_to_pagecache(rreq);
 	ret = netfs_wait_for_read(rreq);
+	netfs_put_request(rreq, false, netfs_rreq_trace_put_return);
 	if (ret < 0)
 		goto error;
-	netfs_put_request(rreq, false, netfs_rreq_trace_put_return);
 
 have_folio:
 	ret = folio_wait_private_2_killable(folio);
