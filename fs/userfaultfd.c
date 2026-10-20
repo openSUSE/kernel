@@ -344,15 +344,15 @@ again:
 	 */
 	if (!pte_present(ptent)) {
 		ret = false;
-		goto out;
+		goto out_unmap;
 	}
 
 	if (pte_none_mostly(ptent))
 		ret = true;
 	if (!pte_write(ptent) && (reason & VM_UFFD_WP))
 		ret = true;
+out_unmap:
 	pte_unmap(pte);
-
 out:
 	return ret;
 }
