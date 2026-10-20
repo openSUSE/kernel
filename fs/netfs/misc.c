@@ -289,8 +289,8 @@ erase_completely:
 	netfs_put_group(netfs_folio_group(folio));
 	folio_detach_private(folio);
 	folio_clear_uptodate(folio);
+	folio_cancel_dirty(folio);
 	kfree(finfo);
-	return;
 }
 EXPORT_SYMBOL(netfs_invalidate_folio);
 

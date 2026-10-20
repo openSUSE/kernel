@@ -529,6 +529,8 @@ static void mtk_pcie_irq_teardown_port(struct mtk_pcie_port *port)
 		irq_domain_remove(port->irq_domain);
 
 	if (IS_ENABLED(CONFIG_PCI_MSI)) {
+		if (port->msi_domain)
+			irq_domain_remove(port->msi_domain);
 		if (port->inner_domain)
 			irq_domain_remove(port->inner_domain);
 	}
