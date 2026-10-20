@@ -221,6 +221,7 @@ int __class_register(struct class *cls, struct lock_class_key *key)
 		kobject_del(&cp->subsys.kobj);
 		kfree_const(cp->subsys.kobj.name);
 		kfree(cp);
+		return error;
 	}
 	error = add_class_attrs(class_get(cls));
 	class_put(cls);
