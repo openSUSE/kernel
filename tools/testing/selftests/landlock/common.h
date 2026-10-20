@@ -114,6 +114,7 @@ static void _init_caps(struct __test_metadata *const _metadata, bool drop_all)
 	const cap_value_t caps[] = {
 		CAP_DAC_OVERRIDE,
 		CAP_MKNOD,
+		CAP_SETUID,
 		CAP_SYS_ADMIN,
 		CAP_SYS_CHROOT,
 	};
