@@ -484,7 +484,7 @@ static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
 	if (unlikely(nvme_tcp_data_in_short(queue, rq)))
 		return -EPROTO;
 
-	nvme_end_request(rq, cqe->status, cqe->result);
+	nvme_end_request(rq, req->status, cqe->result);
 
 	return 0;
 }
