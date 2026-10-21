@@ -1924,13 +1924,28 @@ static int find_lowest_rq(struct task_struct *task)
 
 static struct task_struct *pick_next_pushable_task(struct rq *rq)
 {
-	struct task_struct *p;
+	struct plist_head *head = &rq->rt.pushable_tasks;
+	struct task_struct *i, *p = NULL;
 
 	if (!has_pushable_tasks(rq))
 		return NULL;
 
-	p = plist_first_entry(&rq->rt.pushable_tasks,
-			      struct task_struct, pushable_tasks);
+	plist_for_each_entry(i, head, pushable_tasks) {
+		/*
+		 * Note: Partial backport of
+		 * e0ca8991b2de ("sched: Make class_schedulers avoid pushing current, and get rid of proxy_tag_curr()")
+		 * Only taking the !is_migration_disabled(i) part.
+		 *
+		 * skip tasks that cannot be migrated
+		 */
+		if (!is_migration_disabled(i)) {
+			p = i;
+			break;
+		}
+	}
+
+	if (!p)
+		return NULL;
 
 	BUG_ON(rq->cpu != task_cpu(p));
 	BUG_ON(task_current(rq, p));
