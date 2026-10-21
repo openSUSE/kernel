@@ -73,7 +73,7 @@ static loff_t zisofs_uncompress_block(struct inode *inode, loff_t block_start,
 
 			if (!pages[i])
 				continue;
-			memset(page_address(pages[i]), off, PAGE_SIZE - off);
+			memset(page_address(pages[i]) + off, 0, PAGE_SIZE - off);
 			flush_dcache_page(pages[i]);
 			SetPageUptodate(pages[i]);
 		}
