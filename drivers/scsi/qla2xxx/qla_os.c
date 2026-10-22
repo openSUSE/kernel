@@ -4636,6 +4636,7 @@ fail_s_dma_pool:
 fail_free_nvram:
 	kfree(ha->nvram);
 	ha->nvram = NULL;
+	ha->fiv = NULL;
 fail_free_ctx_mempool:
 	mempool_destroy(ha->ctx_mempool);
 	ha->ctx_mempool = NULL;
@@ -5101,6 +5102,7 @@ qla2x00_mem_free(struct qla_hw_data *ha)
 	ha->optrom_buffer = NULL;
 	kfree(ha->nvram);
 	ha->nvram = NULL;
+	ha->fiv = NULL;
 	kfree(ha->npiv_info);
 	ha->npiv_info = NULL;
 	kfree(ha->swl);
