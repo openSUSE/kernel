@@ -934,6 +934,7 @@ out:
 
 static int intel_crt_get_modes(struct drm_connector *connector)
 {
+	struct intel_display *display = to_intel_display(connector->dev);
 	struct drm_device *dev = connector->dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct intel_crt *crt = intel_attached_crt(to_intel_connector(connector));
@@ -953,7 +954,7 @@ static int intel_crt_get_modes(struct drm_connector *connector)
 		goto out;
 
 	/* Try to probe digital port for output in DVI-I -> VGA mode. */
-	ddc = intel_gmbus_get_adapter(dev_priv, GMBUS_PIN_DPB);
+	ddc = intel_gmbus_get_adapter(display, GMBUS_PIN_DPB);
 	ret = intel_crt_ddc_get_modes(connector, ddc);
 
 out:
@@ -1008,6 +1009,7 @@ static const struct drm_encoder_funcs intel_crt_enc_funcs = {
 
 void intel_crt_init(struct drm_i915_private *dev_priv)
 {
+	struct intel_display *display = &dev_priv->display;
 	struct drm_connector *connector;
 	struct intel_crt *crt;
 	struct intel_connector *intel_connector;
@@ -1056,7 +1058,7 @@ void intel_crt_init(struct drm_i915_private *dev_priv)
 	drm_connector_init_with_ddc(&dev_priv->drm, connector,
 				    &intel_crt_connector_funcs,
 				    DRM_MODE_CONNECTOR_VGA,
-				    intel_gmbus_get_adapter(dev_priv, ddc_pin));
+				    intel_gmbus_get_adapter(display, ddc_pin));
 
 	drm_encoder_init(&dev_priv->drm, &crt->base.base, &intel_crt_enc_funcs,
 			 DRM_MODE_ENCODER_DAC, "CRT");
