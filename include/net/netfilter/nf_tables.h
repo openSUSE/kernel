@@ -1281,7 +1281,6 @@ static inline void nft_use_inc_restore(u32 *use)
  *	@sets: sets in the table
  *	@objects: stateful objects in the table
  *	@flowtables: flow tables in the table
- *	@objname_ht: hashtable for objects lookup by name
  *	@hgenerator: handle generator state
  *	@handle: table handle
  *	@use: number of chain references to this table
@@ -1290,6 +1289,7 @@ static inline void nft_use_inc_restore(u32 *use)
  *	@afinfo: address family info
  *	@name: name of the table
  *	@validate_state: internal, set when transaction adds jumps
+ *	@objname_ht: hashtable for objects lookup by name
  */
 struct nft_table {
 	struct list_head		list;
@@ -1298,7 +1298,6 @@ struct nft_table {
 	struct list_head		sets;
 	struct list_head		objects;
 	struct list_head		flowtables;
-	struct rhltable			objname_ht;
 	u64				hgenerator;
 	u64				handle;
 	u32				use;
@@ -1310,6 +1309,9 @@ struct nft_table {
 	u16				udlen;
 	u8				*udata;
 	u8				validate_state;
+#ifndef __GENKSYMS__
+	struct rhltable			objname_ht;
+#endif
 };
 
 static inline bool nft_table_has_owner(const struct nft_table *table)
@@ -1378,7 +1380,11 @@ static inline void *nft_obj_data(const struct nft_object *obj)
 #define nft_expr_obj(expr)	*((struct nft_object **)nft_expr_priv(expr))
 
 struct nft_object *nft_obj_lookup(const struct net *net,
+#ifdef __GENKSYMS__
+				  const struct nft_table *table,
+#else
 				  struct nft_table *table,
+#endif
 				  const struct nlattr *nla, u32 objtype,
 				  u8 genmask);
 
