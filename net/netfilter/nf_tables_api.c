@@ -6546,7 +6546,11 @@ void nft_unregister_obj(struct nft_object_type *obj_type)
 EXPORT_SYMBOL_GPL(nft_unregister_obj);
 
 struct nft_object *nft_obj_lookup(const struct net *net,
+#ifdef __GENKSYMS__
+				  const struct nft_table *table,
+#else
 				  struct nft_table *table,
+#endif
 				  const struct nlattr *nla, u32 objtype,
 				  u8 genmask)
 {
