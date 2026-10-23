@@ -4177,6 +4177,7 @@ struct qla_hw_data {
 #define SRB_MIN_REQ     128
 	mempool_t       *srb_mempool;
 	u8 port_name[WWN_SIZE];
+	u16 mbregs[32];
 
 	volatile struct {
 		uint32_t	mbox_int		:1;
@@ -4247,6 +4248,8 @@ struct qla_hw_data {
 		uint32_t	eeh_flush:2;
 #define EEH_FLUSH_RDY  1
 #define EEH_FLUSH_DONE 2
+		uint32_t	t262_fail:1;
+		uint32_t	t272_fail:1;
 		uint32_t	secure_mcu:1;
 		uint32_t	valid_flt:1;
 	} flags;
