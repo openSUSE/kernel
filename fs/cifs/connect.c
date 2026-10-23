@@ -258,12 +258,31 @@ static int coalesce_t2(struct smb_hdr *psecond, struct smb_hdr *pTargetSMB)
 	/* find end of first SMB data area */
 	data_area_of_target = (char *)&pSMBt->hdr.Protocol +
 				get_unaligned_le16(&pSMBt->t2_rsp.DataOffset);
-	/* validate target area */
 
 	data_area_of_buf2 = (char *)&pSMB2->hdr.Protocol +
 				get_unaligned_le16(&pSMB2->t2_rsp.DataOffset);
 
 	data_area_of_target += total_in_buf;
+
+	/*
+	 * DataOffset fields are server-supplied and not validated against
+	 * buffer bounds; check both data pointers before mutating the
+	 * target header.
+	 */
+	if (data_area_of_target < (char *)pTargetSMB +
+				sizeof(struct smb_t2_rsp) + sizeof(__le16) ||
+	    data_area_of_target + total_in_buf2 >
+	    (char *)pTargetSMB + CIFSMaxBufSize + MAX_CIFS_HDR_SIZE) {
+		cifserror("%s: target data area out of bounds\n", __func__);
+		return -EPROTO;
+	}
+	if (data_area_of_buf2 < (char *)psecond +
+				sizeof(struct smb_t2_rsp) + sizeof(__le16) ||
+	    data_area_of_buf2 + total_in_buf2 >
+	    (char *)psecond + smbCalcSize(psecond)) {
+		cifserror("%s: secondary data area out of bounds\n", __func__);
+		return -EPROTO;
+	}
 
 	/* copy second buffer into end of first buffer */
 	total_in_buf += total_in_buf2;
