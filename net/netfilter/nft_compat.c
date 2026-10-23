@@ -351,6 +351,23 @@ static int nft_target_validate(const struct nft_ctx *ctx,
 	return 0;
 }
 
+static int nft_target_bridge_validate(const struct nft_ctx *ctx,
+				      const struct nft_expr *expr,
+				      const struct nft_data **data)
+{
+	struct xt_target *target = expr->ops->data;
+
+	/* Do not allow UNSPEC to stand-in for NFPROTO_BRIDGE
+	 * targets: they are incompatible.  ebtables targets return
+	 * EBT_ACCEPT, DROP and so on which are not compatible with
+	 * NF_ACCEPT, NF_DROP and so on.
+	 */
+	if (target->family != NFPROTO_BRIDGE)
+		return -ENOENT;
+
+	return nft_target_validate(ctx, expr, NULL);
+}
+
 static void __nft_match_eval(const struct nft_expr *expr,
 			     struct nft_regs *regs,
 			     const struct nft_pktinfo *pkt,
@@ -889,13 +906,15 @@ nft_target_select_ops(const struct nft_ctx *ctx,
 	nft_target->ops.init = nft_target_init;
 	nft_target->ops.destroy = nft_target_destroy;
 	nft_target->ops.dump = nft_target_dump;
-	nft_target->ops.validate = nft_target_validate;
 	nft_target->ops.data = target;
 
-	if (family == NFPROTO_BRIDGE)
+	if (family == NFPROTO_BRIDGE) {
 		nft_target->ops.eval = nft_target_eval_bridge;
-	else
+		nft_target->ops.validate = nft_target_bridge_validate;
+	} else {
 		nft_target->ops.eval = nft_target_eval_xt;
+		nft_target->ops.validate = nft_target_validate;
+	}
 
 	list_add(&nft_target->head, &nft_target_list);
 
