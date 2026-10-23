@@ -1127,7 +1127,6 @@ static void cmd_complete_rsp(struct mgmt_pending_cmd *cmd, void *data)
 		u8 *status = data;
 
 		cmd->cmd_complete(cmd, *status);
-		mgmt_pending_remove(cmd);
 
 		return;
 	}
