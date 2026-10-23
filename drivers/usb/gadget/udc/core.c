@@ -1263,7 +1263,6 @@ static void usb_gadget_remove_driver(struct usb_udc *udc)
 	udc->driver->unbind(udc->gadget);
 	usb_gadget_udc_stop(udc);
 
-	mutex_lock(&udc_lock);
 	udc->driver = NULL;
 	udc->gadget->dev.driver = NULL;
 }
