@@ -2451,7 +2451,8 @@ static void __arm_smmu_tlb_inv_range(struct arm_smmu_cmdq_ent *cmd,
 
 			/* Determine the power of 2 multiple number of pages */
 			scale = __ffs(num_pages);
-			cmd->tlbi.scale = scale;
+			/* Keep the pre-DS 5-bit truncation when scale > 31 */
+			cmd->tlbi.scale = scale & 0x1f;
 
 			/* Determine how many chunks of 2^scale size we have */
 			num = (num_pages >> scale) & CMDQ_TLBI_RANGE_NUM_MAX;
@@ -4981,6 +4982,9 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 
 	/* Maximum number of outstanding stalls */
 	smmu->evtq.max_stalls = FIELD_GET(IDR5_STALL_MAX, reg);
+
+	if (reg & IDR5_DS)
+		smmu->features |= ARM_SMMU_FEAT_DS;
 
 	/* Page sizes */
 	if (reg & IDR5_GRAN64K)
