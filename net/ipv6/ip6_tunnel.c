@@ -1493,7 +1493,7 @@ static void ip6_tnl_link_config(struct ip6_tnl *t)
 		if (rt->dst.dev) {
 			dev->needed_headroom = rt->dst.dev->hard_header_len +
 				rt->dst.dev->needed_headroom + t_hlen;
-
+			dev->needed_headroom = ip_tunnel_limit_headroom(dev->needed_headroom);
 			mtu = rt->dst.dev->mtu - t_hlen;
 			if (!(t->parms.flags & IP6_TNL_F_IGN_ENCAP_LIMIT))
 				mtu -= 8;
