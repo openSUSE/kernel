@@ -756,6 +756,9 @@ static int omap_8250_startup(struct uart_port *port)
 	serial_out(up, UART_IER, up->ier);
 	uart_port_unlock_irq(port);
 
+	/* ISR and runtime PM need the line; probe sets it only after registration */
+	priv->line = port->line;
+
 #ifdef CONFIG_PM
 	up->capabilities |= UART_CAP_RPM;
 #endif
