@@ -799,15 +799,6 @@ static struct tc_cookie *nla_memdup_cookie(struct nlattr **tb)
 	return c;
 }
 
-static bool tcf_action_valid(int action)
-{
-	int opcode = TC_ACT_EXT_OPCODE(action);
-
-	if (!opcode)
-		return action <= TC_ACT_VALUE_MAX;
-	return opcode <= TC_ACT_EXT_OPCODE_MAX || action == TC_ACT_UNSPEC;
-}
-
 static const struct nla_policy tcf_action_policy[TCA_ACT_MAX + 1] = {
 	[TCA_ACT_KIND]		= { .type = NLA_STRING },
 	[TCA_ACT_INDEX]		= { .type = NLA_U32 },
