@@ -388,16 +388,16 @@ static int setup_card(struct snd_usb_caiaqdev *cdev)
 	}
 #endif
 
+	ret = snd_usb_caiaq_control_init(cdev);
+	if (ret < 0) {
+		dev_err(dev, "Unable to set up control system (ret=%d)\n", ret);
+		return ret;
+	}
+
 	/* finally, register the card and all its sub-instances */
 	ret = snd_card_register(cdev->chip.card);
 	if (ret < 0) {
 		dev_err(dev, "snd_card_register() returned %d\n", ret);
-		return ret;
-	}
-
-	ret = snd_usb_caiaq_control_init(cdev);
-	if (ret < 0) {
-		dev_err(dev, "Unable to set up control system (ret=%d)\n", ret);
 		return ret;
 	}
 
