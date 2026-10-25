@@ -861,11 +861,11 @@ void amd_sof_acp_remove(struct snd_sof_dev *sdev)
 	if (adata->smn_dev)
 		pci_dev_put(adata->smn_dev);
 
-	if (adata->sdw)
-		amd_sof_sdw_exit(sdev);
-
 	if (sdev->ipc_irq)
 		free_irq(sdev->ipc_irq, sdev);
+
+	if (adata->sdw)
+		amd_sof_sdw_exit(sdev);
 
 	if (adata->dmic_dev)
 		platform_device_unregister(adata->dmic_dev);
