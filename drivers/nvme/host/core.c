@@ -1247,7 +1247,8 @@ static void nvme_enable_aen(struct nvme_ctrl *ctrl)
 			 supported_aens);
 }
 
-static int nvme_submit_io(struct nvme_ns *ns, struct nvme_user_io __user *uio)
+static int nvme_submit_io(struct nvme_ns *ns, struct nvme_user_io __user *uio,
+			  fmode_t mode)
 {
 	struct nvme_user_io io;
 	struct nvme_command c;
@@ -1291,6 +1292,10 @@ static int nvme_submit_io(struct nvme_ns *ns, struct nvme_user_io __user *uio)
 	c.rw.reftag = cpu_to_le32(io.reftag);
 	c.rw.apptag = cpu_to_le16(io.apptag);
 	c.rw.appmask = cpu_to_le16(io.appmask);
+
+	if (!nvme_cmd_allowed(ns, &c, mode))
+		return -EACCES;
+
 
 	return nvme_submit_user_cmd(ns->queue, &c,
 			(void __user *)(uintptr_t)io.addr, length,
@@ -1465,7 +1470,7 @@ static int nvme_ns_ioctl(struct nvme_ns *ns, unsigned cmd, unsigned long arg,
 	case NVME_IOCTL_IO_CMD:
 		return nvme_user_cmd(ns->ctrl, ns, (void __user *)arg, mode);
 	case NVME_IOCTL_SUBMIT_IO:
-		return nvme_submit_io(ns, (void __user *)arg);
+		return nvme_submit_io(ns, (void __user *)arg, mode);
 	default:
 		if (ns->ndev)
 			return nvme_nvm_ioctl(ns, cmd, arg);
