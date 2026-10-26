@@ -178,8 +178,7 @@ struct net {
 	 * where it had been enabled.
 	 */
 #if IS_ENABLED(CONFIG_CAN) || \
-	(IS_ENABLED(CONFIG_SUSE_HAVE_STABLE_KABI) && \
-	        (IS_ENABLED(CONFIG_X86_64) || IS_ENABLED(CONFIG_ARM64)))
+	(IS_ENABLED(CONFIG_X86_64) || IS_ENABLED(CONFIG_ARM64))
 	struct netns_can	can;
 #endif
 #ifdef CONFIG_XDP_SOCKETS
