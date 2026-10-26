@@ -27,6 +27,7 @@
 #include <linux/uaccess.h>
 #include "kfd_priv.h"
 #include "kfd_mqd_manager.h"
+#include "kfd_topology.h"
 #include "v9_structs.h"
 #include "gc/gc_9_0_offset.h"
 #include "gc/gc_9_0_sh_mask.h"
@@ -353,8 +354,11 @@ static int get_wave_state(struct mqd_manager *mm, void *mqd,
 static int get_checkpoint_info(struct mqd_manager *mm, void *mqd, u32 *ctl_stack_size)
 {
 	struct v9_mqd *m = get_mqd(mqd);
+	u32 per_xcc_size;
 
-	if (check_mul_overflow(m->cp_hqd_cntl_stack_size, NUM_XCC(mm->dev->xcc_mask), ctl_stack_size))
+	per_xcc_size = min_t(u32, m->cp_hqd_cntl_stack_size, mm->ctl_stack_size);
+
+	if (check_mul_overflow(per_xcc_size, NUM_XCC(mm->dev->xcc_mask), ctl_stack_size))
 		return -EINVAL;
 
 	return 0;
@@ -363,13 +367,15 @@ static int get_checkpoint_info(struct mqd_manager *mm, void *mqd, u32 *ctl_stack
 static void checkpoint_mqd(struct mqd_manager *mm, void *mqd, void *mqd_dst, void *ctl_stack_dst)
 {
 	struct v9_mqd *m;
+	u32 ctl_stack_copy_size;
 	/* Control stack is located one page after MQD. */
 	void *ctl_stack = (void *)((uintptr_t)mqd + PAGE_SIZE);
 
 	m = get_mqd(mqd);
+	ctl_stack_copy_size = min_t(u32, m->cp_hqd_cntl_stack_size, mm->ctl_stack_size);
 
 	memcpy(mqd_dst, m, sizeof(struct v9_mqd));
-	memcpy(ctl_stack_dst, ctl_stack, m->cp_hqd_cntl_stack_size);
+	memcpy(ctl_stack_dst, ctl_stack, ctl_stack_copy_size);
 }
 
 static void checkpoint_mqd_v9_4_3(struct mqd_manager *mm,
@@ -378,15 +384,19 @@ static void checkpoint_mqd_v9_4_3(struct mqd_manager *mm,
 								  void *ctl_stack_dst)
 {
 	struct v9_mqd *m;
+	u32 ctl_stack_stride;
 	int xcc;
 	uint64_t size = get_mqd(mqd)->cp_mqd_stride_size;
+
+	ctl_stack_stride = min_t(u32, get_mqd(mqd)->cp_hqd_cntl_stack_size,
+				 mm->ctl_stack_size);
 
 	for (xcc = 0; xcc < NUM_XCC(mm->dev->xcc_mask); xcc++) {
 		m = get_mqd(mqd + size * xcc);
 
 		checkpoint_mqd(mm, m,
 				(uint8_t *)mqd_dst + sizeof(*m) * xcc,
-				(uint8_t *)ctl_stack_dst + m->cp_hqd_cntl_stack_size * xcc);
+				(uint8_t *)ctl_stack_dst + ctl_stack_stride * xcc);
 	}
 }
 

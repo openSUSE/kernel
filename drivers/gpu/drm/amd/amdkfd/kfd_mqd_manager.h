@@ -127,6 +127,7 @@ struct mqd_manager {
 	struct mutex	mqd_mutex;
 	struct kfd_node	*dev;
 	uint32_t mqd_size;
+	uint32_t ctl_stack_size;
 };
 
 struct kfd_mem_obj *allocate_hiq_mqd(struct kfd_node *dev,
