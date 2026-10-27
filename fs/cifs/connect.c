@@ -3412,6 +3412,10 @@ CIFSTCon(unsigned int xid, struct cifs_ses *ses,
 		tcon->tid = smb_buffer_response->Tid;
 		bcc_ptr = pByteArea(smb_buffer_response);
 		bytes_left = get_bcc(smb_buffer_response);
+		if (bytes_left < 2) {
+			rc = -EIO;
+			goto out;
+		}
 		length = strnlen(bcc_ptr, bytes_left - 2);
 		if (smb_buffer->Flags2 & SMBFLG2_UNICODE)
 			is_unicode = true;
@@ -3455,7 +3459,7 @@ CIFSTCon(unsigned int xid, struct cifs_ses *ses,
 		/* all we need to save for IPC$ connection */
 		ses->ipc_tid = smb_buffer_response->Tid;
 	}
-
+out:
 	cifs_buf_release(smb_buffer);
 	return rc;
 }
