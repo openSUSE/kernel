@@ -4010,7 +4010,7 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 		for (i = 0; i < ac->num_ports; i++) {
 			rtnl_lock();
 			apc = netdev_priv(ac->ports[i]);
-			schedule_work(&apc->queue_reset_work);
+			enable_work(&apc->queue_reset_work);
 			err = mana_attach(ac->ports[i]);
 			rtnl_unlock();
 			/* Log the port for which the attach failed, stop
@@ -4073,7 +4073,7 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 		}
 
 		apc = netdev_priv(ndev);
-		cancel_work_sync(&apc->queue_reset_work);
+		disable_work_sync(&apc->queue_reset_work);
 
 		/* All cleanup actions should stay after rtnl_lock(), otherwise
 		 * other functions may access partially cleaned up data.
