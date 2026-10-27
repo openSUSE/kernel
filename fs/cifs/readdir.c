@@ -662,7 +662,8 @@ static int find_cifs_entry(const int xid, struct cifs_tcon *pTcon,
 /* inode num, inode type and filename returned */
 static int cifs_get_name_from_search_buf(struct qstr *pqst,
 	char *current_entry, __u16 level, unsigned int unicode,
-	struct cifs_sb_info *cifs_sb, unsigned int max_len, __u64 *pinum)
+	struct cifs_sb_info *cifs_sb, unsigned int max_len, char *end_of_smb,
+	__u64 *pinum)
 {
 	int rc = 0;
 	unsigned int len = 0;
@@ -720,6 +721,11 @@ static int cifs_get_name_from_search_buf(struct qstr *pqst,
 		return -EINVAL;
 	}
 
+	if (filename + len > end_of_smb) {
+		cERROR(1, "search entry name extends past end of SMB");
+		return -EINVAL;
+	}
+
 	if (unicode) {
 		pqst->len = cifs_from_ucs2((char *) pqst->name,
 					   (__le16 *) filename,
@@ -736,7 +742,8 @@ static int cifs_get_name_from_search_buf(struct qstr *pqst,
 }
 
 static int cifs_filldir(char *find_entry, struct file *file, filldir_t filldir,
-		void *dirent, char *scratch_buf, unsigned int max_len)
+		void *dirent, char *scratch_buf, unsigned int max_len,
+		char *end_of_smb)
 {
 	struct cifsFileInfo *file_info = file->private_data;
 	struct super_block *sb = file->f_path.dentry->d_sb;
@@ -756,7 +763,7 @@ static int cifs_filldir(char *find_entry, struct file *file, filldir_t filldir,
 	rc = cifs_get_name_from_search_buf(&name, find_entry,
 					   file_info->srch_inf.info_level,
 					   file_info->srch_inf.unicode,
-					   cifs_sb, max_len, &inum);
+					   cifs_sb, max_len, end_of_smb, &inum);
 	if (rc)
 		return rc;
 
@@ -902,7 +909,8 @@ int cifs_readdir(struct file *file, void *direntry, filldir_t filldir)
 			/* if buggy server returns . and .. late do
 			we want to check for that here? */
 			rc = cifs_filldir(current_entry, file,
-					filldir, direntry, tmp_buf, max_len);
+					filldir, direntry, tmp_buf, max_len,
+					end_of_smb);
 			if (rc == -EOVERFLOW) {
 				rc = 0;
 				break;
