@@ -1908,6 +1908,13 @@ static void sev_migrate_from(struct kvm *dst_kvm, struct kvm *src_kvm)
 	struct kvm_sev_info *mirror;
 	unsigned long i;
 
+	/*
+	 * Do cache maintenance on the source VM *before* clearing "SEV active",
+	 * as memory reclaim flows won't trigger cache maintenance on the VM
+	 * once it's no longer an SEV VM.
+	 */
+	wbinvd_on_all_cpus();
+
 	dst->active = true;
 	dst->asid = src->asid;
 	dst->handle = src->handle;
