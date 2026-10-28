@@ -1552,6 +1552,7 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 	c->x86_virt_bits = 32;
 #endif
 	c->x86_cache_alignment = c->x86_clflush_size;
+	memset(&c->x86_capability, 0, sizeof c->x86_capability);
 	memset(&c->x86_ext_capability, 0, sizeof c->x86_ext_capability);
 
 	generic_identify(c);
