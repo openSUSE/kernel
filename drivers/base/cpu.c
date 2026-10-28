@@ -314,14 +314,21 @@ static ssize_t print_cpu_modalias(struct device *dev,
 			     "cpu:type:" CPU_FEATURE_TYPEFMT ":feature:",
 			     CPU_FEATURE_TYPEVAL);
 
-	for (i = 0; i < MAX_CPU_FEATURES; i++)
-		if (cpu_have_feature(i)) {
+
+	for (i = 0; i < MAX_CPU_FEATURES; i++) {
+		u32 feature = i;
+#ifdef CONFIG_X86
+		if (IS_EXT_BIT(feature))
+			feature += NBUGINTS*32;
+#endif
+		if (cpu_have_feature(feature)) {
 			if (len + sizeof(",XXXX\n") >= PAGE_SIZE) {
 				WARN(1, "CPU features overflow page\n");
 				break;
 			}
-			len += sysfs_emit_at(buf, len, ",%04X", i);
+			len += sysfs_emit_at(buf, len, ",%04X", feature);
 		}
+	}
 	len += sysfs_emit_at(buf, len, "\n");
 	return len;
 }
