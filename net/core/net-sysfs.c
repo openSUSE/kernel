@@ -283,12 +283,13 @@ static ssize_t carrier_show(struct device *dev,
 			    struct device_attribute *attr, char *buf)
 {
 	struct net_device *netdev = to_net_dev(dev);
-	int ret = -EINVAL;
+	int ret;
 
 	ret = sysfs_rtnl_lock(&dev->kobj, &attr->attr, netdev);
 	if (ret)
 		return ret;
 
+	ret = -EINVAL;
 	if (netif_running(netdev)) {
 		/* Synchronize carrier state with link watch,
 		 * see also rtnl_getlink().
@@ -319,6 +320,7 @@ static ssize_t speed_show(struct device *dev,
 	if (ret)
 		return ret;
 
+	ret = -EINVAL;
 	if (netif_running(netdev)) {
 		struct ethtool_link_ksettings cmd;
 
@@ -346,6 +348,7 @@ static ssize_t duplex_show(struct device *dev,
 	if (ret)
 		return ret;
 
+	ret = -EINVAL;
 	if (netif_running(netdev)) {
 		struct ethtool_link_ksettings cmd;
 
