@@ -102,6 +102,35 @@ static void nvme_put_subsystem(struct nvme_subsystem *subsys);
 static void nvme_remove_invalid_namespaces(struct nvme_ctrl *ctrl,
 					   unsigned nsid);
 
+static bool nvme_cmd_allowed(struct nvme_ns *ns, struct nvme_command *c,
+               fmode_t mode)
+{
+       if (capable(CAP_SYS_ADMIN))
+               return true;
+
+       /*
+        * Do not allow unprivileged processes to send vendor specific or fabrics
+        * commands as we can't be sure about their effects.
+        */
+       if (c->common.opcode >= nvme_cmd_vendor_start ||
+           c->common.opcode == nvme_fabrics_command)
+               return false;
+
+       /* do not allow unprivileged admin commands */
+       if (!ns)
+               return false;
+
+       /*
+        * Only allow I/O commands that transfer data to the controller if the
+        * special file is open for writing, but always allow I/O commands that
+        * transfer data from the controller.
+        */
+       if (nvme_is_write(c))
+               return mode & FMODE_WRITE;
+       return true;
+}
+
+
 static void nvme_set_queue_dying(struct nvme_ns *ns)
 {
 	/*
@@ -1218,7 +1247,8 @@ static void nvme_enable_aen(struct nvme_ctrl *ctrl)
 			 supported_aens);
 }
 
-static int nvme_submit_io(struct nvme_ns *ns, struct nvme_user_io __user *uio)
+static int nvme_submit_io(struct nvme_ns *ns, struct nvme_user_io __user *uio,
+			  fmode_t mode)
 {
 	struct nvme_user_io io;
 	struct nvme_command c;
@@ -1262,6 +1292,10 @@ static int nvme_submit_io(struct nvme_ns *ns, struct nvme_user_io __user *uio)
 	c.rw.reftag = cpu_to_le32(io.reftag);
 	c.rw.apptag = cpu_to_le16(io.apptag);
 	c.rw.appmask = cpu_to_le16(io.appmask);
+
+	if (!nvme_cmd_allowed(ns, &c, mode))
+		return -EACCES;
+
 
 	return nvme_submit_user_cmd(ns->queue, &c,
 			(void __user *)(uintptr_t)io.addr, length,
@@ -1352,7 +1386,7 @@ static void nvme_passthru_end(struct nvme_ctrl *ctrl, u32 effects)
 }
 
 static int nvme_user_cmd(struct nvme_ctrl *ctrl, struct nvme_ns *ns,
-			struct nvme_passthru_cmd __user *ucmd)
+			struct nvme_passthru_cmd __user *ucmd, fmode_t mode)
 {
 	struct nvme_passthru_cmd cmd;
 	struct nvme_command c;
@@ -1360,8 +1394,6 @@ static int nvme_user_cmd(struct nvme_ctrl *ctrl, struct nvme_ns *ns,
 	u32 effects;
 	int status;
 
-	if (!capable(CAP_SYS_ADMIN))
-		return -EACCES;
 	if (copy_from_user(&cmd, ucmd, sizeof(cmd)))
 		return -EFAULT;
 	if (cmd.flags)
@@ -1379,6 +1411,9 @@ static int nvme_user_cmd(struct nvme_ctrl *ctrl, struct nvme_ns *ns,
 	c.common.cdw10[3] = cpu_to_le32(cmd.cdw13);
 	c.common.cdw10[4] = cpu_to_le32(cmd.cdw14);
 	c.common.cdw10[5] = cpu_to_le32(cmd.cdw15);
+
+	if (!nvme_cmd_allowed(ns, &c, mode))
+		return -EACCES;
 
 	if (cmd.timeout_ms)
 		timeout = msecs_to_jiffies(cmd.timeout_ms);
@@ -1423,18 +1458,19 @@ static void nvme_put_ns_from_disk(struct nvme_ns_head *head, int idx)
 		srcu_read_unlock(&head->srcu, idx);
 }
 
-static int nvme_ns_ioctl(struct nvme_ns *ns, unsigned cmd, unsigned long arg)
+static int nvme_ns_ioctl(struct nvme_ns *ns, unsigned cmd, unsigned long arg,
+			 fmode_t mode)
 {
 	switch (cmd) {
 	case NVME_IOCTL_ID:
 		force_successful_syscall_return();
 		return ns->head->ns_id;
 	case NVME_IOCTL_ADMIN_CMD:
-		return nvme_user_cmd(ns->ctrl, NULL, (void __user *)arg);
+		return nvme_user_cmd(ns->ctrl, NULL, (void __user *)arg, mode);
 	case NVME_IOCTL_IO_CMD:
-		return nvme_user_cmd(ns->ctrl, ns, (void __user *)arg);
+		return nvme_user_cmd(ns->ctrl, ns, (void __user *)arg, mode);
 	case NVME_IOCTL_SUBMIT_IO:
-		return nvme_submit_io(ns, (void __user *)arg);
+		return nvme_submit_io(ns, (void __user *)arg, mode);
 	default:
 		if (ns->ndev)
 			return nvme_nvm_ioctl(ns, cmd, arg);
@@ -1456,7 +1492,7 @@ static int nvme_ioctl(struct block_device *bdev, fmode_t mode,
 	if (unlikely(!ns))
 		ret = -EWOULDBLOCK;
 	else
-		ret = nvme_ns_ioctl(ns, cmd, arg);
+		ret = nvme_ns_ioctl(ns, cmd, arg, mode);
 	nvme_put_ns_from_disk(head, srcu_idx);
 	return ret;
 }
@@ -2722,7 +2758,8 @@ static int nvme_dev_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int nvme_dev_user_cmd(struct nvme_ctrl *ctrl, void __user *argp)
+static int nvme_dev_user_cmd(struct nvme_ctrl *ctrl, void __user *argp,
+			     fmode_t mode)
 {
 	struct nvme_ns *ns;
 	int ret;
@@ -2746,7 +2783,7 @@ static int nvme_dev_user_cmd(struct nvme_ctrl *ctrl, void __user *argp)
 	kref_get(&ns->kref);
 	up_read(&ctrl->namespaces_rwsem);
 
-	ret = nvme_user_cmd(ctrl, ns, argp);
+	ret = nvme_user_cmd(ctrl, ns, argp, mode);
 	nvme_put_ns(ns);
 	return ret;
 
@@ -2763,9 +2800,9 @@ static long nvme_dev_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case NVME_IOCTL_ADMIN_CMD:
-		return nvme_user_cmd(ctrl, NULL, argp);
+		return nvme_user_cmd(ctrl, NULL, argp, file->f_mode);
 	case NVME_IOCTL_IO_CMD:
-		return nvme_dev_user_cmd(ctrl, argp);
+		return nvme_dev_user_cmd(ctrl, argp, file->f_mode);
 	case NVME_IOCTL_RESET:
 		if (!capable(CAP_SYS_ADMIN))
 			return -EACCES;

@@ -104,7 +104,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	}
 
 	seq_puts(m, "\nbugs\t\t:");
-	for (i = 0; i < 32*(NBUGINTS+NEXTBUGINTS); i++) {
+	for (i = 0; i < 32*NBUGINTS; i++) {
 		unsigned int bug_bit = 32*NCAPINTS + i;
 
 		if (cpu_has_bug(c, bug_bit) && x86_bug_flags[i])
