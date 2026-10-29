@@ -94,6 +94,67 @@ struct nvmefc_ls_req {
 } __aligned(sizeof(u64));	/* alignment for other things alloc'd with */
 
 
+/**
+ * struct nvmefc_ls_rsp - Structure passed from the transport to the LLDD
+ *            to request the transmit the NVME-FC LS response to a
+ *            NVME-FC LS request.   The structure originates in the LLDD
+ *            and is given to the transport via the xxx_rcv_ls_req()
+ *            transport routine. As such, the structure represents the
+ *            FC exchange context for the NVME-FC LS request that was
+ *            received and which the response is to be sent for.
+ *            Used by the LLDD to pass the nvmet-fc transport (controller)
+ *              received LS's such as Create Association, Create Connection
+ *              and Disconnect Association.
+ *            Used by the LLDD to pass the nvme-fc transport (host)
+ *              received LS's such as Disconnect Association or Disconnect
+ *              Connection.
+ *
+ * The structure is allocated by the LLDD whenever a LS Request is received
+ * from the FC link. The address of the structure is passed to the nvmet-fc
+ * or nvme-fc layer via the xxx_rcv_ls_req() transport routines.
+ *
+ * The address of the structure is to be passed back to the LLDD
+ * when the response is to be transmit. The LLDD will use the address to
+ * map back to the LLDD exchange structure which maintains information such
+ * the remote N_Port that sent the LS as well as any FC exchange context.
+ * Upon completion of the LS response transmit, the LLDD will pass the
+ * address of the structure back to the transport LS rsp done() routine,
+ * allowing the transport release dma resources. Upon completion of
+ * the done() routine, no further access to the structure will be made by
+ * the transport and the LLDD can de-allocate the structure.
+ *
+ * Field initialization:
+ *   At the time of the xxx_rcv_ls_req() call, there is no content that
+ *     is valid in the structure.
+ *
+ *   When the structure is used for the LLDD->xmt_ls_rsp() call, the
+ *     transport layer will fully set the fields in order to specify the
+ *     response payload buffer and its length as well as the done routine
+ *     to be called upon completion of the transmit.  The transport layer
+ *     will also set a private pointer for its own use in the done routine.
+ *
+ * Values set by the transport layer prior to calling the LLDD xmt_ls_rsp
+ * entrypoint:
+ * @rspbuf:   pointer to the LS response buffer
+ * @rspdma:   PCI DMA address of the LS response buffer
+ * @rsplen:   Length, in bytes, of the LS response buffer
+ * @done:     The callback routine the LLDD is to invoke upon completion of
+ *            transmitting the LS response. req argument is the pointer to
+ *            the original ls request.
+ * @nvme_fc_private:  pointer to an internal transport-specific structure
+ *            used as part of the transport done() processing. The LLDD is
+ *            not to access this pointer.
+ */
+struct nvmefc_ls_rsp {
+	void		*rspbuf;
+	dma_addr_t	rspdma;
+	u16		rsplen;
+
+	void (*done)(struct nvmefc_ls_rsp *rsp);
+	void		*nvme_fc_private;	/* LLDD is not to access !! */
+};
+
+
 enum nvmefc_fcp_datadir {
 	NVMEFC_FCP_NODATA,	/* payload_length and sg_cnt will be zero */
 	NVMEFC_FCP_WRITE,
