@@ -331,7 +331,7 @@ static int sev_ioctl_do_platform_status(struct sev_issue_cmd *argp)
 	struct sev_user_data_status *data = &psp_master->status_cmd_buf;
 	int ret;
 
-	memset(&data, 0, sizeof(data));
+	memset(data, 0, sizeof(struct sev_user_data_status));
 
 	ret = __sev_do_cmd_locked(SEV_CMD_PLATFORM_STATUS, data, &argp->error);
 	if (ret)
