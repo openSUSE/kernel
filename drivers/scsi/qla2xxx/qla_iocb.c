@@ -2978,8 +2978,9 @@ qla24xx_els_dcmd_iocb(scsi_qla_host_t *vha, int els_opcode,
 }
 
 static void
-qla24xx_els_logo_iocb(srb_t *sp, struct els_entry_24xx *els_iocb)
+qla24xx_els_logo_iocb(srb_t *sp, void *pkt)
 {
+	struct els_entry_24xx *els_iocb = pkt;
 	scsi_qla_host_t *vha = sp->vha;
 	struct srb_iocb *elsio = &sp->u.iocb_cmd;
 
@@ -2990,10 +2991,10 @@ qla24xx_els_logo_iocb(srb_t *sp, struct els_entry_24xx *els_iocb)
 	els_iocb->handle = sp->handle;
 	els_iocb->nport_handle = cpu_to_le16(sp->fcport->loop_id);
 	els_iocb->tx_dsd_count = cpu_to_le16(1);
-	els_iocb->vp_index = vha->vp_idx;
-	els_iocb->sof_type = EST_SOFI3;
 	els_iocb->rx_dsd_count = 0;
 	els_iocb->opcode = elsio->u.els_logo.els_cmd;
+
+	qla_els_set_vp_sof(vha, pkt, vha->vp_idx);
 
 	els_iocb->d_id[0] = sp->fcport->d_id.b.al_pa;
 	els_iocb->d_id[1] = sp->fcport->d_id.b.area;
@@ -3325,9 +3326,10 @@ done:
 
 /* it is assume qpair lock is held */
 void qla_els_pt_iocb(struct scsi_qla_host *vha,
-	struct els_entry_24xx *els_iocb,
-	struct qla_els_pt_arg *a)
+	void *pkt, struct qla_els_pt_arg *a)
 {
+	struct els_entry_24xx *els_iocb = pkt;
+
 	els_iocb->entry_type = ELS_IOCB_TYPE;
 	els_iocb->entry_count = 1;
 	els_iocb->sys_define = 0;
@@ -3336,10 +3338,10 @@ void qla_els_pt_iocb(struct scsi_qla_host *vha,
 	els_iocb->nport_handle = a->nport_handle;
 	els_iocb->rx_xchg_address = a->rx_xchg_address;
 	els_iocb->tx_dsd_count = cpu_to_le16(1);
-	els_iocb->vp_index = a->vp_idx;
-	els_iocb->sof_type = EST_SOFI3;
 	els_iocb->rx_dsd_count = cpu_to_le16(0);
 	els_iocb->opcode = a->els_opcode;
+
+	qla_els_set_vp_sof(vha, pkt, a->vp_idx);
 
 	els_iocb->d_id[0] = a->did.b.al_pa;
 	els_iocb->d_id[1] = a->did.b.area;
@@ -3361,8 +3363,9 @@ void qla_els_pt_iocb(struct scsi_qla_host *vha,
 }
 
 static void
-qla24xx_els_iocb(srb_t *sp, struct els_entry_24xx *els_iocb)
+qla24xx_els_iocb(srb_t *sp, void *pkt)
 {
+	struct els_entry_24xx *els_iocb = pkt;
 	struct bsg_job *bsg_job = sp->u.bsg_job;
 	struct fc_bsg_request *bsg_request = bsg_job->request;
 
@@ -3373,8 +3376,8 @@ qla24xx_els_iocb(srb_t *sp, struct els_entry_24xx *els_iocb)
         els_iocb->handle = sp->handle;
 	els_iocb->nport_handle = cpu_to_le16(sp->fcport->loop_id);
 	els_iocb->tx_dsd_count = cpu_to_le16(bsg_job->request_payload.sg_cnt);
-	els_iocb->vp_index = sp->vha->vp_idx;
-        els_iocb->sof_type = EST_SOFI3;
+
+	qla_els_set_vp_sof(sp->vha, pkt, sp->vha->vp_idx);
 	els_iocb->rx_dsd_count = cpu_to_le16(bsg_job->reply_payload.sg_cnt);
 
 	els_iocb->opcode =
@@ -4206,6 +4209,11 @@ qla2x00_start_sp(srb_t *sp)
 		break;
 	case SRB_ELS_CMD_HST_NOLOGIN:
 		qla_els_pt_iocb(sp->vha, pkt,  &sp->u.bsg_cmd.u.els_arg);
+		/*
+		 * els_entry_24xx::handle and els_entry_24xx_ext::handle are
+		 * both u32 at offset 4, so a 24xx-view write is layout-
+		 * compatible with both strides.
+		 */
 		((struct els_entry_24xx *)pkt)->handle = sp->handle;
 		break;
 	case SRB_CT_CMD:
