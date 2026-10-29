@@ -3798,7 +3798,7 @@ static int qla28xx_validate_flash_image(struct bsg_job *bsg_job)
 	bsg_reply->reply_payload_rcv_len = 0;
 	bsg_job->reply_len = sizeof(struct fc_bsg_reply);
 	bsg_job_done(bsg_job, bsg_reply->result,
-			bsg_reply->reply_payload_rcv_len);
+		     bsg_reply->reply_payload_rcv_len);
 
 	return QLA_SUCCESS;
 }
