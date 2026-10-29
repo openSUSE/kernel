@@ -1133,8 +1133,11 @@ static void rx_queue_release(struct kobject *kobj)
 	}
 #endif
 
+	netdev_tracker_free(queue->dev, &queue->dev_tracker);
+	/* Pairs with the smp_mb() in rx_queue_add_kobject(). */
+	smp_mb();
 	memset(kobj, 0, sizeof(*kobj));
-	netdev_put(queue->dev, &queue->dev_tracker);
+	__dev_put(queue->dev);
 }
 
 static const void *rx_queue_namespace(const struct kobject *kobj)
@@ -1182,6 +1185,9 @@ static int rx_queue_add_kobject(struct net_device *dev, int index)
 	struct netdev_rx_queue *queue = dev->_rx + index;
 	struct kobject *kobj = &queue->kobj;
 	int error = 0;
+
+	/* Pairs with the smp_mb() in rx_queue_release(). */
+	smp_mb();
 
 	/* Kobject_put later will trigger rx_queue_release call which
 	 * decreases dev refcount: Take that reference here
@@ -1848,8 +1854,11 @@ static void netdev_queue_release(struct kobject *kobj)
 {
 	struct netdev_queue *queue = to_netdev_queue(kobj);
 
+	netdev_tracker_free(queue->dev, &queue->dev_tracker);
+	/* Pairs with the smp_mb() in netdev_queue_add_kobject(). */
+	smp_mb();
 	memset(kobj, 0, sizeof(*kobj));
-	netdev_put(queue->dev, &queue->dev_tracker);
+	__dev_put(queue->dev);
 }
 
 static const void *netdev_queue_namespace(const struct kobject *kobj)
@@ -1893,6 +1902,9 @@ static int netdev_queue_add_kobject(struct net_device *dev, int index)
 	struct netdev_queue *queue = dev->_tx + index;
 	struct kobject *kobj = &queue->kobj;
 	int error = 0;
+
+	/* Pairs with the smp_mb() in netdev_queue_release(). */
+	smp_mb();
 
 	/* Kobject_put later will trigger netdev_queue_release call
 	 * which decreases dev refcount: Take that reference here
