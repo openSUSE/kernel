@@ -158,6 +158,9 @@ gss_verify_mic_v2(struct krb5_ctx *ctx,
 
 	dprintk("RPC:       %s\n", __func__);
 
+	if (read_token->len < GSS_KRB5_TOK_HDR_LEN + ctx->gk5e->cksumlength)
+		return GSS_S_DEFECTIVE_TOKEN;
+
 	if (be16_to_cpu(*((__be16 *)ptr)) != KG2_TOK_MIC)
 		return GSS_S_DEFECTIVE_TOKEN;
 
