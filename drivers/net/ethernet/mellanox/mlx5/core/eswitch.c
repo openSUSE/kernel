@@ -1569,13 +1569,20 @@ static void esw_disable_vport(struct mlx5_eswitch *esw, int vport_num)
 	/* Disable events from this vport */
 	arm_vport_context_events_cmd(esw->dev, vport->vport, 0);
 	mutex_lock(&esw->state_lock);
+
+	/* Clear rx-mode before esw_vport_change_handle_locked(): on
+	 * MLX5_VPORT_PROMISC_CHANGE it calls esw_update_vport_mc_promisc()
+	 * when vport->allmulti_rule is set, repopulating mc_list with FDB
+	 * rules that dangle once the FDB is destroyed. NULL allmulti_rule
+	 * here skips that path.
+	*/
+	esw_apply_vport_rx_mode(esw, vport_num, false, false);
 	/* We don't assume VFs will cleanup after themselves.
 	 * Calling vport change handler while vport is disabled will cleanup
 	 * the vport resources.
 	 */
 	esw_vport_change_handle_locked(vport);
 	vport->enabled_events = 0;
-	esw_apply_vport_rx_mode(esw, vport_num, false, false);
 	esw_vport_disable_qos(esw, vport_num);
 	if (vport_num && esw->mode == SRIOV_LEGACY) {
 		mlx5_modify_vport_admin_state(esw->dev,
