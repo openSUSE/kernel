@@ -3709,6 +3709,26 @@ static void idpf_vport_intr_ena_irq_all(struct idpf_vport *vport)
 }
 
 /**
+ * idpf_vport_intr_dis_dim_all - Disable DIM work for all q_vectors
+ * @vport: main vport structure
+ *
+ * The DIM works are embedded in the q_vector array that
+ * idpf_vport_intr_rel() frees, and the poll arms them after
+ * napi_complete_done() has already cleared NAPI_STATE_SCHED.  Disable
+ * rather than just cancel, so that a poll tail still running past
+ * napi_disable() cannot queue them again behind the drain.
+ */
+static void idpf_vport_intr_dis_dim_all(struct idpf_vport *vport)
+{
+	for (u16 v_idx = 0; v_idx < vport->num_q_vectors; v_idx++) {
+		struct idpf_q_vector *q_vector = &vport->q_vectors[v_idx];
+
+		disable_work_sync(&q_vector->tx_dim.work);
+		disable_work_sync(&q_vector->rx_dim.work);
+	}
+}
+
+/**
  * idpf_vport_intr_deinit - Release all vector associations for the vport
  * @vport: main vport structure
  */
@@ -3716,6 +3736,7 @@ void idpf_vport_intr_deinit(struct idpf_vport *vport)
 {
 	idpf_vport_intr_dis_irq_all(vport);
 	idpf_vport_intr_napi_dis_all(vport);
+	idpf_vport_intr_dis_dim_all(vport);
 	idpf_vport_intr_napi_del_all(vport);
 	idpf_vport_intr_rel_irq(vport);
 }
@@ -3798,7 +3819,6 @@ static void idpf_vport_intr_napi_ena_all(struct idpf_vport *vport)
 	for (q_idx = 0; q_idx < vport->num_q_vectors; q_idx++) {
 		struct idpf_q_vector *q_vector = &vport->q_vectors[q_idx];
 
-		idpf_init_dim(q_vector);
 		napi_enable(&q_vector->napi);
 	}
 }
@@ -4104,6 +4124,8 @@ int idpf_vport_intr_alloc(struct idpf_vport *vport)
 		q_vector = &vport->q_vectors[v_idx];
 		q_coal = &user_config->q_coalesce[v_idx];
 		q_vector->vport = vport;
+
+		idpf_init_dim(q_vector);
 
 		q_vector->tx_itr_value = q_coal->tx_coalesce_usecs;
 		q_vector->tx_intr_mode = q_coal->tx_intr_mode;

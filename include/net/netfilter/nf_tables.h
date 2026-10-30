@@ -1294,6 +1294,7 @@ static inline void nft_use_inc_restore(u32 *use)
  *	@udlen: length of the user data
  *	@udata: user data
  *	@validate_state: internal, set when transaction adds jumps
+ *	@objname_ht: hashtable for objects lookup by name
  */
 struct nft_table {
 	struct list_head		list;
@@ -1313,6 +1314,9 @@ struct nft_table {
 	u16				udlen;
 	u8				*udata;
 	u8				validate_state;
+#ifndef __GENKSYMS__
+	struct rhltable			objname_ht;
+#endif
 };
 
 static inline bool nft_table_has_owner(const struct nft_table *table)
@@ -1389,7 +1393,11 @@ static inline void *nft_obj_data(const struct nft_object *obj)
 #define nft_expr_obj(expr)	*((struct nft_object **)nft_expr_priv(expr))
 
 struct nft_object *nft_obj_lookup(const struct net *net,
+#ifdef __GENKSYMS__
 				  const struct nft_table *table,
+#else
+				  struct nft_table *table,
+#endif
 				  const struct nlattr *nla, u32 objtype,
 				  u8 genmask);
 
