@@ -246,6 +246,13 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	if (eth_p_mpls(skb->protocol))
 		skb->protocol = ethertype;
 
+	/* The last label is gone, so the inner header recorded by
+	 * skb_mpls_push() no longer describes this packet. Drop it, or a
+	 * later push keeps the stale offset.
+	 */
+	if (!eth_p_mpls(ethertype))
+		skb->inner_protocol = 0;
+
 	invalidate_flow_key(key);
 	return 0;
 }
