@@ -1100,11 +1100,6 @@ qla82xx_pinit_from_rom(scsi_qla_host_t *vha)
 	unsigned offset, n;
 	struct qla_hw_data *ha = vha->hw;
 
-	struct crb_addr_pair {
-		long addr;
-		long data;
-	};
-
 	/* Halt all the individual PEGs and other blocks of the ISP */
 	qla82xx_rom_lock(ha);
 
@@ -1595,25 +1590,6 @@ qla82xx_get_fw_offs(struct qla_hw_data *ha)
 
 	return (u8 *)&ha->hablob->fw->data[offset];
 }
-
-/* PCI related functions */
-int qla82xx_pci_region_offset(struct pci_dev *pdev, int region)
-{
-	unsigned long val = 0;
-	u32 control;
-
-	switch (region) {
-	case 0:
-		val = 0;
-		break;
-	case 1:
-		pci_read_config_dword(pdev, QLA82XX_PCI_REG_MSIX_TBL, &control);
-		val = control + QLA82XX_MSIX_TBL_SPACE;
-		break;
-	}
-	return val;
-}
-
 
 int
 qla82xx_iospace_config(struct qla_hw_data *ha)
@@ -2688,7 +2664,7 @@ qla82xx_write_flash_data(struct scsi_qla_host *vha, __le32 *dwptr,
 
 			ret = qla2x00_load_ram(vha, optrom_dma,
 			    (ha->flash_data_off | faddr),
-			    OPTROM_BURST_DWORDS);
+			    OPTROM_BURST_DWORDS, 0);
 			if (ret != QLA_SUCCESS) {
 				ql_log(ql_log_warn, vha, 0xb01e,
 				    "Unable to burst-write optrom segment "
@@ -2933,32 +2909,6 @@ qla82xx_need_qsnt_handler(scsi_qla_host_t *vha)
 		    "HW State: DEV_QUIESCENT.\n");
 		qla82xx_wr_32(ha, QLA82XX_CRB_DEV_STATE, QLA8XXX_DEV_QUIESCENT);
 	}
-}
-
-/*
-* qla82xx_wait_for_state_change
-*    Wait for device state to change from given current state
-*
-* Note:
-*     IDC lock must not be held upon entry
-*
-* Return:
-*    Changed device state.
-*/
-uint32_t
-qla82xx_wait_for_state_change(scsi_qla_host_t *vha, uint32_t curr_state)
-{
-	struct qla_hw_data *ha = vha->hw;
-	uint32_t dev_state;
-
-	do {
-		msleep(1000);
-		qla82xx_idc_lock(ha);
-		dev_state = qla82xx_rd_32(ha, QLA82XX_CRB_DEV_STATE);
-		qla82xx_idc_unlock(ha);
-	} while (dev_state == curr_state);
-
-	return dev_state;
 }
 
 void

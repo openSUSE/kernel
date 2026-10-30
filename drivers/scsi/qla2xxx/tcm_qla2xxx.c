@@ -308,6 +308,16 @@ static struct qla_tgt_cmd *tcm_qla2xxx_get_cmd(struct fc_port *sess)
 	return cmd;
 }
 
+static int tcm_qla2xxx_get_cmd_ref(struct qla_tgt_cmd *cmd)
+{
+	return target_get_sess_cmd(&cmd->se_cmd, true);
+}
+
+static void tcm_qla2xxx_put_cmd_ref(struct qla_tgt_cmd *cmd)
+{
+	target_put_sess_cmd(&cmd->se_cmd);
+}
+
 static void tcm_qla2xxx_rel_cmd(struct qla_tgt_cmd *cmd)
 {
 	struct fc_port *sess = cmd->sess;
@@ -322,6 +332,8 @@ static void tcm_qla2xxx_rel_cmd(struct qla_tgt_cmd *cmd)
  */
 static void tcm_qla2xxx_free_cmd(struct qla_tgt_cmd *cmd)
 {
+	cmd->state = QLA_TGT_STATE_DONE;
+
 	cmd->qpair->tgt_counters.core_qla_free_cmd++;
 	cmd->cmd_in_wq = 1;
 
@@ -573,6 +585,9 @@ static void tcm_qla2xxx_handle_data_work(struct work_struct *work)
 		if (cmd->se_cmd.pi_err)
 			transport_generic_request_failure(&cmd->se_cmd,
 				cmd->se_cmd.pi_err);
+		else if (cmd->srr_failed)
+			transport_generic_request_failure(&cmd->se_cmd,
+				TCM_SNACK_REJECTED);
 		else
 			transport_generic_request_failure(&cmd->se_cmd,
 				TCM_CHECK_CONDITION_ABORT_CMD);
@@ -687,7 +702,6 @@ static int tcm_qla2xxx_queue_data_in(struct se_cmd *se_cmd)
 {
 	struct qla_tgt_cmd *cmd = container_of(se_cmd,
 				struct qla_tgt_cmd, se_cmd);
-	struct scsi_qla_host *vha = cmd->vha;
 
 	if (cmd->aborted) {
 		/* Cmd can loop during Q-full.  tcm_qla2xxx_aborted_task
@@ -700,7 +714,6 @@ static int tcm_qla2xxx_queue_data_in(struct se_cmd *se_cmd)
 			cmd->se_cmd.transport_state,
 			cmd->se_cmd.t_state,
 			cmd->se_cmd.se_cmd_flags);
-		vha->hw->tgt.tgt_ops->free_cmd(cmd);
 		return 0;
 	}
 
@@ -728,7 +741,6 @@ static int tcm_qla2xxx_queue_status(struct se_cmd *se_cmd)
 {
 	struct qla_tgt_cmd *cmd = container_of(se_cmd,
 				struct qla_tgt_cmd, se_cmd);
-	struct scsi_qla_host *vha = cmd->vha;
 	int xmit_type = QLA_TGT_XMIT_STATUS;
 
 	if (cmd->aborted) {
@@ -742,7 +754,6 @@ static int tcm_qla2xxx_queue_status(struct se_cmd *se_cmd)
 		    cmd, kref_read(&cmd->se_cmd.cmd_kref),
 		    cmd->se_cmd.transport_state, cmd->se_cmd.t_state,
 		    cmd->se_cmd.se_cmd_flags);
-		vha->hw->tgt.tgt_ops->free_cmd(cmd);
 		return 0;
 	}
 	cmd->bufflen = se_cmd->data_length;
@@ -1627,6 +1638,8 @@ static const struct qla_tgt_func_tmpl tcm_qla2xxx_template = {
 	.handle_data		= tcm_qla2xxx_handle_data,
 	.handle_tmr		= tcm_qla2xxx_handle_tmr,
 	.get_cmd		= tcm_qla2xxx_get_cmd,
+	.get_cmd_ref		= tcm_qla2xxx_get_cmd_ref,
+	.put_cmd_ref		= tcm_qla2xxx_put_cmd_ref,
 	.rel_cmd		= tcm_qla2xxx_rel_cmd,
 	.free_cmd		= tcm_qla2xxx_free_cmd,
 	.free_mcmd		= tcm_qla2xxx_free_mcmd,

@@ -13,12 +13,11 @@
  * ----------------------------------------------------------------------
  * | Module Init and Probe        |       0x0199       |                |
  * | Mailbox commands             |       0x1206       | 0x11a5-0x11ff	|
- * | Device Discovery             |       0x2134       | 0x210e-0x2115  |
- * |                              |                    | 0x211c-0x2128  |
- * |                              |                    | 0x212c-0x2134  |
+ * | Device Discovery             |       0x2134       | 0x2112-0x2115  |
+ * |                              |                    | 0x2127-0x2128  |
  * | Queue Command and IO tracing |       0x3074       | 0x300b         |
  * |                              |                    | 0x3027-0x3028  |
- * |                              |                    | 0x303d-0x3041  |
+ * |                              |                    | 0x303e-0x3041  |
  * |                              |                    | 0x302e,0x3033  |
  * |                              |                    | 0x3036,0x3038  |
  * |                              |                    | 0x303a		|
@@ -56,10 +55,11 @@
  * | Misc                         |       0xd303       | 0xd031-0xd0ff	|
  * |                              |                    | 0xd101-0xd1fe	|
  * |                              |                    | 0xd214-0xd2fe	|
- * | Target Mode		  |	  0xe081       |		|
+ * | Target Mode		  |	  0xe089       |		|
  * | Target Mode Management	  |	  0xf09b       | 0xf002		|
  * |                              |                    | 0xf046-0xf049  |
  * | Target Mode Task Management  |	  0x1000d      |		|
+ * | Target Mode SRR		  |	  0x11038      |		|
  * ----------------------------------------------------------------------
  */
 
@@ -90,16 +90,17 @@ qla2xxx_copy_queues(struct qla_hw_data *ha, void *ptr)
 {
 	struct req_que *req = ha->req_q_map[0];
 	struct rsp_que *rsp = ha->rsp_q_map[0];
+	size_t req_entry_size = qla_req_entry_size(ha);
+	size_t rsp_entry_size = qla_rsp_entry_size(ha);
+
 	/* Request queue. */
-	memcpy(ptr, req->ring, req->length *
-	    sizeof(request_t));
+	memcpy(ptr, req->ring, req->length * req_entry_size);
 
 	/* Response queue. */
-	ptr += req->length * sizeof(request_t);
-	memcpy(ptr, rsp->ring, rsp->length  *
-	    sizeof(response_t));
+	ptr += req->length * req_entry_size;
+	memcpy(ptr, rsp->ring, rsp->length * rsp_entry_size);
 
-	return ptr + (rsp->length * sizeof(response_t));
+	return ptr + (rsp->length * rsp_entry_size);
 }
 
 int
@@ -172,7 +173,7 @@ qla27xx_dump_mpi_ram(struct qla_hw_data *ha, uint32_t addr, uint32_t *ram,
 
 		if (!test_and_clear_bit(MBX_INTERRUPT, &ha->mbx_cmd_flags)) {
 			/* no interrupt, timed out*/
-			return rval;
+			return QLA_FUNCTION_TIMEOUT;
 		}
 		if (rval) {
 			/* error completion status */
@@ -255,7 +256,7 @@ qla24xx_dump_ram(struct qla_hw_data *ha, uint32_t addr, __be32 *ram,
 
 		if (!test_and_clear_bit(MBX_INTERRUPT, &ha->mbx_cmd_flags)) {
 			/* no interrupt, timed out*/
-			return rval;
+			return QLA_FUNCTION_TIMEOUT;
 		}
 		if (rval) {
 			/* error completion status */
@@ -607,6 +608,8 @@ qla25xx_copy_mqueues(struct qla_hw_data *ha, void *ptr, __be32 **last_chain)
 	struct req_que *req;
 	struct rsp_que *rsp;
 	int que;
+	size_t req_entry_size = qla_req_entry_size(ha);
+	size_t rsp_entry_size = qla_rsp_entry_size(ha);
 
 	if (!ha->mqenable)
 		return ptr;
@@ -624,19 +627,19 @@ qla25xx_copy_mqueues(struct qla_hw_data *ha, void *ptr, __be32 **last_chain)
 		q->chain_size = htonl(
 		    sizeof(struct qla2xxx_mqueue_chain) +
 		    sizeof(struct qla2xxx_mqueue_header) +
-		    (req->length * sizeof(request_t)));
+		    (req->length * req_entry_size));
 		ptr += sizeof(struct qla2xxx_mqueue_chain);
 
 		/* Add header. */
 		qh = ptr;
 		qh->queue = htonl(TYPE_REQUEST_QUEUE);
 		qh->number = htonl(que);
-		qh->size = htonl(req->length * sizeof(request_t));
+		qh->size = htonl(req->length * req_entry_size);
 		ptr += sizeof(struct qla2xxx_mqueue_header);
 
 		/* Add data. */
-		memcpy(ptr, req->ring, req->length * sizeof(request_t));
-		ptr += req->length * sizeof(request_t);
+		memcpy(ptr, req->ring, req->length * req_entry_size);
+		ptr += req->length * req_entry_size;
 	}
 
 	/* Response queues */
@@ -652,19 +655,19 @@ qla25xx_copy_mqueues(struct qla_hw_data *ha, void *ptr, __be32 **last_chain)
 		q->chain_size = htonl(
 		    sizeof(struct qla2xxx_mqueue_chain) +
 		    sizeof(struct qla2xxx_mqueue_header) +
-		    (rsp->length * sizeof(response_t)));
+		    (rsp->length * rsp_entry_size));
 		ptr += sizeof(struct qla2xxx_mqueue_chain);
 
 		/* Add header. */
 		qh = ptr;
 		qh->queue = htonl(TYPE_RESPONSE_QUEUE);
 		qh->number = htonl(que);
-		qh->size = htonl(rsp->length * sizeof(response_t));
+		qh->size = htonl(rsp->length * rsp_entry_size);
 		ptr += sizeof(struct qla2xxx_mqueue_header);
 
 		/* Add data. */
-		memcpy(ptr, rsp->ring, rsp->length * sizeof(response_t));
-		ptr += rsp->length * sizeof(response_t);
+		memcpy(ptr, rsp->ring, rsp->length * rsp_entry_size);
+		ptr += rsp->length * rsp_entry_size;
 	}
 
 	return ptr;
@@ -2691,55 +2694,6 @@ ql_dump_buffer(uint level, scsi_qla_host_t *vha, uint id, const void *buf,
 		print_hex_dump(KERN_CONT, "", DUMP_PREFIX_NONE, 16, 1,
 			       buf + cnt, min(16U, size - cnt), false);
 	}
-}
-
-/*
- * This function is for formatting and logging log messages.
- * It is to be used when vha is available. It formats the message
- * and logs it to the messages file. All the messages will be logged
- * irrespective of value of ql2xextended_error_logging.
- * parameters:
- * level: The level of the log messages to be printed in the
- *        messages file.
- * vha:   Pointer to the scsi_qla_host_t
- * id:    This is a unique id for the level. It identifies the
- *        part of the code from where the message originated.
- * msg:   The message to be displayed.
- */
-void
-ql_log_qp(uint32_t level, struct qla_qpair *qpair, int32_t id,
-    const char *fmt, ...)
-{
-	va_list va;
-	struct va_format vaf;
-	char pbuf[128];
-
-	if (level > ql_errlev)
-		return;
-
-	ql_dbg_prefix(pbuf, ARRAY_SIZE(pbuf), qpair ? qpair->vha : NULL, id);
-
-	va_start(va, fmt);
-
-	vaf.fmt = fmt;
-	vaf.va = &va;
-
-	switch (level) {
-	case ql_log_fatal: /* FATAL LOG */
-		pr_crit("%s%pV", pbuf, &vaf);
-		break;
-	case ql_log_warn:
-		pr_err("%s%pV", pbuf, &vaf);
-		break;
-	case ql_log_info:
-		pr_warn("%s%pV", pbuf, &vaf);
-		break;
-	default:
-		pr_info("%s%pV", pbuf, &vaf);
-		break;
-	}
-
-	va_end(va);
 }
 
 /*
