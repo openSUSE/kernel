@@ -1269,6 +1269,12 @@ static int __power_supply_get_property(struct power_supply *psy, enum power_supp
 int power_supply_get_property(struct power_supply *psy, enum power_supply_property psp,
 			      union power_supply_propval *val)
 {
+	/* Protect driver data from being free'd */
+	guard(rwsem_read)(&psy->epc_sem);
+
+	if (psy->removing)
+		return -ENODEV;
+
 	return __power_supply_get_property(psy, psp, val, true);
 }
 EXPORT_SYMBOL_GPL(power_supply_get_property);
@@ -1326,6 +1332,12 @@ static int __power_supply_set_property(struct power_supply *psy, enum power_supp
 int power_supply_set_property(struct power_supply *psy, enum power_supply_property psp,
 			      const union power_supply_propval *val)
 {
+	/* Protect driver data from being free'd */
+	guard(rwsem_read)(&psy->epc_sem);
+
+	if (psy->removing)
+		return -ENODEV;
+
 	return __power_supply_set_property(psy, psp, val, true);
 }
 EXPORT_SYMBOL_GPL(power_supply_set_property);
@@ -1375,6 +1387,19 @@ void power_supply_external_power_changed(struct power_supply *psy)
 {
 	if (atomic_read(&psy->use_cnt) <= 0 ||
 			!psy->desc->external_power_changed)
+		return;
+
+	/*
+	 * Keep power_supply_unregister() from returning, and thus from letting
+	 * the driver's data be freed, while the callback is running. The
+	 * ->removing check has to happen under the lock: on its own, just like
+	 * the use_cnt check above, it only tells us the supply was still there
+	 * when we looked, not that it still is by the time the callback
+	 * dereferences its driver data.
+	 */
+	guard(rwsem_read)(&psy->epc_sem);
+
+	if (psy->removing)
 		return;
 
 	psy->desc->external_power_changed(psy);
@@ -1621,6 +1646,7 @@ __power_supply_register(struct device *parent,
 	}
 
 	spin_lock_init(&psy->changed_lock);
+	init_rwsem(&psy->epc_sem);
 	init_rwsem(&psy->extensions_sem);
 	INIT_LIST_HEAD(&psy->extensions);
 
@@ -1753,7 +1779,17 @@ EXPORT_SYMBOL_GPL(devm_power_supply_register);
 void power_supply_unregister(struct power_supply *psy)
 {
 	WARN_ON(atomic_dec_return(&psy->use_cnt));
-	psy->removing = true;
+
+	/*
+	 * Publish ->removing so that no new ->external_power_changed() call can
+	 * start, and wait via semaphore for one that is already running: it may
+	 * be a supplier's changed_work, which cancel_work_sync() below does not
+	 * cover, and it may still dereference driver data that the caller is
+	 * about to free.
+	 */
+	scoped_guard(rwsem_write, &psy->epc_sem)
+		psy->removing = true;
+
 	cancel_work_sync(&psy->changed_work);
 	cancel_delayed_work_sync(&psy->deferred_register_work);
 	sysfs_remove_link(&psy->dev.kobj, "powers");
