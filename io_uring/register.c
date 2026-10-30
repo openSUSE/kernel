@@ -406,6 +406,7 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 	size_t size, sq_array_offset;
 	unsigned i, tail, old_head;
 	struct io_uring_params p;
+	bool cqe32_tail = false;
 	int ret;
 
 	/* limited to DEFER_TASKRUN for now */
@@ -557,6 +558,21 @@ overflow:
 			cq_size <<= 1;
 			src_mask = (ctx->cq_entries << 1) - 1;
 			dst_mask = (p.cq_entries << 1) - 1;
+		}
+		/*
+		 * A 32b CQE on a CQE_MIXED ring takes two contiguous entries
+		 * and must not wrap. A smaller ring may place it on the last
+		 * entry, fail the resize if that happens.
+		 */
+		if (ctx->flags & IORING_SETUP_CQE_MIXED) {
+			if (cqe32_tail) {
+				cqe32_tail = false;
+			} else if (READ_ONCE(o.rings->cqes[index & src_mask].flags) &
+				   IORING_CQE_F_32) {
+				if ((index & dst_mask) == dst_mask)
+					goto overflow;
+				cqe32_tail = true;
+			}
 		}
 		memcpy(&n.rings->cqes[index & dst_mask], &o.rings->cqes[index & src_mask], cq_size);
 	}
