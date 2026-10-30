@@ -722,7 +722,7 @@ int acpi_cppc_processor_probe(struct acpi_processor *pr)
 		goto out_buf_free;
 	}
 
-	cpc_ptr = kzalloc_obj(struct cpc_desc, GFP_KERNEL);
+	cpc_ptr = kzalloc_obj(struct cpc_desc);
 	if (!cpc_ptr) {
 		ret = -ENOMEM;
 		goto out_buf_free;
