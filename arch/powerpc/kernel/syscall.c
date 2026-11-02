@@ -19,7 +19,14 @@ notrace long system_call_exception(struct pt_regs *regs, unsigned long r0)
 	syscall_fn f;
 
 	if (unlikely(!syscall_enter_from_user_mode_randomize_stack(regs, &r0))) {
-		return syscall_get_error(current, regs);
+		/*
+		 * The syscall was skipped by seccomp or ptrace. r3 (and CR0.SO
+		 * for "sc") already hold the return value, set either through
+		 * syscall_set_return_value() or directly by the tracer. Hand
+		 * it back in the form syscall_exit_prepare() expects: -errno
+		 * on failure, else the value in r3.
+		 */
+		return syscall_get_error(current, regs) ?: regs->gpr[3];
 	}
 
 	if (unlikely(r0 >= NR_syscalls)) {
