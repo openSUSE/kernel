@@ -2332,16 +2332,20 @@ static int gpiod_request_commit(struct gpio_desc *desc, const char *label)
 	if (test_and_set_bit(FLAG_REQUESTED, &desc->flags))
 		return -EBUSY;
 
+	offset = gpio_chip_hwgpio(desc);
+	if (!gpiochip_line_is_valid(guard.gc, offset)) {
+		ret = -EINVAL;
+		goto out_clear_bit;
+	}
+
 	/* NOTE:  gpio_request() can be called in early boot,
 	 * before IRQs are enabled, for non-sleeping (SOC) GPIOs.
 	 */
 
 	if (guard.gc->request) {
-		offset = gpio_chip_hwgpio(desc);
-		if (gpiochip_line_is_valid(guard.gc, offset))
-			ret = guard.gc->request(guard.gc, offset);
-		else
-			ret = -EINVAL;
+		ret = guard.gc->request(guard.gc, offset);
+		if (ret > 0)
+			ret = -EBADE;
 		if (ret)
 			goto out_clear_bit;
 	}
