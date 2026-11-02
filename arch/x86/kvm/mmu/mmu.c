@@ -4711,6 +4711,10 @@ static int kvm_tdp_page_prefault(struct kvm_vcpu *vcpu, gpa_t gpa,
 		if (kvm_check_request(KVM_REQ_VM_DEAD, vcpu))
 			return -EIO;
 
+		r = kvm_mmu_reload(vcpu);
+		if (r)
+			return r;
+
 		cond_resched();
 		r = kvm_mmu_do_page_fault(vcpu, gpa, error_code, true, NULL, level);
 	} while (r == RET_PF_RETRY);
@@ -4747,14 +4751,6 @@ long kvm_arch_vcpu_pre_fault_memory(struct kvm_vcpu *vcpu,
 
 	if (!vcpu->kvm->arch.pre_fault_allowed)
 		return -EOPNOTSUPP;
-
-	/*
-	 * reload is efficient when called repeatedly, so we can do it on
-	 * every iteration.
-	 */
-	r = kvm_mmu_reload(vcpu);
-	if (r)
-		return r;
 
 	direct_bits = 0;
 	if (kvm_arch_has_private_mem(vcpu->kvm) &&
