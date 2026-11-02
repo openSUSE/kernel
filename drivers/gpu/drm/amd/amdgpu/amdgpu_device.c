@@ -3331,6 +3331,18 @@ int amdgpu_device_gpu_recover(struct amdgpu_device *adev,
 		amdgpu_fence_driver_force_completion(ring);
 	}
 
+	/*
+	 * KIQ rings are polling-fence/no_scheduler like MES, so realign their
+	 * fence too (one ring per XCC), otherwise the first post-reset KIQ
+	 * submission polls forever on a stale seq.
+	 */
+	{
+		struct amdgpu_ring *kiq_ring = &adev->gfx.kiq.ring;
+
+		if (kiq_ring->fence_drv.initialized)
+			amdgpu_fence_driver_force_completion(kiq_ring);
+	}
+
 	if (amdgpu_sriov_vf(adev))
 		r = amdgpu_device_reset_sriov(adev, job ? false : true);
 	else
