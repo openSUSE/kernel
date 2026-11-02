@@ -3843,8 +3843,10 @@ smb2_new_read_req(void **buf, unsigned int *total_len,
 		return rc;
 
 	server = io_parms->tcon->ses->server;
-	if (server == NULL)
-		return -ECONNABORTED;
+	if (!server) {
+		rc = -ECONNABORTED;
+		goto free_req;
+	}
 
 	shdr = &req->sync_hdr;
 	shdr->ProcessId = cpu_to_le32(io_parms->pid);
@@ -3876,8 +3878,10 @@ smb2_new_read_req(void **buf, unsigned int *total_len,
 				server->smbd_conn, rdata->pages,
 				rdata->nr_pages, rdata->page_offset,
 				rdata->tailsz, true, need_invalidate);
-		if (!rdata->mr)
-			return -EAGAIN;
+		if (!rdata->mr) {
+			rc = -EAGAIN;
+			goto free_req;
+		}
 
 		req->Channel = SMB2_CHANNEL_RDMA_V1_INVALIDATE;
 		if (need_invalidate)
@@ -3919,6 +3923,10 @@ smb2_new_read_req(void **buf, unsigned int *total_len,
 		req->RemainingBytes = 0;
 
 	*buf = req;
+	return rc;
+
+free_req:
+	cifs_small_buf_release(req);
 	return rc;
 }
 

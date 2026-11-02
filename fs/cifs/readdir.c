@@ -855,7 +855,7 @@ find_cifs_entry(const unsigned int xid, struct cifs_tcon *tcon, loff_t pos,
 
 static int cifs_filldir(char *find_entry, struct file *file,
 		struct dir_context *ctx,
-		char *scratch_buf, unsigned int max_len)
+		char *scratch_buf, unsigned int max_len, char *end_of_smb)
 {
 	struct cifsFileInfo *file_info = file->private_data;
 	struct super_block *sb = file_inode(file)->i_sb;
@@ -874,6 +874,11 @@ static int cifs_filldir(char *find_entry, struct file *file,
 	if (de.namelen > max_len) {
 		cifs_dbg(VFS, "bad search response length %zd past smb end\n",
 			 de.namelen);
+		return -EINVAL;
+	}
+
+	if (de.name + de.namelen > end_of_smb) {
+		cifs_dbg(VFS, "search entry name extends past end of SMB\n");
 		return -EINVAL;
 	}
 
@@ -1039,7 +1044,7 @@ int cifs_readdir(struct file *file, struct dir_context *ctx)
 		 */
 		*tmp_buf = 0;
 		rc = cifs_filldir(current_entry, file, ctx,
-				  tmp_buf, max_len);
+				  tmp_buf, max_len, end_of_smb);
 		if (rc) {
 			if (rc > 0)
 				rc = 0;
