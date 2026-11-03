@@ -48,6 +48,8 @@ static inline int rtnl_msg_family(const struct nlmsghdr *nlh)
  *	@list: Used internally
  *	@kind: Identifier
  *	@netns_refund: Physical device, move to init_net on netns exit
+ *	@newlink_has_skb: True for devices with peer which need an extra skb
+ *		argument for peer netns privileges check
  *	@maxtype: Highest device specific netlink attribute number
  *	@policy: Netlink policy for device specific attribute validation
  *	@validate: Optional validation function for netlink/changelink parameters
@@ -57,6 +59,7 @@ static inline int rtnl_msg_family(const struct nlmsghdr *nlh)
  *	@priv_size: sizeof net_device private space
  *	@setup: net_device setup function
  *	@newlink: Function for configuring and registering a new device
+ *	@newlink_skb: Same as @newlink but with extra skb argument
  *	@changelink: Function for changing parameters of an existing device
  *	@dellink: Function to remove a device
  *	@get_size: Function to calculate required room for dumping device
@@ -88,17 +91,26 @@ struct rtnl_link_ops {
 	void			(*setup)(struct net_device *dev);
 
 	bool			netns_refund;
+	bool			newlink_has_skb;
 	unsigned int		maxtype;
 	const struct nla_policy	*policy;
 	int			(*validate)(struct nlattr *tb[],
 					    struct nlattr *data[],
 					    struct netlink_ext_ack *extack);
 
+	union {
 	int			(*newlink)(struct net *src_net,
 					   struct net_device *dev,
 					   struct nlattr *tb[],
 					   struct nlattr *data[],
 					   struct netlink_ext_ack *extack);
+	int			(*newlink_skb)(struct net *src_net,
+					   struct net_device *dev,
+					   struct nlattr *tb[],
+					   struct nlattr *data[],
+					   struct netlink_ext_ack *extack,
+					   struct sk_buff *skb);
+	};
 	int			(*changelink)(struct net_device *dev,
 					      struct nlattr *tb[],
 					      struct nlattr *data[],
@@ -140,6 +152,7 @@ int __rtnl_link_register(struct rtnl_link_ops *ops);
 void __rtnl_link_unregister(struct rtnl_link_ops *ops);
 
 int rtnl_link_register(struct rtnl_link_ops *ops);
+int rtnl_link_register_with_newlink_skb(struct rtnl_link_ops *ops);
 void rtnl_link_unregister(struct rtnl_link_ops *ops);
 
 /**
