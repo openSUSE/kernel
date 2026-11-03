@@ -1161,8 +1161,10 @@ static void kvmhv_emulate_tlbie_all_lpid(struct kvm_vcpu *vcpu, int ric)
 	for (i = 0; i <= kvm->arch.max_nested_lpid; i++) {
 		gp = kvm->arch.nested_guests[i];
 		if (gp) {
+			++gp->refcnt;
 			spin_unlock(&kvm->mmu_lock);
 			kvmhv_emulate_tlbie_lpid(vcpu, gp, ric);
+			kvmhv_put_nested(gp);
 			spin_lock(&kvm->mmu_lock);
 		}
 	}
