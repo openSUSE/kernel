@@ -42,6 +42,68 @@ static inline int rtnl_msg_family(const struct nlmsghdr *nlh)
 		return AF_UNSPEC;
 }
 
+struct __orig_rtnl_link_ops {
+	struct list_head	list;
+
+	const char		*kind;
+
+	size_t			priv_size;
+	struct net_device	*(*alloc)(struct nlattr *tb[],
+					  const char *ifname,
+					  unsigned char name_assign_type,
+					  unsigned int num_tx_queues,
+					  unsigned int num_rx_queues);
+	void			(*setup)(struct net_device *dev);
+
+	bool			netns_refund;
+	unsigned int		maxtype;
+	const struct nla_policy	*policy;
+	int			(*validate)(struct nlattr *tb[],
+					    struct nlattr *data[],
+					    struct netlink_ext_ack *extack);
+
+	int			(*newlink)(struct net *src_net,
+					   struct net_device *dev,
+					   struct nlattr *tb[],
+					   struct nlattr *data[],
+					   struct netlink_ext_ack *extack);
+	int			(*changelink)(struct net_device *dev,
+					      struct nlattr *tb[],
+					      struct nlattr *data[],
+					      struct netlink_ext_ack *extack);
+	void			(*dellink)(struct net_device *dev,
+					   struct list_head *head);
+
+	size_t			(*get_size)(const struct net_device *dev);
+	int			(*fill_info)(struct sk_buff *skb,
+					     const struct net_device *dev);
+
+	size_t			(*get_xstats_size)(const struct net_device *dev);
+	int			(*fill_xstats)(struct sk_buff *skb,
+					       const struct net_device *dev);
+	unsigned int		(*get_num_tx_queues)(void);
+	unsigned int		(*get_num_rx_queues)(void);
+
+	unsigned int		slave_maxtype;
+	const struct nla_policy	*slave_policy;
+	int			(*slave_changelink)(struct net_device *dev,
+						    struct net_device *slave_dev,
+						    struct nlattr *tb[],
+						    struct nlattr *data[],
+						    struct netlink_ext_ack *extack);
+	size_t			(*get_slave_size)(const struct net_device *dev,
+						  const struct net_device *slave_dev);
+	int			(*fill_slave_info)(struct sk_buff *skb,
+						   const struct net_device *dev,
+						   const struct net_device *slave_dev);
+	struct net		*(*get_link_net)(const struct net_device *dev);
+	size_t			(*get_linkxstats_size)(const struct net_device *dev,
+						       int attr);
+	int			(*fill_linkxstats)(struct sk_buff *skb,
+						   const struct net_device *dev,
+						   int *prividx, int attr);
+};
+
 /**
  *	struct rtnl_link_ops - rtnetlink link operations
  *
@@ -91,19 +153,24 @@ struct rtnl_link_ops {
 	void			(*setup)(struct net_device *dev);
 
 	bool			netns_refund;
+#ifndef __GENKSYMS__
 	bool			newlink_has_skb;
+#endif
 	unsigned int		maxtype;
 	const struct nla_policy	*policy;
 	int			(*validate)(struct nlattr *tb[],
 					    struct nlattr *data[],
 					    struct netlink_ext_ack *extack);
 
+#ifndef __GENKSYMS__
 	union {
+#endif
 	int			(*newlink)(struct net *src_net,
 					   struct net_device *dev,
 					   struct nlattr *tb[],
 					   struct nlattr *data[],
 					   struct netlink_ext_ack *extack);
+#ifndef __GENKSYMS__
 	int			(*newlink_skb)(struct net *src_net,
 					   struct net_device *dev,
 					   struct nlattr *tb[],
@@ -111,6 +178,7 @@ struct rtnl_link_ops {
 					   struct netlink_ext_ack *extack,
 					   struct sk_buff *skb);
 	};
+#endif
 	int			(*changelink)(struct net_device *dev,
 					      struct nlattr *tb[],
 					      struct nlattr *data[],
@@ -147,6 +215,10 @@ struct rtnl_link_ops {
 						   const struct net_device *dev,
 						   int *prividx, int attr);
 };
+suse_kabi_static_assert(offsetof(struct rtnl_link_ops, maxtype) ==
+			offsetof(struct __orig_rtnl_link_ops, maxtype));
+suse_kabi_static_assert(offsetof(struct rtnl_link_ops, changelink) ==
+			offsetof(struct __orig_rtnl_link_ops, changelink));
 
 int __rtnl_link_register(struct rtnl_link_ops *ops);
 void __rtnl_link_unregister(struct rtnl_link_ops *ops);
