@@ -69,10 +69,17 @@ struct cpc_register_resource {
 	acpi_object_type type;
 	u64 __iomem *sys_mem_vaddr;
 	union {
-		struct cpc_reg reg;
+		struct {
+			struct cpc_reg reg;
+			bool use_rmw_lock;
+			bool read_unsupported;
+			bool write_unsupported;
+		};
 		u64 int_value;
 	} cpc_entry;
 };
+
+struct cpc_sysmem_node;
 
 /* Container to hold the CPC details for each CPU */
 struct cpc_desc {
@@ -81,10 +88,11 @@ struct cpc_desc {
 	int cpu_id;
 	int write_cmd_status;
 	int write_cmd_id;
-	/* Lock used for RMW operations in cpc_write() */
+	/* Serialize partial SystemMemory writes within this descriptor. */
 	raw_spinlock_t rmw_lock;
 	struct cpc_register_resource cpc_regs[MAX_CPC_REG_ENT];
 	struct acpi_psd_package domain_info;
+	struct cpc_sysmem_node *sysmem_nodes;
 	struct kobject kobj;
 };
 
@@ -138,6 +146,8 @@ struct cppc_perf_ctrls {
 	u32 desired_perf;
 	u32 energy_perf;
 	bool auto_sel;
+	/* Allow an explicit zero minimum; otherwise zero omits the update. */
+	bool min_perf_valid;
 };
 
 struct cppc_perf_fb_ctrs {
@@ -170,7 +180,7 @@ extern bool cppc_perf_ctrs_in_pcc(void);
 extern unsigned int cppc_perf_to_khz(struct cppc_perf_caps *caps, unsigned int perf);
 extern unsigned int cppc_khz_to_perf(struct cppc_perf_caps *caps, unsigned int freq);
 extern bool acpi_cpc_valid(void);
-extern bool cppc_allow_fast_switch(void);
+bool cppc_allow_fast_switch(const struct cpumask *cpus);
 extern int acpi_get_psd_map(unsigned int cpu, struct cppc_cpudata *cpu_data);
 extern int cppc_get_transition_latency(int cpu);
 extern bool cpc_ffh_supported(void);
@@ -234,7 +244,8 @@ static inline bool acpi_cpc_valid(void)
 {
 	return false;
 }
-static inline bool cppc_allow_fast_switch(void)
+
+static inline bool cppc_allow_fast_switch(const struct cpumask *cpus)
 {
 	return false;
 }
