@@ -5163,6 +5163,8 @@ one_more:
 		return -1;
 	}
 
+	server->total_read = shdr->NextCommand ?
+			     le32_to_cpu(shdr->NextCommand) : pdu_length;
 	if (shdr->NextCommand) {
 		if (next_is_large)
 			next_buffer = (char *)cifs_buf_get();
