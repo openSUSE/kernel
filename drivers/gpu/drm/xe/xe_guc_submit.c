@@ -1598,6 +1598,8 @@ static int guc_exec_queue_init(struct xe_exec_queue *q)
 	init_rcu_head(&ge->rcu);
 	init_waitqueue_head(&ge->suspend_wait);
 
+	strscpy(ge->name, q->name, sizeof(ge->name));
+
 	for (i = 0; i < MAX_STATIC_MSG_TYPE; ++i)
 		INIT_LIST_HEAD(&ge->static_msgs[i].link);
 
@@ -1606,7 +1608,7 @@ static int guc_exec_queue_init(struct xe_exec_queue *q)
 	err = xe_sched_init(&ge->sched, &drm_sched_ops, &xe_sched_ops,
 			    NULL, q->lrc[0]->ring.size / MAX_JOB_SIZE_BYTES, 64,
 			    timeout, guc_to_gt(guc)->ordered_wq, NULL,
-			    q->name, gt_to_xe(q->gt)->drm.dev);
+			    ge->name, gt_to_xe(q->gt)->drm.dev);
 	if (err)
 		goto err_free;
 
