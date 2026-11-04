@@ -329,7 +329,7 @@ static struct rtnl_link_ops netkit_link_ops;
 
 static int netkit_new_link(struct net *src_net, struct net_device *dev,
 			   struct nlattr *tb[], struct nlattr *data[],
-			   struct netlink_ext_ack *extack)
+			   struct netlink_ext_ack *extack, struct sk_buff *skb)
 {
 	struct nlattr *peer_tb[IFLA_MAX + 1], **tbp = tb, *attr;
 	enum netkit_action default_prim = NETKIT_PASS;
@@ -392,6 +392,10 @@ static int netkit_new_link(struct net *src_net, struct net_device *dev,
 	net = rtnl_link_get_net(src_net, tbp);
 	if (IS_ERR(net))
 		return PTR_ERR(net);
+	if (skb && !netlink_ns_capable(skb, net->user_ns, CAP_NET_ADMIN)) {
+		put_net(net);
+		return -EPERM;
+	}
 
 	peer = rtnl_create_link(net, ifname, ifname_assign_type,
 				&netkit_link_ops, tbp, extack);
@@ -947,7 +951,8 @@ static struct rtnl_link_ops netkit_link_ops = {
 	.kind		= DRV_NAME,
 	.priv_size	= sizeof(struct netkit),
 	.setup		= netkit_setup,
-	.newlink	= netkit_new_link,
+	.newlink_has_skb = true,
+	.newlink_skb	= netkit_new_link,
 	.dellink	= netkit_del_link,
 	.changelink	= netkit_change_link,
 	.get_link_net	= netkit_get_link_net,
@@ -965,7 +970,7 @@ static __init int netkit_init(void)
 		     (int)NETKIT_DROP != (int)TCX_DROP ||
 		     (int)NETKIT_REDIRECT != (int)TCX_REDIRECT);
 
-	return rtnl_link_register(&netkit_link_ops);
+	return rtnl_link_register_with_newlink_skb(&netkit_link_ops);
 }
 
 static __exit void netkit_exit(void)
