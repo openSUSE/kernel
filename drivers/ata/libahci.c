@@ -877,6 +877,8 @@ static void ahci_start_port(struct ata_port *ap)
 	/* turn on LEDs */
 	if (ap->flags & ATA_FLAG_EM) {
 		ata_for_each_link(link, ap, EDGE) {
+			if (link->pmp >= EM_MAX_SLOTS)
+				continue;
 			emp = &pp->em_priv[link->pmp];
 
 			/* EM Transmit bit maybe busy during init */
@@ -981,8 +983,11 @@ static void ahci_sw_activity(struct ata_link *link)
 {
 	struct ata_port *ap = link->ap;
 	struct ahci_port_priv *pp = ap->private_data;
-	struct ahci_em_priv *emp = &pp->em_priv[link->pmp];
+	struct ahci_em_priv *emp;
 
+	if (link->pmp >= EM_MAX_SLOTS)
+		return;
+	emp = &pp->em_priv[link->pmp];
 	if (!(link->flags & ATA_LFLAG_SW_ACTIVITY))
 		return;
 
@@ -996,11 +1001,15 @@ static void ahci_sw_activity_blink(unsigned long arg)
 	struct ata_link *link = (struct ata_link *)arg;
 	struct ata_port *ap = link->ap;
 	struct ahci_port_priv *pp = ap->private_data;
-	struct ahci_em_priv *emp = &pp->em_priv[link->pmp];
-	unsigned long led_message = emp->led_state;
+	struct ahci_em_priv *emp;
+	unsigned long led_message;
 	u32 activity_led_state;
 	unsigned long flags;
 
+	if (link->pmp >= EM_MAX_SLOTS)
+		return;
+	emp = &pp->em_priv[link->pmp];
+	led_message = emp->led_state;
 	led_message &= EM_MSG_LED_VALUE;
 	led_message |= ap->port_no | (link->pmp << 8);
 
@@ -1039,9 +1048,13 @@ static void ahci_init_sw_activity(struct ata_link *link)
 {
 	struct ata_port *ap = link->ap;
 	struct ahci_port_priv *pp = ap->private_data;
-	struct ahci_em_priv *emp = &pp->em_priv[link->pmp];
+	struct ahci_em_priv *emp;
+
+	if (link->pmp >= EM_MAX_SLOTS)
+		return;
 
 	/* init activity stats, setup timer */
+	emp = &pp->em_priv[link->pmp];
 	emp->saved_activity = emp->activity = 0;
 	setup_timer(&emp->timer, ahci_sw_activity_blink, (unsigned long)link);
 
@@ -1135,8 +1148,10 @@ static ssize_t ahci_led_show(struct ata_port *ap, char *buf)
 	int rc = 0;
 
 	ata_for_each_link(link, ap, EDGE) {
-		emp = &pp->em_priv[link->pmp];
-		rc += sprintf(buf, "%lx\n", emp->led_state);
+		if (link->pmp < EM_MAX_SLOTS) {
+			emp = &pp->em_priv[link->pmp];
+			rc += sprintf(buf, "%lx\n", emp->led_state);
+		}
 	}
 	return rc;
 }
@@ -1176,9 +1191,13 @@ static ssize_t ahci_activity_store(struct ata_device *dev, enum sw_activity val)
 	struct ata_link *link = dev->link;
 	struct ata_port *ap = link->ap;
 	struct ahci_port_priv *pp = ap->private_data;
-	struct ahci_em_priv *emp = &pp->em_priv[link->pmp];
-	u32 port_led_state = emp->led_state;
+	struct ahci_em_priv *emp;
+	u32 port_led_state;
 
+	if (link->pmp >= EM_MAX_SLOTS)
+		return 0;
+	emp = &pp->em_priv[link->pmp];
+	port_led_state = emp->led_state;
 	/* save the desired Activity LED behavior */
 	if (val == OFF) {
 		/* clear LFLAG */
@@ -1207,8 +1226,11 @@ static ssize_t ahci_activity_show(struct ata_device *dev, char *buf)
 	struct ata_link *link = dev->link;
 	struct ata_port *ap = link->ap;
 	struct ahci_port_priv *pp = ap->private_data;
-	struct ahci_em_priv *emp = &pp->em_priv[link->pmp];
+	struct ahci_em_priv *emp;
 
+	if (link->pmp > EM_MAX_SLOTS)
+		return 0;
+	emp = &pp->em_priv[link->pmp];
 	/* display the saved value of activity behavior for this
 	 * disk.
 	 */
