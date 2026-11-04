@@ -151,6 +151,7 @@ static int xdp_umem_account_pages(struct xdp_umem *umem)
 #define XDP_UMEM_FLAGS_VALID ( \
 		XDP_UMEM_UNALIGNED_CHUNK_FLAG | \
 		XDP_UMEM_TX_SW_CSUM | \
+		XDP_UMEM_TX_METADATA_LEN | \
 	0)
 
 static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
@@ -205,10 +206,13 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 		       SKB_DATA_ALIGN(sizeof(struct skb_shared_info)) - 128)
 		return -EINVAL;
 
-	if (mr->tx_metadata_len >= 256 || mr->tx_metadata_len % 8)
-		return -EINVAL;
-	if (mr->tx_metadata_len < 16)
-		return -EINVAL;
+	if (mr->flags & XDP_UMEM_TX_METADATA_LEN) {
+		if (mr->tx_metadata_len >= 256 || mr->tx_metadata_len % 8)
+			return -EINVAL;
+		if (mr->tx_metadata_len < 16)
+			return -EINVAL;
+		umem->tx_metadata_len = mr->tx_metadata_len;
+	}
 
 	umem->size = size;
 	umem->headroom = headroom;
@@ -218,7 +222,6 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 	umem->pgs = NULL;
 	umem->user = NULL;
 	umem->flags = mr->flags;
-	umem->tx_metadata_len = mr->tx_metadata_len;
 
 	INIT_LIST_HEAD(&umem->xsk_dma_list);
 	refcount_set(&umem->users, 1);
