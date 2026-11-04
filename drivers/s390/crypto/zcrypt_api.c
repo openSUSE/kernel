@@ -859,8 +859,7 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 	struct zcrypt_queue *zq, *pref_zq;
 	struct ap_message ap_msg;
 	unsigned int wgt = 0, pref_wgt = 0;
-	unsigned int func_code = 0;
-	unsigned short *domain, tdom;
+	unsigned int domain, _dom, func_code = 0;
 	int cpen, qpen, qid = 0, rc;
 	struct module *mod;
 
@@ -879,10 +878,17 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 	print_hex_dump_debug("ccareq: ", DUMP_PREFIX_ADDRESS, 16, 1,
 			     ap_msg.msg, ap_msg.len, false);
 
-	tdom = *domain;
-	if (perms != &ap_perms && tdom < AP_DOMAINS) {
+	/* Check domain for either AUTOSEL_DOM or in range 0...AP_DOMAINS-1 */
+	if (domain != AUTOSEL_DOM && domain >= AP_DOMAINS) {
+		rc = -EINVAL;
+		goto out;
+	}
+	/* Spectre-v1: sanitize domain unconditionally for later use */
+	_dom = array_index_nospec(domain, AP_DOMAINS);
+
+	if (perms != &ap_perms && domain < AP_DOMAINS) {
 		if (ap_msg.flags & AP_MSG_FLAG_ADMIN) {
-			if (!test_bit_inv(tdom, perms->adm)) {
+			if (!test_bit_inv(_dom, perms->adm)) {
 				rc = -ENODEV;
 				goto out;
 			}
@@ -895,10 +901,11 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 	 * If a valid target domain is set and this domain is NOT a usage
 	 * domain but a control only domain, autoselect target domain.
 	 */
-	if (tdom < AP_DOMAINS &&
-	    !ap_test_config_usage_domain(tdom) &&
-	    ap_test_config_ctrl_domain(tdom))
-		tdom = AUTOSEL_DOM;
+	if (domain < AP_DOMAINS) {
+		if (!ap_test_config_usage_domain(_dom) &&
+		    ap_test_config_ctrl_domain(_dom))
+			domain = AUTOSEL_DOM;
+	}
 
 	pref_zc = NULL;
 	pref_zq = NULL;
@@ -930,8 +937,8 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 			/* check for device usable and eligible */
 			if (!zq->online || !zq->ops->send_cprb ||
 			    !ap_queue_usable(zq->queue) ||
-			    (tdom != AUTOSEL_DOM &&
-			     tdom != AP_QID_QUEUE(zq->queue->qid)))
+			    (domain != AUTOSEL_DOM &&
+			     domain != AP_QID_QUEUE(zq->queue->qid)))
 				continue;
 			/* check if device node has admission for this queue */
 			if (!zcrypt_check_queue(perms,
@@ -954,15 +961,10 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 
 	if (!pref_zq) {
 		pr_debug("no match for address %02x.%04x => ENODEV\n",
-			 xcrb->user_defined, *domain);
+			 xcrb->user_defined, domain);
 		rc = -ENODEV;
 		goto out;
 	}
-
-	/* in case of auto select, provide the correct domain */
-	qid = pref_zq->queue->qid;
-	if (*domain == AUTOSEL_DOM)
-		*domain = AP_QID_QUEUE(qid);
 
 	rc = pref_zq->ops->send_cprb(userspace, pref_zq, xcrb, &ap_msg);
 	if (!rc) {
@@ -1048,7 +1050,7 @@ static long _zcrypt_send_ep11_cprb(u32 xflags, struct ap_perms *perms,
 	struct ep11_target_dev *targets = NULL;
 	unsigned short target_num;
 	unsigned int wgt = 0, pref_wgt = 0;
-	unsigned int func_code = 0, domain;
+	unsigned int func_code = 0, domain, _dom;
 	struct ap_message ap_msg;
 	int cpen, qpen, qid = 0, rc;
 	struct module *mod;
@@ -1085,9 +1087,17 @@ static long _zcrypt_send_ep11_cprb(u32 xflags, struct ap_perms *perms,
 	print_hex_dump_debug("ep11req: ", DUMP_PREFIX_ADDRESS, 16, 1,
 			     ap_msg.msg, ap_msg.len, false);
 
+	/* Check domain for either AUTOSEL_DOM or in range 0...AP_DOMAINS-1 */
+	if (domain != AUTOSEL_DOM && domain >= AP_DOMAINS) {
+		rc = -EINVAL;
+		goto out;
+	}
+	/* Spectre-v1: sanitize domain unconditionally for later use */
+	_dom = array_index_nospec(domain, AP_DOMAINS);
+
 	if (perms != &ap_perms && domain < AP_DOMAINS) {
 		if (ap_msg.flags & AP_MSG_FLAG_ADMIN) {
-			if (!test_bit_inv(domain, perms->adm)) {
+			if (!test_bit_inv(_dom, perms->adm)) {
 				rc = -ENODEV;
 				goto out;
 			}
@@ -1221,7 +1231,6 @@ static long zcrypt_rng(char *buffer)
 	unsigned int wgt = 0, pref_wgt = 0;
 	unsigned int func_code = 0;
 	struct ap_message ap_msg;
-	unsigned int domain;
 	int qid = 0, rc = -ENODEV;
 	struct module *mod;
 
@@ -1230,7 +1239,7 @@ static long zcrypt_rng(char *buffer)
 	rc = ap_init_apmsg(&ap_msg, 0);
 	if (rc)
 		goto out;
-	rc = prep_rng_ap_msg(&ap_msg, &func_code, &domain);
+	rc = prep_rng_ap_msg(&ap_msg, &func_code, NULL);
 	if (rc)
 		goto out;
 
