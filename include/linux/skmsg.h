@@ -175,9 +175,12 @@ static inline void sk_msg_xfer(struct sk_msg *dst, struct sk_msg *src,
 			       int which, u32 size)
 {
 	dst->sg.data[which] = src->sg.data[which];
+	dst->sg.copy[which] = src->sg.copy[which];
 	dst->sg.data[which].length  = size;
 	src->sg.data[which].length -= size;
 	src->sg.data[which].offset += size;
+	if (!src->sg.data[which].length)
+		src->sg.copy[which] = false;
 }
 
 static inline void sk_msg_xfer_full(struct sk_msg *dst, struct sk_msg *src)
@@ -249,6 +252,12 @@ static inline void sk_msg_sg_copy(struct sk_msg *msg, u32 i, bool copy_state)
 		if (i == msg->sg.end)
 			break;
 	} while (1);
+}
+
+static inline void sk_msg_sg_copy_assign(struct sk_msg *dst, u32 dst_i,
+					 const struct sk_msg *src, u32 src_i)
+{
+	dst->sg.copy[dst_i] = src->sg.copy[src_i];
 }
 
 static inline void sk_msg_sg_copy_set(struct sk_msg *msg, u32 start)
