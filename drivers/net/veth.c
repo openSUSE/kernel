@@ -1455,7 +1455,7 @@ static void veth_disable_gro(struct net_device *dev)
 
 static int veth_newlink(struct net *src_net, struct net_device *dev,
 			struct nlattr *tb[], struct nlattr *data[],
-			struct netlink_ext_ack *extack)
+			struct netlink_ext_ack *extack, struct sk_buff *skb)
 {
 	int err;
 	struct net_device *peer;
@@ -1502,6 +1502,10 @@ static int veth_newlink(struct net *src_net, struct net_device *dev,
 	net = rtnl_link_get_net(src_net, tbp);
 	if (IS_ERR(net))
 		return PTR_ERR(net);
+	if (skb && !netlink_ns_capable(skb, net->user_ns, CAP_NET_ADMIN)) {
+		put_net(net);
+		return -EPERM;
+	}
 
 	peer = rtnl_create_link(net, ifname, name_assign_type,
 				&veth_link_ops, tbp, extack);
@@ -1618,8 +1622,9 @@ static struct rtnl_link_ops veth_link_ops = {
 	.kind		= DRV_NAME,
 	.priv_size	= sizeof(struct veth_priv),
 	.setup		= veth_setup,
+	.newlink_has_skb = true,
 	.validate	= veth_validate,
-	.newlink	= veth_newlink,
+	.newlink_skb	= veth_newlink,
 	.dellink	= veth_dellink,
 	.policy		= veth_policy,
 	.maxtype	= VETH_INFO_MAX,
@@ -1632,7 +1637,7 @@ static struct rtnl_link_ops veth_link_ops = {
 
 static __init int veth_init(void)
 {
-	return rtnl_link_register(&veth_link_ops);
+	return rtnl_link_register_with_newlink_skb(&veth_link_ops);
 }
 
 static __exit void veth_exit(void)
