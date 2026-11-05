@@ -341,6 +341,10 @@ int __rtnl_link_register(struct rtnl_link_ops *ops)
 	if (ops->setup && !ops->dellink)
 		ops->dellink = unregister_netdevice_queue;
 
+	/* make sure newlink_has_skb is false unless called from drivers
+	 * patched to address CVE-2026-31692 */
+	ops->newlink_has_skb = false;
+
 	list_add_tail(&ops->list, &link_ops);
 	return 0;
 }
@@ -362,6 +366,34 @@ int rtnl_link_register(struct rtnl_link_ops *ops)
 	return err;
 }
 EXPORT_SYMBOL_GPL(rtnl_link_register);
+
+/**
+ * rtnl_link_register_with_newlink_skb - Register rtnl_link_ops with rtnetlink.
+ * @ops: struct rtnl_link_ops * to register
+ *
+ * Restore ops->newlink_has_skb which is cleared by rtnl_link_register()
+ * and __rtnl_link_register() to make sure only drivers patched to address
+ * CVE-2026-31692 have newlink_has_skb set. Rather than duplicating
+ * __rtnl_link_register(), we save the value and restore it while holding the
+ * RTNL lock.
+ *
+ * Returns 0 on success or a negative error code.
+ */
+int rtnl_link_register_with_newlink_skb(struct rtnl_link_ops *ops)
+{
+	bool newlink_has_skb;
+	int err;
+
+	rtnl_lock();
+	newlink_has_skb = ops->newlink_has_skb;
+	WARN_ONCE(!newlink_has_skb,
+		  "rtnl_link_register_with_newlink_skb() called with newlink_has_skb unset");
+	err = __rtnl_link_register(ops);
+	ops->newlink_has_skb = newlink_has_skb;
+	rtnl_unlock();
+	return err;
+}
+EXPORT_SYMBOL_GPL(rtnl_link_register_with_newlink_skb);
 
 static void __rtnl_kill_links(struct net *net, struct rtnl_link_ops *ops)
 {
@@ -2817,8 +2849,12 @@ replay:
 		dev->ifindex = ifm->ifi_index;
 
 		if (ops->newlink) {
-			err = ops->newlink(link_net ? : net, dev, tb, data,
-					   extack);
+			if (ops->newlink_has_skb)
+				err = ops->newlink_skb(link_net ? : net, dev, tb, data,
+						       extack, skb);
+			else
+				err = ops->newlink(link_net ? : net, dev, tb, data,
+						   extack);
 			/* Drivers should call free_netdev() in ->destructor
 			 * and unregister it on failure after registration
 			 * so that device could be finally freed in rtnl_unlock.
