@@ -377,7 +377,7 @@ out_fail:
 		list_del(&iod->ls_list);
 	}
 
-	kfree(iod);
+	kfree(tgtport->iod);
 
 	return -EFAULT;
 }
