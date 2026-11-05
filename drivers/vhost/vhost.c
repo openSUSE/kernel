@@ -1484,6 +1484,7 @@ long vhost_vring_ioctl(struct vhost_dev *d, int ioctl, void __user *argp)
 			break;
 		}
 		vq->num = s.num;
+		__vhost_vq_meta_reset(vq);
 		break;
 	case VHOST_SET_VRING_BASE:
 		/* Moving base with an active backend?
@@ -1564,6 +1565,7 @@ long vhost_vring_ioctl(struct vhost_dev *d, int ioctl, void __user *argp)
 		vq->avail = (void __user *)(unsigned long)a.avail_user_addr;
 		vq->log_addr = a.log_guest_addr;
 		vq->used = (void __user *)(unsigned long)a.used_user_addr;
+		__vhost_vq_meta_reset(vq);
 		break;
 	case VHOST_SET_VRING_KICK:
 		if (copy_from_user(&f, argp, sizeof f)) {
