@@ -4638,6 +4638,9 @@ static int qeth_snmp_command(struct qeth_card *card, char __user *udata)
 		       sizeof(struct qeth_ipacmd_hdr) -
 		       sizeof(struct qeth_ipacmd_setadpparms_hdr)))
 		return -EINVAL;
+	if (req_len < sizeof(struct qeth_snmp_ureq_hdr))
+		return -EINVAL;
+
 	ureq = memdup_user(udata, req_len + sizeof(struct qeth_snmp_ureq_hdr));
 	if (IS_ERR(ureq)) {
 		QETH_CARD_TEXT(card, 2, "snmpnome");
