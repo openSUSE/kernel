@@ -64,6 +64,7 @@ int sk_msg_alloc(struct sock *sk, struct sk_msg *msg, int len,
 			sge = &msg->sg.data[msg->sg.end];
 			sg_unmark_end(sge);
 			sg_set_page(sge, pfrag->page, use, orig_offset);
+			msg->sg.copy[msg->sg.end] = false;
 			get_page(pfrag->page);
 			sk_msg_iter_next(msg, end);
 		}
@@ -173,6 +174,7 @@ static int sk_msg_free_elem(struct sock *sk, struct sk_msg *msg, u32 i,
 		sk_mem_uncharge(sk, len);
 	if (!msg->skb)
 		put_page(sg_page(sge));
+	msg->sg.copy[i] = false;
 	memset(sge, 0, sizeof(*sge));
 	return len;
 }
