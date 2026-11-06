@@ -911,6 +911,15 @@ struct mqd_manager *mqd_manager_init_v9(enum KFD_MQD_TYPE type,
 		mqd->is_occupied = kfd_is_occupied_cp;
 		mqd->get_checkpoint_info = get_checkpoint_info;
 		mqd->mqd_size = sizeof(struct v9_mqd);
+        	if (dev->kfd->cwsr_enabled) {
+			struct kfd_topology_device *topo_dev;
+
+			topo_dev = kfd_topology_device_by_id(dev->id);
+			if (topo_dev)
+				mqd->ctl_stack_size =
+					ALIGN(0x7000,
+					      AMDGPU_GPU_PAGE_SIZE);
+		}
 		mqd->mqd_stride = mqd_stride_v9;
 #if defined(CONFIG_DEBUG_FS)
 		mqd->debugfs_show_mqd = debugfs_show_mqd;
