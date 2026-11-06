@@ -83,7 +83,7 @@ struct vfio_group {
 	struct list_head		device_list;
 	struct mutex			device_lock;
 	struct list_head		vfio_next;
-#if IS_ENABLED(CONFIG_VFIO_CONTAINER)
+#if IS_ENABLED(CONFIG_VFIO_CONTAINER) || IS_ENABLED(CONFIG_IOMMUFD_VFIO_CONTAINER)
 	struct list_head		container_next;
 #endif
 	enum vfio_group_type		type;
@@ -195,7 +195,6 @@ static inline bool vfio_device_is_noiommu(struct vfio_device *vdev)
 }
 #endif /* CONFIG_VFIO_GROUP */
 
-#if IS_ENABLED(CONFIG_VFIO_CONTAINER)
 /**
  * struct vfio_iommu_driver_ops - VFIO IOMMU driver callbacks
  */
@@ -228,14 +227,17 @@ struct vfio_iommu_driver_ops {
 						   struct iommu_group *group);
 };
 
+#if IS_ENABLED(CONFIG_VFIO_CONTAINER)
 struct vfio_iommu_driver {
 	const struct vfio_iommu_driver_ops	*ops;
 	struct list_head			vfio_next;
 };
+#endif
 
 int vfio_register_iommu_driver(const struct vfio_iommu_driver_ops *ops);
 void vfio_unregister_iommu_driver(const struct vfio_iommu_driver_ops *ops);
 
+#if IS_ENABLED(CONFIG_VFIO_CONTAINER)
 struct vfio_container *vfio_container_from_file(struct file *filep);
 int vfio_group_use_container(struct vfio_group *group);
 void vfio_group_unuse_container(struct vfio_group *group);
@@ -363,7 +365,7 @@ static inline int vfio_device_add(struct vfio_device *device)
 	if (vfio_device_is_noiommu(device))
 		return device_add(&device->device);
 	vfio_init_device_cdev(device);
-	return cdev_device_add(&device->cdev, &device->device);
+	return cdev_device_add(&device->kabi_ext->cdev, &device->device);
 }
 
 static inline void vfio_device_del(struct vfio_device *device)
@@ -371,7 +373,7 @@ static inline void vfio_device_del(struct vfio_device *device)
 	if (vfio_device_is_noiommu(device))
 		device_del(&device->device);
 	else
-		cdev_device_del(&device->cdev, &device->device);
+		cdev_device_del(&device->kabi_ext->cdev, &device->device);
 }
 
 int vfio_device_fops_cdev_open(struct inode *inode, struct file *filep);

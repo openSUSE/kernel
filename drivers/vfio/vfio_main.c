@@ -221,9 +221,11 @@ struct vfio_device *_vfio_alloc_device(size_t size, struct device *dev,
 	if (WARN_ON(size < sizeof(struct vfio_device)))
 		return ERR_PTR(-EINVAL);
 
-	device = kvzalloc(size, GFP_KERNEL);
+	device = kvzalloc(size + sizeof(struct vfio_device_kabi_ext), GFP_KERNEL);
 	if (!device)
 		return ERR_PTR(-ENOMEM);
+	device->kabi_ext = (void *)device + size;
+	device->kabi_ext->vfio_device = device;
 
 	ret = vfio_init_device(device, dev, ops);
 	if (ret)
