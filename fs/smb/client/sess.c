@@ -163,8 +163,8 @@ int cifs_try_adding_channels(struct cifs_sb_info *cifs_sb, struct cifs_ses *ses)
 	int old_chan_count, new_chan_count;
 	int left;
 	int rc = 0;
-	int tries = 0;
-	struct cifs_server_iface *iface = NULL, *niface = NULL;
+	int tries = 0, attempts, nr_failed = 0, skip;
+	struct cifs_server_iface *iface = NULL, *candidate = NULL;
 
 	spin_lock(&ses->chan_lock);
 
@@ -198,11 +198,6 @@ int cifs_try_adding_channels(struct cifs_sb_info *cifs_sb, struct cifs_ses *ses)
 	 * long as its RSS. Try next fastest one if not RSS or channel
 	 * creation fails.
 	 */
-	spin_lock(&ses->iface_lock);
-	iface = list_first_entry(&ses->iface_list, struct cifs_server_iface,
-				 iface_head);
-	spin_unlock(&ses->iface_lock);
-
 	while (left > 0) {
 
 		tries++;
@@ -217,41 +212,79 @@ int cifs_try_adding_channels(struct cifs_sb_info *cifs_sb, struct cifs_ses *ses)
 			spin_unlock(&ses->iface_lock);
 			break;
 		}
+		spin_unlock(&ses->iface_lock);
 
-		list_for_each_entry_safe_from(iface, niface, &ses->iface_list,
-				    iface_head) {
-			/* skip ifaces that are unusable */
-			if (!iface->is_active ||
-			    (is_ses_using_iface(ses, iface) &&
-			     !iface->rss_capable)) {
-				continue;
+		attempts = 0;
+		while (left > 0) {
+			spin_lock(&ses->iface_lock);
+
+			/*
+			 * iface_lock must be dropped while opening a channel,
+			 * and a concurrent interface refresh may remove and
+			 * free entries during that window, so no list entry
+			 * may be kept across it without a reference.  Scan
+			 * the list from the beginning each time and only pass
+			 * a referenced candidate to cifs_ses_add_channel().
+			 */
+			candidate = NULL;
+			skip = nr_failed;
+			list_for_each_entry(iface, &ses->iface_list, iface_head) {
+				/* skip ifaces that are unusable */
+				if (!iface->is_active ||
+				    (is_ses_using_iface(ses, iface) &&
+				     !iface->rss_capable)) {
+					continue;
+				}
+
+				/* skip ifaces that already failed */
+				if (skip) {
+					skip--;
+					continue;
+				}
+
+				/* take ref before unlock */
+				kref_get(&iface->refcount);
+				candidate = iface;
+				break;
 			}
 
-			/* take ref before unlock */
-			kref_get(&iface->refcount);
+			if (!candidate) {
+				spin_unlock(&ses->iface_lock);
+				goto out;
+			}
+
+			attempts++;
+			if (attempts > 3 * ses->chan_max) {
+				kref_put(&candidate->refcount, release_iface);
+				spin_unlock(&ses->iface_lock);
+				break;
+			}
 
 			spin_unlock(&ses->iface_lock);
-			rc = cifs_ses_add_channel(cifs_sb, ses, iface);
+			rc = cifs_ses_add_channel(cifs_sb, ses, candidate);
 			spin_lock(&ses->iface_lock);
 
 			if (rc) {
 				cifs_dbg(VFS, "failed to open extra channel on iface:%pIS rc=%d\n",
-					 &iface->sockaddr,
+					 &candidate->sockaddr,
 					 rc);
-				kref_put(&iface->refcount, release_iface);
+				nr_failed++;
+				kref_put(&candidate->refcount, release_iface);
+				spin_unlock(&ses->iface_lock);
 				continue;
 			}
 
 			cifs_dbg(FYI, "successfully opened new channel on iface:%pIS\n",
-				 &iface->sockaddr);
+				 &candidate->sockaddr);
+			spin_unlock(&ses->iface_lock);
+
+			left--;
+			new_chan_count++;
 			break;
 		}
-		spin_unlock(&ses->iface_lock);
-
-		left--;
-		new_chan_count++;
 	}
 
+out:
 	return new_chan_count - old_chan_count;
 }
 
