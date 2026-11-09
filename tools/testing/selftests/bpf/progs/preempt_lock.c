@@ -113,6 +113,59 @@ int preempt_sleepable_helper(void *ctx)
 	return 0;
 }
 
+SEC("?uprobe.s")
+__failure __msg("sleepable helper bpf_get_stack#")
+int preempt_sleepable_get_stack(struct pt_regs *ctx)
+{
+	struct bpf_stack_build_id stack;
+
+	bpf_preempt_disable();
+	bpf_get_stack(ctx, &stack, sizeof(stack),
+		      BPF_F_USER_STACK | BPF_F_USER_BUILD_ID);
+	bpf_preempt_enable();
+	return 0;
+}
+
+SEC("?uprobe.s")
+__failure __msg("sleepable helper bpf_get_task_stack#")
+int preempt_sleepable_get_task_stack(void *ctx)
+{
+	struct bpf_stack_build_id stack;
+	struct task_struct *task;
+
+	task = bpf_get_current_task_btf();
+	bpf_preempt_disable();
+	bpf_get_task_stack(task, &stack, sizeof(stack),
+			   BPF_F_USER_STACK | BPF_F_USER_BUILD_ID);
+	bpf_preempt_enable();
+	return 0;
+}
+
+SEC("?uprobe.s")
+__success
+int sleepable_get_stack(struct pt_regs *ctx)
+{
+	struct bpf_stack_build_id stack;
+
+	bpf_get_stack(ctx, &stack, sizeof(stack),
+		      BPF_F_USER_STACK | BPF_F_USER_BUILD_ID);
+	return 0;
+}
+
+SEC("?uprobe.s")
+__success
+int sleepable_get_task_stack(void *ctx)
+{
+	struct bpf_stack_build_id stack;
+	struct task_struct *task;
+
+	task = bpf_get_current_task_btf();
+	bpf_get_task_stack(task, &stack, sizeof(stack),
+			   BPF_F_USER_STACK | BPF_F_USER_BUILD_ID);
+	return 0;
+}
+
+
 int __noinline preempt_global_subprog(void)
 {
 	preempt_balance_subprog();
