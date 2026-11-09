@@ -2406,15 +2406,17 @@ static int hci_le_del_resolve_list_sync(struct hci_dev *hdev,
 					bdaddr_t *bdaddr, u8 bdaddr_type)
 {
 	struct hci_cp_le_del_from_resolv_list cp;
-	struct bdaddr_list_with_irk *entry;
+	bool exists;
 
 	if (!ll_privacy_capable(hdev))
 		return 0;
 
 	/* Check if the IRK has been programmed */
-	entry = hci_bdaddr_list_lookup_with_irk(&hdev->le_resolv_list, bdaddr,
-						bdaddr_type);
-	if (!entry)
+	hci_dev_lock(hdev);
+	exists = hci_bdaddr_list_lookup_with_irk(&hdev->le_resolv_list,
+						 bdaddr, bdaddr_type);
+	hci_dev_unlock(hdev);
+	if (!exists)
 		return 0;
 
 	cp.bdaddr_type = bdaddr_type;
@@ -2470,8 +2472,8 @@ static int hci_le_add_resolve_list_sync(struct hci_dev *hdev,
 {
 	struct hci_cp_le_add_to_resolv_list cp;
 	struct smp_irk *irk;
-	struct bdaddr_list_with_irk *entry;
 	struct hci_conn_params *p;
+	bool exists;
 
 	if (!ll_privacy_capable(hdev))
 		return 0;
@@ -2494,10 +2496,11 @@ static int hci_le_add_resolve_list_sync(struct hci_dev *hdev,
 		return 0;
 
 	/* Check if the IK has _not_ been programmed yet. */
-	entry = hci_bdaddr_list_lookup_with_irk(&hdev->le_resolv_list,
-						&params->addr,
-						params->addr_type);
-	if (entry)
+	hci_dev_lock(hdev);
+	exists = hci_bdaddr_list_lookup_with_irk(
+		&hdev->le_resolv_list, &params->addr, params->addr_type);
+	hci_dev_unlock(hdev);
+	if (exists)
 		return 0;
 
 	cp.bdaddr_type = params->addr_type;
@@ -2576,7 +2579,7 @@ static int hci_le_set_privacy_mode_sync(struct hci_dev *hdev,
  */
 static int hci_le_add_accept_list_sync(struct hci_dev *hdev,
 				       struct conn_params *params,
-				       u8 *num_entries)
+				       u8 *num_entries, bool force_filter)
 {
 	struct hci_cp_le_add_to_accept_list cp;
 	int err;
@@ -2588,6 +2591,11 @@ static int hci_le_add_accept_list_sync(struct hci_dev *hdev,
 					    params->addr_type);
 		return 0;
 	}
+
+	/* Host-resolved peers need unfiltered scanning while awake. */
+	if (!force_filter && !hdev->suspended && !ll_privacy_capable(hdev) &&
+	    hci_find_irk_by_addr(hdev, &params->addr, params->addr_type))
+		return -EINVAL;
 
 	/* Select filter policy to accept all advertising */
 	if (*num_entries >= hdev->le_accept_list_size)
@@ -2914,7 +2922,7 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 
 			num_entries = 1;
 			err = hci_le_add_accept_list_sync(hdev, &pa,
-							  &num_entries);
+							  &num_entries, true);
 			goto done;
 		} else {
 			rcu_read_unlock();
@@ -2978,7 +2986,7 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 
 	for (i = 0; i < n; ++i) {
 		err = hci_le_add_accept_list_sync(hdev, &params[i],
-						  &num_entries);
+								&num_entries, false);
 		if (err) {
 			kvfree(params);
 			goto done;
@@ -3000,7 +3008,7 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 
 	for (i = 0; i < n; ++i) {
 		err = hci_le_add_accept_list_sync(hdev, &params[i],
-						  &num_entries);
+								&num_entries, false);
 		if (err) {
 			kvfree(params);
 			goto done;
@@ -6144,6 +6152,7 @@ static int hci_active_scan_sync(struct hci_dev *hdev, uint16_t interval)
 	u8 filter_policy = 0x00;
 	/* Default is to enable duplicates filter */
 	u8 filter_dup = LE_SCAN_FILTER_DUP_ENABLE;
+	bool paused;
 	int err;
 
 	bt_dev_dbg(hdev, "");
@@ -6167,6 +6176,12 @@ static int hci_active_scan_sync(struct hci_dev *hdev, uint16_t interval)
 	if (err)
 		goto failed;
 
+	/* LE Set Random Address is disallowed while advertising is enabled. */
+	paused = !hdev->advertising_paused;
+	err = hci_pause_advertising_sync(hdev);
+	if (err)
+		goto failed;
+
 	/* All active scans will be done with either a resolvable private
 	 * address (when privacy feature has been enabled) or non-resolvable
 	 * private address.
@@ -6175,6 +6190,9 @@ static int hci_active_scan_sync(struct hci_dev *hdev, uint16_t interval)
 					     &own_addr_type);
 	if (err < 0)
 		own_addr_type = ADDR_LE_DEV_PUBLIC;
+
+	if (paused)
+		hci_resume_advertising_sync(hdev);
 
 	if (hci_is_adv_monitoring(hdev) ||
 	    (test_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks) &&
@@ -6199,9 +6217,8 @@ static int hci_active_scan_sync(struct hci_dev *hdev, uint16_t interval)
 		return err;
 
 failed:
-	/* Resume advertising if it was paused */
-	if (ll_privacy_capable(hdev))
-		hci_resume_advertising_sync(hdev);
+	/* No-op when advertising was not paused. */
+	hci_resume_advertising_sync(hdev);
 
 	/* Resume passive scanning */
 	hci_update_passive_scan_sync(hdev);
