@@ -658,7 +658,7 @@ static long zcrypt_rsa_modexpo(struct ap_perms *perms,
 
 	if (mex->outputdatalength < mex->inputdatalength) {
 		rc = -EINVAL;
-		goto out;
+		goto out_free;
 	}
 
 	/*
@@ -670,7 +670,7 @@ static long zcrypt_rsa_modexpo(struct ap_perms *perms,
 
 	rc = get_rsa_modex_fc(mex, &func_code);
 	if (rc)
-		goto out;
+		goto out_free;
 
 	pref_zc = NULL;
 	pref_zq = NULL;
@@ -722,7 +722,7 @@ static long zcrypt_rsa_modexpo(struct ap_perms *perms,
 	if (!pref_zq) {
 		pr_debug("no matching queue found => ENODEV\n");
 		rc = -ENODEV;
-		goto out;
+		goto out_free;
 	}
 
 	qid = pref_zq->queue->qid;
@@ -732,12 +732,13 @@ static long zcrypt_rsa_modexpo(struct ap_perms *perms,
 	zcrypt_drop_queue(pref_zc, pref_zq, mod, wgt);
 	spin_unlock(&zcrypt_list_lock);
 
-out:
+out_free:
 	ap_release_apmsg(&ap_msg);
 	if (tr) {
 		tr->last_rc = rc;
 		tr->last_qid = qid;
 	}
+out:
 	trace_s390_zcrypt_rep(mex, func_code, rc,
 			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
 			      ap_msg.psmid);
@@ -764,7 +765,7 @@ static long zcrypt_rsa_crt(struct ap_perms *perms,
 
 	if (crt->outputdatalength < crt->inputdatalength) {
 		rc = -EINVAL;
-		goto out;
+		goto out_free;
 	}
 
 	/*
@@ -776,7 +777,7 @@ static long zcrypt_rsa_crt(struct ap_perms *perms,
 
 	rc = get_rsa_crt_fc(crt, &func_code);
 	if (rc)
-		goto out;
+		goto out_free;
 
 	pref_zc = NULL;
 	pref_zq = NULL;
@@ -828,7 +829,7 @@ static long zcrypt_rsa_crt(struct ap_perms *perms,
 	if (!pref_zq) {
 		pr_debug("no matching queue found => ENODEV\n");
 		rc = -ENODEV;
-		goto out;
+		goto out_free;
 	}
 
 	qid = pref_zq->queue->qid;
@@ -838,12 +839,13 @@ static long zcrypt_rsa_crt(struct ap_perms *perms,
 	zcrypt_drop_queue(pref_zc, pref_zq, mod, wgt);
 	spin_unlock(&zcrypt_list_lock);
 
-out:
+out_free:
 	ap_release_apmsg(&ap_msg);
 	if (tr) {
 		tr->last_rc = rc;
 		tr->last_qid = qid;
 	}
+out:
 	trace_s390_zcrypt_rep(crt, func_code, rc,
 			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
 			      ap_msg.psmid);
@@ -874,14 +876,14 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 
 	rc = prep_cca_ap_msg(userspace, xcrb, &ap_msg, &func_code, &domain);
 	if (rc)
-		goto out;
+		goto out_free;
 	print_hex_dump_debug("ccareq: ", DUMP_PREFIX_ADDRESS, 16, 1,
 			     ap_msg.msg, ap_msg.len, false);
 
 	/* Check domain for either AUTOSEL_DOM or in range 0...AP_DOMAINS-1 */
 	if (domain != AUTOSEL_DOM && domain >= AP_DOMAINS) {
 		rc = -EINVAL;
-		goto out;
+		goto out_free;
 	}
 	/* Spectre-v1: sanitize domain unconditionally for later use */
 	_dom = array_index_nospec(domain, AP_DOMAINS);
@@ -890,11 +892,11 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 		if (ap_msg.flags & AP_MSG_FLAG_ADMIN) {
 			if (!test_bit_inv(_dom, perms->adm)) {
 				rc = -ENODEV;
-				goto out;
+				goto out_free;
 			}
 		} else if ((ap_msg.flags & AP_MSG_FLAG_USAGE) == 0) {
 			rc = -EOPNOTSUPP;
-			goto out;
+			goto out_free;
 		}
 	}
 	/*
@@ -963,7 +965,7 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 		pr_debug("no match for address %02x.%04x => ENODEV\n",
 			 xcrb->user_defined, domain);
 		rc = -ENODEV;
-		goto out;
+		goto out_free;
 	}
 
 	rc = pref_zq->ops->send_cprb(userspace, pref_zq, xcrb, &ap_msg);
@@ -976,12 +978,13 @@ static long _zcrypt_send_cprb(u32 xflags, struct ap_perms *perms,
 	zcrypt_drop_queue(pref_zc, pref_zq, mod, wgt);
 	spin_unlock(&zcrypt_list_lock);
 
-out:
+out_free:
 	ap_release_apmsg(&ap_msg);
 	if (tr) {
 		tr->last_rc = rc;
 		tr->last_qid = qid;
 	}
+out:
 	trace_s390_zcrypt_rep(xcrb, func_code, rc,
 			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
 			      ap_msg.psmid);
@@ -1070,11 +1073,11 @@ static long _zcrypt_send_ep11_cprb(u32 xflags, struct ap_perms *perms,
 		if (userspace) {
 			targets = kcalloc(target_num, sizeof(*targets), GFP_KERNEL);
 			if (!targets)
-				goto out;
+				goto out_free;
 			if (copy_from_user(targets, xcrb->targets,
 					   target_num * sizeof(*targets))) {
 				rc = -EFAULT;
-				goto out;
+				goto out_free_targets;
 			}
 		} else {
 			targets = (struct ep11_target_dev __force __kernel *)xcrb->targets;
@@ -1083,14 +1086,14 @@ static long _zcrypt_send_ep11_cprb(u32 xflags, struct ap_perms *perms,
 
 	rc = prep_ep11_ap_msg(userspace, xcrb, &ap_msg, &func_code, &domain);
 	if (rc)
-		goto out;
+		goto out_free_targets;
 	print_hex_dump_debug("ep11req: ", DUMP_PREFIX_ADDRESS, 16, 1,
 			     ap_msg.msg, ap_msg.len, false);
 
 	/* Check domain for either AUTOSEL_DOM or in range 0...AP_DOMAINS-1 */
 	if (domain != AUTOSEL_DOM && domain >= AP_DOMAINS) {
 		rc = -EINVAL;
-		goto out;
+		goto out_free_targets;
 	}
 	/* Spectre-v1: sanitize domain unconditionally for later use */
 	_dom = array_index_nospec(domain, AP_DOMAINS);
@@ -1099,11 +1102,11 @@ static long _zcrypt_send_ep11_cprb(u32 xflags, struct ap_perms *perms,
 		if (ap_msg.flags & AP_MSG_FLAG_ADMIN) {
 			if (!test_bit_inv(_dom, perms->adm)) {
 				rc = -ENODEV;
-				goto out;
+				goto out_free_targets;
 			}
 		} else if ((ap_msg.flags & AP_MSG_FLAG_USAGE) == 0) {
 			rc = -EOPNOTSUPP;
-			goto out;
+			goto out_free_targets;
 		}
 	}
 
@@ -1171,7 +1174,7 @@ static long _zcrypt_send_ep11_cprb(u32 xflags, struct ap_perms *perms,
 			pr_debug("no match for address ff.ffff => ENODEV\n");
 		}
 		rc = -ENODEV;
-		goto out;
+		goto out_free_targets;
 	}
 
 	qid = pref_zq->queue->qid;
@@ -1185,14 +1188,16 @@ static long _zcrypt_send_ep11_cprb(u32 xflags, struct ap_perms *perms,
 	zcrypt_drop_queue(pref_zc, pref_zq, mod, wgt);
 	spin_unlock(&zcrypt_list_lock);
 
-out:
+out_free_targets:
 	if (userspace)
 		kfree(targets);
+out_free:
 	ap_release_apmsg(&ap_msg);
 	if (tr) {
 		tr->last_rc = rc;
 		tr->last_qid = qid;
 	}
+out:
 	trace_s390_zcrypt_rep(xcrb, func_code, rc,
 			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
 			      ap_msg.psmid);
@@ -1241,7 +1246,7 @@ static long zcrypt_rng(char *buffer)
 		goto out;
 	rc = prep_rng_ap_msg(&ap_msg, &func_code, NULL);
 	if (rc)
-		goto out;
+		goto out_free;
 
 	pref_zc = NULL;
 	pref_zq = NULL;
@@ -1273,7 +1278,7 @@ static long zcrypt_rng(char *buffer)
 	if (!pref_zq) {
 		pr_debug("no matching queue found => ENODEV\n");
 		rc = -ENODEV;
-		goto out;
+		goto out_free;
 	}
 
 	qid = pref_zq->queue->qid;
@@ -1283,8 +1288,9 @@ static long zcrypt_rng(char *buffer)
 	zcrypt_drop_queue(pref_zc, pref_zq, mod, wgt);
 	spin_unlock(&zcrypt_list_lock);
 
-out:
+out_free:
 	ap_release_apmsg(&ap_msg);
+out:
 	trace_s390_zcrypt_rep(buffer, func_code, rc,
 			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
 			      ap_msg.psmid);
