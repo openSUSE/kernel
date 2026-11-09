@@ -493,6 +493,8 @@ int vt_ioctl(struct tty_struct *tty,
 	/* this could be folded into KDSKBMODE, but for compatibility
 	   reasons it is not so easy to fold KDGKBMETA into KDGKBMODE */
 	case KDSKBMETA:
+		if (!perm)
+			return -EPERM;
 		ret = vt_do_kdskbmeta(console, arg);
 		break;
 
