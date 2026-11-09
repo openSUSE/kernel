@@ -3009,6 +3009,7 @@ int do_journal_get_write_access(handle_t *handle, struct inode *inode,
 				struct buffer_head *bh);
 #define FALL_BACK_TO_NONDELALLOC 1
 #define CONVERT_INLINE_DATA	 2
+#define EXT4_WRITE_DATA_INLINE	 4
 
 typedef enum {
 	EXT4_IGET_NORMAL =	0,
