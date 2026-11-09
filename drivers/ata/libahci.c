@@ -1228,7 +1228,7 @@ static ssize_t ahci_activity_show(struct ata_device *dev, char *buf)
 	struct ahci_port_priv *pp = ap->private_data;
 	struct ahci_em_priv *emp;
 
-	if (link->pmp > EM_MAX_SLOTS)
+	if (link->pmp >= EM_MAX_SLOTS)
 		return 0;
 	emp = &pp->em_priv[link->pmp];
 	/* display the saved value of activity behavior for this
