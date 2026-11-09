@@ -592,7 +592,7 @@ lpfc_rcv_plogi(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 		stat.un.b.lsRjtRsnCodeExp = LSEXP_NOTHING_MORE;
 		rc = lpfc_els_rsp_reject(vport, stat.un.lsRjtError, cmdiocb,
 					 ndlp, login_mbox);
-		if (rc) {
+		if (rc && login_mbox) {
 			mp = (struct lpfc_dmabuf *)login_mbox->ctx_buf;
 			if (mp) {
 				lpfc_mbuf_free(phba, mp->virt, mp->phys);

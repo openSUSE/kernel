@@ -12353,7 +12353,7 @@ lpfc_ignore_els_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 	 * The MBX_REG_LOGIN64 mbox command is freed back to the
 	 * mbox_mem_pool here.
 	 */
-	if (cmdiocb->context_un.mbox) {
+	if (phba->sli_rev != LPFC_SLI_REV4 && cmdiocb->context_un.mbox) {
 		mbox = cmdiocb->context_un.mbox;
 		mp = (struct lpfc_dmabuf *)mbox->ctx_buf;
 		if (mp) {
