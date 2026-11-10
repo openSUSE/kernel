@@ -379,9 +379,11 @@ struct kvm_arch {
 #define KVM_ARM_ID_REG_NUM	(IDREG_IDX(sys_reg(3, 0, 0, 7, 7)) + 1)
 	u64 id_regs[KVM_ARM_ID_REG_NUM];
 
+#ifndef __GENKSYMS__
 	u64 midr_el1;
 	u64 revidr_el1;
 	u64 aidr_el1;
+#endif
 	u64 ctr_el0;
 
 	/* Masks for VNCR-backed and general EL2 sysregs */
