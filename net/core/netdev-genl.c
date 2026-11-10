@@ -2,7 +2,9 @@
 
 #include <linux/netdevice.h>
 #include <linux/notifier.h>
+#ifndef __GENKSYMS__
 #include <linux/pid_namespace.h>
+#endif
 #include <linux/rtnetlink.h>
 #include <net/busy_poll.h>
 #include <net/net_namespace.h>
