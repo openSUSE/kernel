@@ -246,7 +246,7 @@ static int ipip_tunnel_rcv(struct sk_buff *skb, u8 ipproto)
 		if (tunnel->collect_md) {
 			tun_dst = ip_tun_rx_dst(skb, 0, 0, 0);
 			if (!tun_dst)
-				return 0;
+				goto drop;
 		}
 		return ip_tunnel_rcv(tunnel, skb, tpi, tun_dst, log_ecn_error);
 	}
