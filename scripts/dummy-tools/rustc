@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+self="$0"
+
+dummydir="$(dirname "$self")"
+
+# Check if the first parameter appears in the rest. Succeeds if found.
+# This helper is useful if a particular option was passed to this script.
+# Typically used like this:
+#   arg_contain <word-you-are-searching-for> "$@"
+arg_contain ()
+{
+	search="$1"
+	shift
+
+	while [ $# -gt 0 ]
+	do
+		if [ "$search" = "$1" ]; then
+			return 0
+		fi
+		shift
+	done
+
+	return 1
+}
+
+if arg_contain --version "$@"; then
+    echo "rustc 1.96.0 (123456789 2026-01-01)"
+    if arg_contain --verbose "$@"; then
+        echo "binary: rustc
+commit-hash: 1234567890123456789012345678901234567890
+commit-date: 2026-01-21
+host: x86_64-unknown-linux-gnu
+release: 1.96.0
+LLVM version: 21.1.8"
+    fi
+    exit 0
+fi
+
+# called for checking rust core standard library
+if arg_contain --print "$@"; then
+    if arg_contain sysroot "$@"; then
+	echo "$dummydir"
+	exit 0
+    fi
+    echo "Unknown --print option"
+    exit 1
+fi
