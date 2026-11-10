@@ -229,7 +229,7 @@ static int snd_us16x08_route_put(struct snd_kcontrol *kcontrol,
 		return err;
 	}
 
-	elem->cached |= 1 << index;
+	set_bit(index, elem->cached);
 	elem->cache_val[index] = val;
 	return 1;
 }
@@ -288,7 +288,7 @@ static int snd_us16x08_master_put(struct snd_kcontrol *kcontrol,
 		return err;
 	}
 
-	elem->cached |= 1 << index;
+	set_bit(index, elem->cached);
 	elem->cache_val[index] = val;
 	return 1;
 }
@@ -329,7 +329,7 @@ static int snd_us16x08_bus_put(struct snd_kcontrol *kcontrol,
 		return err;
 	}
 
-	elem->cached |= 1;
+	set_bit(0, elem->cached);
 	elem->cache_val[0] = val;
 	return 1;
 }
@@ -397,7 +397,7 @@ static int snd_us16x08_channel_put(struct snd_kcontrol *kcontrol,
 		return err;
 	}
 
-	elem->cached |= 1 << index;
+	set_bit(index, elem->cached);
 	elem->cache_val[index] = val;
 	return 1;
 }
@@ -501,7 +501,7 @@ static int snd_us16x08_comp_put(struct snd_kcontrol *kcontrol,
 	}
 
 	store->val[val_idx][index] = val;
-	elem->cached |= 1 << index;
+	set_bit(index, elem->cached);
 	elem->cache_val[index] = val;
 	return 1;
 }
@@ -560,7 +560,7 @@ static int snd_us16x08_eqswitch_put(struct snd_kcontrol *kcontrol,
 		return err;
 	}
 
-	elem->cached |= 1 << index;
+	set_bit(index, elem->cached);
 	elem->cache_val[index] = val;
 	return 1;
 }
@@ -624,7 +624,7 @@ static int snd_us16x08_eq_put(struct snd_kcontrol *kcontrol,
 
 	store->val[b_idx][p_idx][index] = val;
 	/* store new value in EQ band cache */
-	elem->cached |= 1 << index;
+	set_bit(index, elem->cached);
 	elem->cache_val[index] = val;
 	return 1;
 }
@@ -1345,7 +1345,7 @@ int snd_us16x08_controls_create(struct usb_mixer_interface *mixer)
 		}
 		for (i = 0; i < 8; i++)
 			elem->cache_val[i] = i < 2 ? i : i + 2;
-		elem->cached = 0xff;
+		bitmap_set(elem->cached, 0, 8);
 
 		/* create compressor mixer elements */
 		comp_store = snd_us16x08_create_comp_store();
@@ -1367,7 +1367,7 @@ int snd_us16x08_controls_create(struct usb_mixer_interface *mixer)
 			if (err < 0)
 				return err;
 			elem->cache_val[0] = master_controls[i].default_val;
-			elem->cached = 1;
+			set_bit(0, elem->cached);
 		}
 
 		/* add channel controls */
@@ -1387,7 +1387,7 @@ int snd_us16x08_controls_create(struct usb_mixer_interface *mixer)
 				elem->cache_val[j] =
 					channel_controls[i].default_val;
 			}
-			elem->cached = 0xffff;
+			bitmap_set(elem->cached, 0, SND_US16X08_MAX_CHANNELS);
 		}
 
 		/* create eq store */

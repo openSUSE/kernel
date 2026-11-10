@@ -291,7 +291,7 @@ static int scarlett_ctl_resume(struct usb_mixer_elem_list *list)
 	int i;
 
 	for (i = 0; i < elem->channels; i++)
-		if (elem->cached & (1 << i))
+		if (test_bit(i, elem->cached))
 			snd_usb_set_cur_mix_value(elem, i, i,
 						  elem->cache_val[i]);
 	return 0;
@@ -451,7 +451,7 @@ static int scarlett_ctl_enum_resume(struct usb_mixer_elem_list *list)
 {
 	struct usb_mixer_elem_info *elem = mixer_elem_list_to_info(list);
 
-	if (elem->cached)
+	if (test_bit(0, elem->cached))
 		snd_usb_set_cur_mix_value(elem, 0, 0, *elem->cache_val);
 	return 0;
 }
