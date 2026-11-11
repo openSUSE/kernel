@@ -8,7 +8,7 @@ Landlock: unprivileged access control
 =====================================
 
 :Author: Mickaël Salaün
-:Date: October 2022
+:Date: July 2024
 
 The goal of Landlock is to enable to restrict ambient rights (e.g. global
 filesystem access) for a set of processes.  Because Landlock is a stackable
@@ -387,9 +387,9 @@ Current limitations
 Filesystem topology modification
 --------------------------------
 
-As for file renaming and linking, a sandboxed thread cannot modify its
-filesystem topology, whether via :manpage:`mount(2)` or
-:manpage:`pivot_root(2)`.  However, :manpage:`chroot(2)` calls are not denied.
+Threads sandboxed with filesystem restrictions cannot modify filesystem
+topology, whether via :manpage:`mount(2)` or :manpage:`pivot_root(2)`.
+However, :manpage:`chroot(2)` calls are not denied.
 
 Special filesystems
 -------------------
