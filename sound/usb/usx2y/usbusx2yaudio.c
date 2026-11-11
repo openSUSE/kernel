@@ -770,7 +770,6 @@ static int usx2y_format_set(struct usx2ydev *usx2y, snd_pcm_format_t format)
 static int snd_usx2y_pcm_hw_params(struct snd_pcm_substream *substream,
 				   struct snd_pcm_hw_params *hw_params)
 {
-	int			err = 0;
 	unsigned int		rate = params_rate(hw_params);
 	snd_pcm_format_t	format = params_format(hw_params);
 	struct snd_card *card = substream->pstr->pcm->card;
@@ -779,7 +778,7 @@ static int snd_usx2y_pcm_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_substream *test_substream;
 	int i;
 
-	mutex_lock(&usx2y(card)->pcm_mutex);
+	guard(mutex)(&usx2y(card)->pcm_mutex);
 	snd_printdd("snd_usx2y_hw_params(%p, %p)\n", substream, hw_params);
 	/* all pcm substreams off one usx2y have to operate at the same
 	 * rate & format
@@ -796,14 +795,11 @@ static int snd_usx2y_pcm_hw_params(struct snd_pcm_substream *substream,
 		     test_substream->runtime->format != format) ||
 		    (test_substream->runtime->rate &&
 		     test_substream->runtime->rate != rate)) {
-			err = -EINVAL;
-			goto error;
+			return -EINVAL;
 		}
 	}
 
- error:
-	mutex_unlock(&usx2y(card)->pcm_mutex);
-	return err;
+	return 0;
 }
 
 /*
@@ -815,7 +811,7 @@ static int snd_usx2y_pcm_hw_free(struct snd_pcm_substream *substream)
 	struct snd_usx2y_substream *subs = runtime->private_data;
 	struct snd_usx2y_substream *cap_subs, *playback_subs;
 
-	mutex_lock(&subs->usx2y->pcm_mutex);
+	guard(mutex)(&subs->usx2y->pcm_mutex);
 	snd_printdd("snd_usx2y_hw_free(%p)\n", substream);
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -835,7 +831,6 @@ static int snd_usx2y_pcm_hw_free(struct snd_pcm_substream *substream)
 			usx2y_urbs_release(subs);
 		}
 	}
-	mutex_unlock(&subs->usx2y->pcm_mutex);
 	return 0;
 }
 
@@ -854,7 +849,7 @@ static int snd_usx2y_pcm_prepare(struct snd_pcm_substream *substream)
 
 	snd_printdd("%s(%p)\n", __func__, substream);
 
-	mutex_lock(&usx2y->pcm_mutex);
+	guard(mutex)(&usx2y->pcm_mutex);
 	usx2y_subs_prepare(subs);
 	// Start hardware streams
 	// SyncStream first....
@@ -862,24 +857,22 @@ static int snd_usx2y_pcm_prepare(struct snd_pcm_substream *substream)
 		if (usx2y->format != runtime->format) {
 			err = usx2y_format_set(usx2y, runtime->format);
 			if (err < 0)
-				goto up_prepare_mutex;
+				return err;
 		}
 		if (usx2y->rate != runtime->rate) {
 			err = usx2y_rate_set(usx2y, runtime->rate);
 			if (err < 0)
-				goto up_prepare_mutex;
+				return err;
 		}
 		snd_printdd("starting capture pipe for %s\n", subs == capsubs ? "self" : "playpipe");
 		err = usx2y_urbs_start(capsubs);
 		if (err < 0)
-			goto up_prepare_mutex;
+			return err;
 	}
 
 	if (subs != capsubs && atomic_read(&subs->state) < STATE_PREPARED)
 		err = usx2y_urbs_start(subs);
 
- up_prepare_mutex:
-	mutex_unlock(&usx2y->pcm_mutex);
 	return err;
 }
 
