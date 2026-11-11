@@ -1193,6 +1193,7 @@ unsigned int nft_do_chain(struct nft_pktinfo *pkt, void *priv);
  *	@genmask: generation mask
  *	@afinfo: address family info
  *	@name: name of the table
+ *	@objname_ht: hashtable for objects lookup by name
  */
 struct nft_table {
 	struct list_head		list;
@@ -1211,6 +1212,9 @@ struct nft_table {
 	char				*name;
 	u16				udlen;
 	u8				*udata;
+#ifndef __GENKSYMS__
+	struct rhltable			objname_ht;
+#endif
 };
 
 static inline bool nft_table_has_owner(const struct nft_table *table)
@@ -1279,7 +1283,11 @@ static inline void *nft_obj_data(const struct nft_object *obj)
 #define nft_expr_obj(expr)	*((struct nft_object **)nft_expr_priv(expr))
 
 struct nft_object *nft_obj_lookup(const struct net *net,
+#ifdef __GENKSYMS__
 				  const struct nft_table *table,
+#else
+				  struct nft_table *table,
+#endif
 				  const struct nlattr *nla, u32 objtype,
 				  u8 genmask);
 

@@ -880,7 +880,10 @@ static void mana_tx_timeout(struct net_device *netdev, unsigned int txqueue)
 	 * subsequent request queued up from here are ignored. This is because
 	 * we are using the same work instance per port(apc).
 	 */
-	queue_work(ac->per_port_queue_reset_wq, &apc->queue_reset_work);
+	spin_lock(&apc->queue_reset_work_lock);
+	if (apc->queue_reset_work_enabled)
+		queue_work(ac->per_port_queue_reset_wq, &apc->queue_reset_work);
+	spin_unlock(&apc->queue_reset_work_lock);
 }
 
 static const struct net_device_ops mana_devops = {
@@ -3313,6 +3316,8 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 		goto reset_apc;
 
 	/* Initialize the per port queue reset work.*/
+	spin_lock_init(&apc->queue_reset_work_lock);
+	apc->queue_reset_work_enabled = true;
 	INIT_WORK(&apc->queue_reset_work,
 		  mana_per_port_queue_reset_work_handler);
 
@@ -3593,7 +3598,9 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 		for (i = 0; i < ac->num_ports; i++) {
 			rtnl_lock();
 			apc = netdev_priv(ac->ports[i]);
-			schedule_work(&apc->queue_reset_work);
+			spin_lock_bh(&apc->queue_reset_work_lock);
+			apc->queue_reset_work_enabled = true;
+			spin_unlock_bh(&apc->queue_reset_work_lock);
 			err = mana_attach(ac->ports[i]);
 			rtnl_unlock();
 			/* Log the port for which the attach failed, stop
@@ -3656,7 +3663,9 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 		}
 
 		apc = netdev_priv(ndev);
-		cancel_work_sync(&apc->queue_reset_work);
+		spin_lock_bh(&apc->queue_reset_work_lock);
+		apc->queue_reset_work_enabled = false;
+		spin_unlock_bh(&apc->queue_reset_work_lock);
 
 		/* All cleanup actions should stay after rtnl_lock(), otherwise
 		 * other functions may access partially cleaned up data.

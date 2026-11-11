@@ -6,6 +6,7 @@
 
 #include "gdma.h"
 #include "hw_channel.h"
+#include <linux/spinlock.h>
 
 /* Microsoft Azure Network Adapter (MANA)'s definitions
  *
@@ -490,6 +491,9 @@ struct mana_port_context {
 	struct mana_context *ac;
 	struct net_device *ndev;
 	struct work_struct queue_reset_work;
+	/* Serializes reset queueing with suspend/remove. */
+	spinlock_t queue_reset_work_lock;
+	bool queue_reset_work_enabled;
 
 	/* Debug knob to log TX timeout but skip recovery reset */
 	bool tx_timeout_skip_reset;
