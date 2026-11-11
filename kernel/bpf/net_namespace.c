@@ -171,12 +171,17 @@ static int bpf_netns_link_update_prog(struct bpf_link *link,
 	struct net *net;
 	int idx, ret;
 
-	if (old_prog && old_prog != link->prog)
-		return -EPERM;
-	if (new_prog->type != link->prog->type)
-		return -EINVAL;
-
 	mutex_lock(&netns_bpf_mutex);
+
+	if (old_prog && old_prog != link->prog) {
+		ret = -EPERM;
+		goto out_unlock;
+	}
+
+	if (new_prog->type != link->prog->type) {
+		ret = -EINVAL;
+		goto out_unlock;
+	}
 
 	net = net_link->net;
 	if (!net || !check_net(net)) {
