@@ -1697,8 +1697,10 @@ static void thermal_zone_device_resume(struct work_struct *work)
 	mutex_lock(&tz->lock);
 
 	/* If the thermal zone is going away, there's nothing to do. */
-	if (tz->state & TZ_STATE_FLAG_EXIT)
+	if (tz->state & TZ_STATE_FLAG_EXIT) {
+		mutex_unlock(&tz->lock);
 		return;
+	}
 
 	tz->state &= ~(TZ_STATE_FLAG_SUSPENDED | TZ_STATE_FLAG_RESUMING);
 

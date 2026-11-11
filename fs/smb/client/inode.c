@@ -9,6 +9,7 @@
 #include <linux/stat.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
+#include <linux/rmap.h>
 #include <linux/freezer.h>
 #include <linux/sched/signal.h>
 #include <linux/wait_bit.h>
@@ -2816,7 +2817,51 @@ int cifs_truncate_page(struct address_space *mapping, loff_t from)
 	return rc;
 }
 
-void cifs_setsize(struct inode *inode, loff_t offset)
+/*
+ * Zero any data left in the pagecache within the [from, to) hole by a write
+ * through an mmap so that it isn't exposed as file content once the file is
+ * extended.  Only the folio straddling @from can hold such data, as pages
+ * wholly beyond the EOF can't be faulted in.
+ *
+ * i_size must already be updated to @to and the caller must hold i_rwsem
+ * exclusively for the whole resize, so staleness is decided from the folio's
+ * dirty state.  pagecache_isize_extended() can't be used as it is a no-op
+ * when the block size is >= PAGE_SIZE, as on CIFS.
+ *
+ * This is the exclusive-resize case of upstream's
+ * netfs_clear_stale_post_isize(), which isn't available in this tree.
+ */
+static void cifs_clear_stale_post_isize(struct inode *inode, loff_t from,
+					loff_t to)
+{
+	struct folio *folio;
+
+	if (from >= to)
+		return;
+
+	folio = filemap_lock_folio(inode->i_mapping, from >> PAGE_SHIFT);
+	if (IS_ERR(folio))
+		return;
+
+	folio_wait_writeback(folio);
+
+	if (folio_mkclean(folio))
+		folio_mark_dirty(folio);
+
+	if (folio_test_uptodate(folio) && folio_test_dirty(folio)) {
+		loff_t fpos = folio_pos(folio);
+
+		if (from < fpos + folio_size(folio))
+			folio_zero_segment(folio, from - fpos,
+					   min_t(loff_t, to - fpos,
+						 folio_size(folio)));
+	}
+
+	folio_unlock(folio);
+	folio_put(folio);
+}
+
+void cifs_setsize(struct inode *inode, loff_t old_size, loff_t offset)
 {
 	struct cifsInodeInfo *cifs_i = CIFS_I(inode);
 
@@ -2826,6 +2871,8 @@ void cifs_setsize(struct inode *inode, loff_t offset)
 
 	/* Cached inode must be refreshed on truncate */
 	cifs_i->time = 0;
+	if (offset > old_size)
+		cifs_clear_stale_post_isize(inode, old_size, offset);
 	truncate_pagecache(inode, offset);
 }
 
@@ -2837,6 +2884,7 @@ cifs_set_file_size(struct inode *inode, struct iattr *attrs,
 	struct cifsFileInfo *open_file;
 	struct cifsInodeInfo *cifsInode = CIFS_I(inode);
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
+	loff_t old_size = i_size_read(inode);
 	struct tcon_link *tlink = NULL;
 	struct cifs_tcon *tcon = NULL;
 	struct TCP_Server_Info *server;
@@ -2893,7 +2941,7 @@ cifs_set_file_size(struct inode *inode, struct iattr *attrs,
 set_size_out:
 	if (rc == 0) {
 		netfs_resize_file(&cifsInode->netfs, attrs->ia_size, true);
-		cifs_setsize(inode, attrs->ia_size);
+		cifs_setsize(inode, old_size, attrs->ia_size);
 		/*
 		 * i_blocks is not related to (i_size / i_blksize), but instead
 		 * 512 byte (2**9) size is required for calculating num blocks.
