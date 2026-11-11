@@ -521,6 +521,9 @@ int iommufd_check_iova_range(struct io_pagetable *iopt,
 	size_t iommu_pgsize = iopt->iova_alignment;
 	u64 last_iova;
 
+	if (!bitmap->length)
+		return -EINVAL;
+
 	if (check_add_overflow(bitmap->iova, bitmap->length - 1, &last_iova))
 		return -EOVERFLOW;
 
@@ -660,7 +663,8 @@ static int iopt_unmap_iova_range(struct io_pagetable *iopt, unsigned long start,
 	struct iopt_area *area;
 	unsigned long unmapped_bytes = 0;
 	unsigned int tries = 0;
-	int rc = -ENOENT;
+	/* If there are no mapped entries then success */
+	int rc = 0;
 
 	/*
 	 * The domains_rwsem must be held in read mode any time any area->pages
@@ -729,9 +733,17 @@ again:
 		unmapped_bytes += area_last - area_first + 1;
 
 		down_write(&iopt->iova_rwsem);
+
+		/*
+		 * After releasing the iova_rwsem concurrent allocation could
+		 * place new areas at IOVAs we have already unmapped. Keep
+		 * moving the start of the search forward to ignore the area
+		 * already unmapped.
+		 */
+		if (area_last >= last)
+			break;
+		start = area_last + 1;
 	}
-	if (unmapped_bytes)
-		rc = 0;
 
 out_unlock_iova:
 	up_write(&iopt->iova_rwsem);
@@ -768,13 +780,8 @@ int iopt_unmap_iova(struct io_pagetable *iopt, unsigned long iova,
 
 int iopt_unmap_all(struct io_pagetable *iopt, unsigned long *unmapped)
 {
-	int rc;
-
-	rc = iopt_unmap_iova_range(iopt, 0, ULONG_MAX, unmapped);
 	/* If the IOVAs are empty then unmap all succeeds */
-	if (rc == -ENOENT)
-		return 0;
-	return rc;
+	return iopt_unmap_iova_range(iopt, 0, ULONG_MAX, unmapped);
 }
 
 /* The caller must always free all the nodes in the allowed_iova rb_root. */
