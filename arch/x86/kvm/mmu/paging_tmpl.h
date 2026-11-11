@@ -373,7 +373,9 @@ retry_walk:
 		offset    = index * sizeof(pt_element_t);
 		pte_gpa   = gfn_to_gpa(table_gfn) + offset;
 
-		BUG_ON(walker->level < 1);
+		if (KVM_BUG_ON(walker->level < 1, vcpu->kvm))
+			goto error;
+
 		walker->table_gfn[walker->level - 1] = table_gfn;
 		walker->pte_gpa[walker->level - 1] = pte_gpa;
 
