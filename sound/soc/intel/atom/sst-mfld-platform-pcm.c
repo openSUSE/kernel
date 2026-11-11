@@ -249,7 +249,7 @@ static int sst_platform_alloc_stream(struct snd_pcm_substream *substream,
 		return ret_val;
 
 
-	return ret_val;
+	return 0;
 }
 
 static void sst_period_elapsed(void *arg)

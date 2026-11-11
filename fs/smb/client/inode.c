@@ -669,6 +669,7 @@ static void smb311_posix_info_to_fattr(struct cifs_fattr *fattr,
 	struct smb311_posix_qinfo *info = &data->posix_fi;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(sb);
 	struct cifs_tcon *tcon = cifs_sb_master_tcon(cifs_sb);
+	unsigned int sbflags = cifs_sb->mnt_cifs_flags;
 
 	memset(fattr, 0, sizeof(*fattr));
 
@@ -719,8 +720,12 @@ out_reparse:
 		fattr->cf_symlink_target = data->symlink_target;
 		data->symlink_target = NULL;
 	}
-	sid_to_id(cifs_sb, &data->posix_owner, fattr, SIDOWNER);
-	sid_to_id(cifs_sb, &data->posix_group, fattr, SIDGROUP);
+	fattr->cf_uid = cifs_sb->ctx->linux_uid;
+	fattr->cf_gid = cifs_sb->ctx->linux_gid;
+	if (!(sbflags & CIFS_MOUNT_OVERR_UID))
+		sid_to_id(cifs_sb, &data->posix_owner, fattr, SIDOWNER);
+	if (!(sbflags & CIFS_MOUNT_OVERR_GID))
+		sid_to_id(cifs_sb, &data->posix_group, fattr, SIDGROUP);
 
 	cifs_dbg(FYI, "POSIX query info: mode 0x%x uniqueid 0x%llx nlink %d\n",
 		fattr->cf_mode, fattr->cf_uniqueid, fattr->cf_nlink);
@@ -2733,13 +2738,36 @@ int cifs_truncate_page(struct address_space *mapping, loff_t from)
 	return rc;
 }
 
+/*
+ * Zero the tail of the folio straddling the old EOF.  Unlike
+ * pagecache_isize_extended(), this does not bail out when i_blkbits >=
+ * PAGE_SHIFT (cifs uses 14), so data dirtied past EOF via mmap is not
+ * exposed once the file is extended.
+ */
+static void cifs_zero_post_eof(struct inode *inode, loff_t old_size)
+{
+	struct folio *folio;
+
+	folio = filemap_lock_folio(inode->i_mapping, old_size >> PAGE_SHIFT);
+	if (IS_ERR(folio))
+		return;
+	folio_zero_segment(folio, offset_in_folio(folio, old_size),
+			   folio_size(folio));
+	folio_unlock(folio);
+	folio_put(folio);
+}
+
 void cifs_setsize(struct inode *inode, loff_t offset)
 {
 	struct cifsInodeInfo *cifs_i = CIFS_I(inode);
+	loff_t old_size;
 
 	spin_lock(&inode->i_lock);
+	old_size = i_size_read(inode);
 	i_size_write(inode, offset);
 	spin_unlock(&inode->i_lock);
+	if (offset > old_size)
+		cifs_zero_post_eof(inode, old_size);
 
 	/* Cached inode must be refreshed on truncate */
 	cifs_i->time = 0;
