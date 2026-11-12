@@ -5,7 +5,7 @@ vfio-y += vfio_main.o
 vfio-$(CONFIG_VFIO_DEVICE_CDEV) += device_cdev.o
 vfio-$(CONFIG_VFIO_GROUP) += group.o
 vfio-$(CONFIG_IOMMUFD) += iommufd.o
-vfio-$(CONFIG_VFIO_CONTAINER) += container.o
+vfio-y += container.o
 vfio-$(CONFIG_VFIO_VIRQFD) += virqfd.o
 vfio-$(CONFIG_VFIO_DEBUGFS) += debugfs.o
 

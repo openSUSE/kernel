@@ -12,8 +12,8 @@ static dev_t device_devt;
 void vfio_init_device_cdev(struct vfio_device *device)
 {
 	device->device.devt = MKDEV(MAJOR(device_devt), device->index);
-	cdev_init(&device->cdev, &vfio_device_fops);
-	device->cdev.owner = THIS_MODULE;
+	cdev_init(&device->kabi_ext->cdev, &vfio_device_fops);
+	device->kabi_ext->cdev.owner = THIS_MODULE;
 }
 
 /*
@@ -23,7 +23,7 @@ void vfio_init_device_cdev(struct vfio_device *device)
 int vfio_device_fops_cdev_open(struct inode *inode, struct file *filep)
 {
 	struct vfio_device *device = container_of(inode->i_cdev,
-						  struct vfio_device, cdev);
+			struct vfio_device_kabi_ext, cdev)->vfio_device;
 	struct vfio_device_file *df;
 	int ret;
 

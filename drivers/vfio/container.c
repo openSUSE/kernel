@@ -15,6 +15,7 @@
 
 #include "vfio.h"
 
+#ifdef CONFIG_VFIO_CONTAINER
 struct vfio_container {
 	struct kref			kref;
 	struct list_head		group_list;
@@ -605,3 +606,16 @@ void vfio_container_cleanup(void)
 
 MODULE_ALIAS_MISCDEV(VFIO_MINOR);
 MODULE_ALIAS("devname:vfio/vfio");
+
+#else
+int vfio_register_iommu_driver(const struct vfio_iommu_driver_ops *ops)
+{
+	return 0;
+}
+EXPORT_SYMBOL_GPL(vfio_register_iommu_driver);
+
+void vfio_unregister_iommu_driver(const struct vfio_iommu_driver_ops *ops)
+{
+}
+EXPORT_SYMBOL_GPL(vfio_unregister_iommu_driver);
+#endif

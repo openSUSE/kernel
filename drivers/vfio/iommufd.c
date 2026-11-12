@@ -67,16 +67,16 @@ void vfio_df_iommufd_unbind(struct vfio_device_file *df)
 
 struct iommufd_ctx *vfio_iommufd_device_ictx(struct vfio_device *vdev)
 {
-	if (vdev->iommufd_device)
-		return iommufd_device_to_ictx(vdev->iommufd_device);
+	if (vdev->kabi_ext->iommufd_device)
+		return iommufd_device_to_ictx(vdev->kabi_ext->iommufd_device);
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_device_ictx);
 
 static int vfio_iommufd_device_id(struct vfio_device *vdev)
 {
-	if (vdev->iommufd_device)
-		return iommufd_device_to_id(vdev->iommufd_device);
+	if (vdev->kabi_ext->iommufd_device)
+		return iommufd_device_to_id(vdev->kabi_ext->iommufd_device);
 	return -EINVAL;
 }
 
@@ -122,7 +122,7 @@ int vfio_iommufd_physical_bind(struct vfio_device *vdev,
 	idev = iommufd_device_bind(ictx, vdev->dev, out_device_id);
 	if (IS_ERR(idev))
 		return PTR_ERR(idev);
-	vdev->iommufd_device = idev;
+	vdev->kabi_ext->iommufd_device = idev;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_physical_bind);
@@ -131,12 +131,12 @@ void vfio_iommufd_physical_unbind(struct vfio_device *vdev)
 {
 	lockdep_assert_held(&vdev->dev_set->lock);
 
-	if (vdev->iommufd_attached) {
-		iommufd_device_detach(vdev->iommufd_device);
-		vdev->iommufd_attached = false;
+	if (vdev->kabi_ext->iommufd_attached) {
+		iommufd_device_detach(vdev->kabi_ext->iommufd_device);
+		vdev->kabi_ext->iommufd_attached = false;
 	}
-	iommufd_device_unbind(vdev->iommufd_device);
-	vdev->iommufd_device = NULL;
+	iommufd_device_unbind(vdev->kabi_ext->iommufd_device);
+	vdev->kabi_ext->iommufd_device = NULL;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_physical_unbind);
 
@@ -146,16 +146,16 @@ int vfio_iommufd_physical_attach_ioas(struct vfio_device *vdev, u32 *pt_id)
 
 	lockdep_assert_held(&vdev->dev_set->lock);
 
-	if (WARN_ON(!vdev->iommufd_device))
+	if (WARN_ON(!vdev->kabi_ext->iommufd_device))
 		return -EINVAL;
 
-	if (vdev->iommufd_attached)
-		rc = iommufd_device_replace(vdev->iommufd_device, pt_id);
+	if (vdev->kabi_ext->iommufd_attached)
+		rc = iommufd_device_replace(vdev->kabi_ext->iommufd_device, pt_id);
 	else
-		rc = iommufd_device_attach(vdev->iommufd_device, pt_id);
+		rc = iommufd_device_attach(vdev->kabi_ext->iommufd_device, pt_id);
 	if (rc)
 		return rc;
-	vdev->iommufd_attached = true;
+	vdev->kabi_ext->iommufd_attached = true;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_physical_attach_ioas);
@@ -164,11 +164,11 @@ void vfio_iommufd_physical_detach_ioas(struct vfio_device *vdev)
 {
 	lockdep_assert_held(&vdev->dev_set->lock);
 
-	if (WARN_ON(!vdev->iommufd_device) || !vdev->iommufd_attached)
+	if (WARN_ON(!vdev->kabi_ext->iommufd_device) || !vdev->kabi_ext->iommufd_attached)
 		return;
 
-	iommufd_device_detach(vdev->iommufd_device);
-	vdev->iommufd_attached = false;
+	iommufd_device_detach(vdev->kabi_ext->iommufd_device);
+	vdev->kabi_ext->iommufd_attached = false;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_physical_detach_ioas);
 
@@ -214,7 +214,7 @@ void vfio_iommufd_emulated_unbind(struct vfio_device *vdev)
 
 	if (vdev->iommufd_access) {
 		iommufd_access_destroy(vdev->iommufd_access);
-		vdev->iommufd_attached = false;
+		vdev->kabi_ext->iommufd_attached = false;
 		vdev->iommufd_access = NULL;
 	}
 }
@@ -226,13 +226,13 @@ int vfio_iommufd_emulated_attach_ioas(struct vfio_device *vdev, u32 *pt_id)
 
 	lockdep_assert_held(&vdev->dev_set->lock);
 
-	if (vdev->iommufd_attached)
+	if (vdev->kabi_ext->iommufd_attached)
 		rc = iommufd_access_replace(vdev->iommufd_access, *pt_id);
 	else
 		rc = iommufd_access_attach(vdev->iommufd_access, *pt_id);
 	if (rc)
 		return rc;
-	vdev->iommufd_attached = true;
+	vdev->kabi_ext->iommufd_attached = true;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_emulated_attach_ioas);
@@ -242,10 +242,10 @@ void vfio_iommufd_emulated_detach_ioas(struct vfio_device *vdev)
 	lockdep_assert_held(&vdev->dev_set->lock);
 
 	if (WARN_ON(!vdev->iommufd_access) ||
-	    !vdev->iommufd_attached)
+	    !vdev->kabi_ext->iommufd_attached)
 		return;
 
 	iommufd_access_detach(vdev->iommufd_access);
-	vdev->iommufd_attached = false;
+	vdev->kabi_ext->iommufd_attached = false;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_emulated_detach_ioas);

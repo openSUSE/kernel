@@ -34,6 +34,17 @@ struct vfio_device_set {
 	unsigned int device_count;
 };
 
+ struct vfio_device_kabi_ext {
+#if IS_ENABLED(CONFIG_VFIO_DEVICE_CDEV)
+	struct cdev cdev;
+#endif
+#if IS_ENABLED(CONFIG_IOMMUFD)
+	struct iommufd_device *iommufd_device;
+	u8 iommufd_attached:1;
+#endif
+	struct vfio_device *vfio_device;
+};
+
 struct vfio_device {
 	struct device *dev;
 	const struct vfio_device_ops *ops;
@@ -55,21 +66,21 @@ struct vfio_device {
 
 	/* Members below here are private, not for driver use */
 	unsigned int index;
-	struct device device;	/* device.kref covers object life circle */
-#if IS_ENABLED(CONFIG_VFIO_DEVICE_CDEV)
-	struct cdev cdev;
+#ifndef __GENKSYMS__
+	u8 cdev_opened:1;
 #endif
+	struct device device;	/* device.kref covers object life circle */
 	refcount_t refcount;	/* user count on registered device*/
 	unsigned int open_count;
 	struct completion comp;
 	struct iommufd_access *iommufd_access;
 	void (*put_kvm)(struct kvm *kvm);
 	struct inode *inode;
-#if IS_ENABLED(CONFIG_IOMMUFD)
-	struct iommufd_device *iommufd_device;
-	u8 iommufd_attached:1;
-#endif
+#ifndef __GENKSYMS__
+	struct vfio_device_kabi_ext *kabi_ext;
+#else
 	u8 cdev_opened:1;
+#endif
 #ifdef CONFIG_DEBUG_FS
 	/*
 	 * debug_root is a static property of the vfio_device
