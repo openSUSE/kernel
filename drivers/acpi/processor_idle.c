@@ -1254,7 +1254,7 @@ static void acpi_processor_setup_cpuidle_states(struct acpi_processor *pr)
 }
 
 /**
- * acpi_processor_setup_cpuidle_dev - prepares and configures CPUIDLE
+ * acpi_processor_setup_cpuidle_dev - configures CPUIDLE
  * device i.e. per-cpu data
  *
  * @pr: the ACPI processor
@@ -1267,12 +1267,8 @@ static void acpi_processor_setup_cpuidle_dev(struct acpi_processor *pr,
 		return;
 
 	dev->cpu = pr->id;
-	if (pr->flags.has_lpi) {
-		acpi_processor_ffh_lpi_probe(pr->id);
-		return;
-	}
-
-	acpi_processor_setup_cpuidle_cx(pr, dev);
+	if (!pr->flags.has_lpi)
+		acpi_processor_setup_cpuidle_cx(pr, dev);
 }
 
 static int acpi_processor_get_power_info(struct acpi_processor *pr)
@@ -1281,7 +1277,13 @@ static int acpi_processor_get_power_info(struct acpi_processor *pr)
 
 	ret = acpi_processor_get_lpi_info(pr);
 	if (ret)
-		ret = acpi_processor_get_cstate_info(pr);
+		return acpi_processor_get_cstate_info(pr);
+
+	if (pr->flags.has_lpi) {
+		ret = acpi_processor_ffh_lpi_probe(pr->id);
+		if (ret)
+			pr_err("CPU%u: Invalid FFH LPI data\n", pr->id);
+	}
 
 	return ret;
 }
