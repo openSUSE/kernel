@@ -1667,15 +1667,24 @@ static bool is_feature_id_reg(u32 encoding)
  * Return true if the register's (Op0, Op1, CRn, CRm, Op2) is
  * (3, 0, 0, crm, op2), where 1<=crm<8, 0<=op2<8, which is the range of ID
  * registers KVM maintains on a per-VM basis.
+ *
+ * Additionally, the implementation ID registers and CTR_EL0 are handled as
+ * per-VM registers.
  */
 static inline bool is_vm_ftr_id_reg(u32 id)
 {
-	if (id == SYS_CTR_EL0)
+	switch (id) {
+	case SYS_CTR_EL0:
+	case SYS_MIDR_EL1:
+	case SYS_REVIDR_EL1:
+	case SYS_AIDR_EL1:
 		return true;
+	default:
+		return (sys_reg_Op0(id) == 3 && sys_reg_Op1(id) == 0 &&
+			sys_reg_CRn(id) == 0 && sys_reg_CRm(id) >= 1 &&
+			sys_reg_CRm(id) < 8);
 
-	return (sys_reg_Op0(id) == 3 && sys_reg_Op1(id) == 0 &&
-		sys_reg_CRn(id) == 0 && sys_reg_CRm(id) >= 1 &&
-		sys_reg_CRm(id) < 8);
+	}
 }
 
 static inline bool is_vcpu_ftr_id_reg(u32 id)
@@ -2013,9 +2022,10 @@ static int set_id_reg(struct kvm_vcpu *vcpu, const struct sys_reg_desc *rd,
 
 	/*
 	 * Once the VM has started the ID registers are immutable. Reject any
-	 * write that does not match the final register value.
+	 * write that does not match the final register value once we have
+	 * got far enough into first running the VM to use the values.
 	 */
-	if (kvm_vm_has_ran_once(vcpu->kvm)) {
+	if (kvm_id_regs_final(vcpu->kvm)) {
 		if (val != read_id_reg(vcpu, rd))
 			ret = -EBUSY;
 		else
@@ -2049,7 +2059,7 @@ void kvm_set_vm_id_reg(struct kvm *kvm, u32 reg, u64 val)
 
 	lockdep_assert_held(&kvm->arch.config_lock);
 
-	if (KVM_BUG_ON(kvm_vm_has_ran_once(kvm) || !p, kvm))
+	if (KVM_BUG_ON(kvm_id_regs_final(kvm) || !p, kvm))
 		return;
 
 	*p = val;
@@ -2510,6 +2520,17 @@ static bool access_imp_id_reg(struct kvm_vcpu *vcpu,
 	if (p->is_write)
 		return write_to_read_only(vcpu, p, r);
 
+	/*
+	 * Return the VM-scoped implementation ID register values if userspace
+	 * has made them writable.
+	 */
+	if (test_bit(KVM_ARCH_FLAG_WRITABLE_IMP_ID_REGS, &vcpu->kvm->arch.flags))
+		return access_id_reg(vcpu, p, r);
+
+	/*
+	 * Otherwise, fall back to the old behavior of returning the value of
+	 * the current CPU.
+	 */
 	switch (reg_to_encoding(r)) {
 	case SYS_REVIDR_EL1:
 		p->regval = read_sysreg(revidr_el1);
@@ -2535,45 +2556,61 @@ static void init_imp_id_regs(void)
 	boot_cpu_aidr_val = read_sysreg(aidr_el1);
 }
 
-static int get_imp_id_reg(struct kvm_vcpu *vcpu, const struct sys_reg_desc *r,
-			  u64 *val)
+static u64 reset_imp_id_reg(struct kvm_vcpu *vcpu, const struct sys_reg_desc *r)
 {
 	switch (reg_to_encoding(r)) {
 	case SYS_MIDR_EL1:
-		*val = boot_cpu_midr_val;
-		break;
+		return boot_cpu_midr_val;
 	case SYS_REVIDR_EL1:
-		*val = boot_cpu_revidr_val;
-		break;
+		return boot_cpu_revidr_val;
 	case SYS_AIDR_EL1:
-		*val = boot_cpu_aidr_val;
-		break;
+		return boot_cpu_aidr_val;
 	default:
-		WARN_ON_ONCE(1);
-		return -EINVAL;
+		KVM_BUG_ON(1, vcpu->kvm);
+		return 0;
 	}
-
-	return 0;
 }
 
 static int set_imp_id_reg(struct kvm_vcpu *vcpu, const struct sys_reg_desc *r,
 			  u64 val)
 {
+	struct kvm *kvm = vcpu->kvm;
 	u64 expected;
-	int ret;
 
-	ret = get_imp_id_reg(vcpu, r, &expected);
-	if (ret)
-		return ret;
+	guard(mutex)(&kvm->arch.config_lock);
 
-	return (expected == val) ? 0 : -EINVAL;
+	expected = read_id_reg(vcpu, r);
+	if (expected == val)
+		return 0;
+
+	if (!test_bit(KVM_ARCH_FLAG_WRITABLE_IMP_ID_REGS, &kvm->arch.flags))
+		return -EINVAL;
+
+	/*
+	 * Once we have been far enough into starting the VM the ID registers
+	 * are immutable. Reject the write if userspace tries to change it.
+	 */
+	if (kvm_id_regs_final(kvm))
+		return -EBUSY;
+
+	/*
+	 * Any value is allowed for the implementation ID registers so long as
+	 * it is within the writable mask.
+	 */
+	if ((val & r->val) != val)
+		return -EINVAL;
+
+	kvm_set_vm_id_reg(kvm, reg_to_encoding(r), val);
+	return 0;
 }
 
-#define IMPLEMENTATION_ID(reg) {			\
+#define IMPLEMENTATION_ID(reg, mask) {			\
 	SYS_DESC(SYS_##reg),				\
 	.access = access_imp_id_reg,			\
-	.get_user = get_imp_id_reg,			\
+	.get_user = get_id_reg,				\
 	.set_user = set_imp_id_reg,			\
+	.reset = reset_imp_id_reg,			\
+	.val = mask,					\
 }
 
 /*
@@ -2624,9 +2661,9 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 
 	{ SYS_DESC(SYS_DBGVCR32_EL2), undef_access, reset_val, DBGVCR32_EL2, 0 },
 
-	IMPLEMENTATION_ID(MIDR_EL1),
+	IMPLEMENTATION_ID(MIDR_EL1, GENMASK_ULL(31, 0)),
 	{ SYS_DESC(SYS_MPIDR_EL1), NULL, reset_mpidr, MPIDR_EL1 },
-	IMPLEMENTATION_ID(REVIDR_EL1),
+	IMPLEMENTATION_ID(REVIDR_EL1, GENMASK_ULL(63, 0)),
 
 	/*
 	 * ID regs: all ID_SANITISED() entries here must have corresponding
@@ -2749,8 +2786,6 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 					ID_AA64MMFR0_EL1_TGRAN16_2 |
 					ID_AA64MMFR0_EL1_ASIDBITS)),
 	ID_WRITABLE(ID_AA64MMFR1_EL1, ~(ID_AA64MMFR1_EL1_RES0 |
-					ID_AA64MMFR1_EL1_HCX |
-					ID_AA64MMFR1_EL1_TWED |
 					ID_AA64MMFR1_EL1_XNX |
 					ID_AA64MMFR1_EL1_VH |
 					ID_AA64MMFR1_EL1_VMIDBits)),
@@ -2899,7 +2934,7 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 	  .set_user = set_clidr, .val = ~CLIDR_EL1_RES0 },
 	{ SYS_DESC(SYS_CCSIDR2_EL1), undef_access },
 	{ SYS_DESC(SYS_SMIDR_EL1), undef_access },
-	IMPLEMENTATION_ID(AIDR_EL1),
+	IMPLEMENTATION_ID(AIDR_EL1, GENMASK_ULL(63, 0)),
 	{ SYS_DESC(SYS_CSSELR_EL1), access_csselr, reset_unknown, CSSELR_EL1 },
 	ID_FILTERED(CTR_EL0, ctr_el0,
 		    CTR_EL0_DIC_MASK |
@@ -5090,7 +5125,7 @@ int kvm_finalize_sys_regs(struct kvm_vcpu *vcpu)
 	 * This hacks into the ID registers, so only perform it when the
 	 * first vcpu runs, or the kvm_set_vm_id_reg() helper will scream.
 	 */
-	if (!irqchip_in_kernel(kvm) && !kvm_vm_has_ran_once(kvm)) {
+	if (!irqchip_in_kernel(kvm) && !kvm_id_regs_final(kvm)) {
 		u64 val;
 
 		val = kvm_read_vm_id_reg(kvm, SYS_ID_AA64PFR0_EL1) & ~ID_AA64PFR0_EL1_GIC;
@@ -5104,6 +5139,8 @@ int kvm_finalize_sys_regs(struct kvm_vcpu *vcpu)
 		if (ret)
 			return ret;
 	}
+
+	set_bit(KVM_ARCH_FLAG_ID_REGS_FINAL, &kvm->arch.flags);
 
 	return 0;
 }
