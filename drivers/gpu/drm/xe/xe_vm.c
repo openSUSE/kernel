@@ -2401,20 +2401,8 @@ static void xe_vma_op_unwind(struct xe_vm *vm, struct xe_vma_op *op,
 			down_read(&vm->userptr.notifier_lock);
 			vma->gpuva.flags &= ~XE_VMA_DESTROYED;
 			up_read(&vm->userptr.notifier_lock);
-			if (post_commit) {
-				/*
-				 * Restore the old va range, in case of the
-				 * prev/next skip optimisation. Otherwise what
-				 * we re-insert here could be smaller than the
-				 * original range.
-				 */
-				op->base.remap.unmap->va->va.addr =
-					op->remap.old_start;
-				op->base.remap.unmap->va->va.range =
-					op->remap.old_range;
-
+			if (post_commit)
 				xe_vm_insert_vma(vm, vma);
-			}
 		}
 		break;
 	}
@@ -2434,8 +2422,19 @@ static void xe_vma_op_unwind(struct xe_vm *vm, struct xe_vma_op *op,
 			down_read(&vm->userptr.notifier_lock);
 			vma->gpuva.flags &= ~XE_VMA_DESTROYED;
 			up_read(&vm->userptr.notifier_lock);
-			if (post_commit)
+			if (post_commit) {
+				/*
+				 * Restore the old va range, in case of the
+				 * prev/next skip optimisation. Otherwise what
+				 * we re-insert here could be smaller than the
+				 * original range.
+				 */
+				op->base.remap.unmap->va->va.addr =
+					op->remap.old_start;
+				op->base.remap.unmap->va->va.range =
+					op->remap.old_range;
 				xe_vm_insert_vma(vm, vma);
+			}
 		}
 		break;
 	}
