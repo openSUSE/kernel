@@ -554,7 +554,9 @@ static int acp_hw_fini(void *handle)
 			if (ret)
 				dev_err(dev, "remove dev from genpd failed\n");
 		}
+		pm_genpd_remove(&adev->acp.acp_genpd->gpd);
 		kfree(adev->acp.acp_genpd);
+		adev->acp.acp_genpd = NULL;
 	}
 
 	mfd_remove_devices(adev->acp.parent);
