@@ -12,6 +12,7 @@
 #include <linux/uuid.h>
 #include <crypto/aead.h>
 #include <uapi/linux/magic.h>
+#include <linux/fscache.h>
 #include "cifsfs.h"
 #include "cifsglob.h"
 #include "smb2pdu.h"
@@ -1815,6 +1816,12 @@ smb2_ioctl_query_info(const unsigned int xid,
 		qi_rsp = (struct smb2_query_info_rsp *)rsp_iov[1].iov_base;
 		if (le32_to_cpu(qi_rsp->OutputBufferLength) < qi.input_buffer_length)
 			qi.input_buffer_length = le32_to_cpu(qi_rsp->OutputBufferLength);
+		if (qi.input_buffer_length > 0 &&
+		    struct_size(qi_rsp, Buffer, qi.input_buffer_length) >
+		    rsp_iov[1].iov_len) {
+			rc = -EFAULT;
+			goto out;
+		}
 		if (copy_to_user(&pqi->input_buffer_length,
 				 &qi.input_buffer_length,
 				 sizeof(qi.input_buffer_length))) {
@@ -3460,6 +3467,7 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 	struct cifsInodeInfo *cifsi;
 	struct cifsFileInfo *cfile = file->private_data;
 	struct file_zero_data_information fsctl_buf;
+	unsigned long long new_size;
 	long rc;
 	unsigned int xid;
 	__le64 eof;
@@ -3471,6 +3479,13 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 
 	trace_smb3_zero_enter(xid, cfile->fid.persistent_fid, tcon->tid,
 			      ses->Suid, offset, len);
+
+	new_size = offset + len;
+	if (!keep_size && i_size_read(inode) < new_size) {
+		rc = inode_newsize_ok(inode, new_size);
+		if (rc)
+			goto zero_range_exit;
+	}
 
 	/*
 	 * We zero the range through ioctl, so we need remove the page caches
@@ -3488,6 +3503,8 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 			return rc;
 		}
 
+	fscache_invalidate(cifsi->fscache);
+
 	cifs_dbg(FYI, "Offset %lld len %lld\n", offset, len);
 
 	fsctl_buf.FileOffset = cpu_to_le64(offset);
@@ -3504,8 +3521,8 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 	/*
 	 * do we also need to change the size of the file?
 	 */
-	if (keep_size == false && i_size_read(inode) < offset + len) {
-		eof = cpu_to_le64(offset + len);
+	if (keep_size == false && i_size_read(inode) < new_size) {
+		eof = cpu_to_le64(new_size);
 		rc = SMB2_set_eof(xid, tcon, cfile->fid.persistent_fid,
 				  cfile->fid.volatile_fid, cfile->pid, &eof);
 	}
@@ -3555,6 +3572,7 @@ static long smb3_punch_hole(struct file *file, struct cifs_tcon *tcon,
 	 * caches first, otherwise the data may be inconsistent with the server.
 	 */
 	truncate_pagecache_range(inode, offset, offset + len - 1);
+	fscache_invalidate(CIFS_I(inode)->fscache);
 
 	cifs_dbg(FYI, "Offset %lld len %lld\n", offset, len);
 
@@ -3841,6 +3859,8 @@ static long smb3_collapse_range(struct file *file, struct cifs_tcon *tcon,
 	loff_t old_eof;
 
 	xid = get_xid();
+	fscache_invalidate(CIFS_I(file->f_inode)->fscache);
+
 	inode_lock(file->f_inode);
 
 	old_eof = i_size_read(file->f_inode);
@@ -3886,8 +3906,8 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 	int rc;
 	unsigned int xid;
 	struct cifsFileInfo *cfile = file->private_data;
-	__le64 eof;
-	__u64  count, old_eof;
+	u64 count;
+	loff_t old_eof, new_eof;
 
 	xid = get_xid();
 
@@ -3900,8 +3920,16 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 		goto out;
 	}
 
+	if (check_add_overflow(old_eof, len, &new_eof)) {
+		rc = -EFBIG;
+		goto out;
+	}
+	rc = inode_newsize_ok(file->f_inode, new_eof);
+	if (rc)
+		goto out;
+
 	count = old_eof - off;
-	eof = cpu_to_le64(old_eof + len);
+	fscache_invalidate(CIFS_I(file->f_inode)->fscache);
 
 	rc = filemap_write_and_wait_range(file->f_inode->i_mapping,
 					  round_down(off, PAGE_SIZE),
@@ -3916,7 +3944,7 @@ static long smb3_insert_range(struct file *file, struct cifs_tcon *tcon,
 	truncate_pagecache_range(file->f_inode, round_down(off, PAGE_SIZE), -1);
 
 	rc = SMB2_set_eof(xid, tcon, cfile->fid.persistent_fid,
-			  cfile->fid.volatile_fid, cfile->pid, &eof);
+			  cfile->fid.volatile_fid, cfile->pid, &new_eof);
 	if (rc < 0)
 		goto out;
 
