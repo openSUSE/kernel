@@ -2690,6 +2690,40 @@ static void __init ivinfo_init(void *ivrs)
 }
 
 /*
+ * Apply workaround for Zen1 to Zen5(BRH) generation of processors.
+ * References: CVE-2024-21963
+ */
+static bool __init amd_iommu_force_max_dev_table(void)
+{
+      bool is_zen6 = false;
+
+      switch (boot_cpu_data.x86) {
+      case 0x1a:
+              switch(boot_cpu_data.x86_model) {
+              case 0x50 ... 0x5f:
+              case 0x80 ... 0xaf:
+              case 0xc0 ... 0xcf:
+              case 0xd8 ... 0xef:
+                      is_zen6 = true;
+                      break;
+              default:
+                      break;
+              }
+      default:
+              break;
+      }
+
+      if (boot_cpu_data.x86 >= 0x17 && boot_cpu_data.x86 <= 0x1a) {
+              if (is_zen6)
+                      return false;
+              else
+                      return true;
+      }
+      return false;
+}
+
+
+/*
  * This is the hardware init function for AMD IOMMU in the system.
  * This function is called either from amd_iommu_init or from the interrupt
  * remapping setup code.
@@ -2756,7 +2790,15 @@ static int __init early_amd_iommu_init(void)
 	if (ret)
 		goto out;
 
-	dev_table_size     = tbl_size(DEV_TABLE_ENTRY_SIZE);
+	if (amd_iommu_force_max_dev_table()) {
+		pr_info("Force device table to maximum size\n");
+		dev_table_size = SZ_2M;
+	} else {
+		dev_table_size =
+			max((u32)roundup_pow_of_two((amd_iommu_last_bdf + 1) *
+					       DEV_TABLE_ENTRY_SIZE),
+			    (u32)SZ_4K);
+	}
 	alias_table_size   = tbl_size(ALIAS_TABLE_ENTRY_SIZE);
 	rlookup_table_size = tbl_size(RLOOKUP_TABLE_ENTRY_SIZE);
 
