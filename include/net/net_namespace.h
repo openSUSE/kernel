@@ -175,12 +175,7 @@ struct net {
 #if IS_ENABLED(CONFIG_MPLS)
 	struct netns_mpls	mpls;
 #endif
-	/* We have disabled CAN, but in order to preserve kABI
-	 * we have to include the struct on the architectures
-	 * where it had been enabled.
-	 */
-#if IS_ENABLED(CONFIG_CAN) || \
-	(IS_ENABLED(CONFIG_X86_64) || IS_ENABLED(CONFIG_ARM64))
+#if IS_ENABLED(CONFIG_CAN)
 	struct netns_can	can;
 #endif
 #ifdef CONFIG_XDP_SOCKETS
