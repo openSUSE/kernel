@@ -344,6 +344,7 @@ struct acpi_device_physical_node {
 	struct list_head node;
 	struct device *dev;
 	bool put_online:1;
+	bool offline_pending:1;
 };
 
 struct acpi_device_properties {
