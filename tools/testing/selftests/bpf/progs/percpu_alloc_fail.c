@@ -152,7 +152,7 @@ int BPF_PROG(test_array_map_5)
 }
 
 SEC("?syscall")
-__failure __msg("invalid kptr access, R2 type=trusted_ptr_ expected=ptr_task_struct")
+__failure __msg("invalid kptr access, R2 type=ptr_ expected=ptr_task_struct")
 int reject_kernel_ptr_into_percpu_kptr(void *ctx)
 {
 	struct kernel_percpu_elem *e;
