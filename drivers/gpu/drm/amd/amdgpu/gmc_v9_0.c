@@ -1639,6 +1639,7 @@ static int gmc_v9_0_early_init(struct amdgpu_ip_block *ip_block)
 static int gmc_v9_0_late_init(struct amdgpu_ip_block *ip_block)
 {
 	struct amdgpu_device *adev = ip_block->adev;
+	bool nps_switch_support;
 	int r;
 
 	r = amdgpu_gmc_allocate_vm_inv_eng(adev);
@@ -1666,6 +1667,18 @@ static int gmc_v9_0_late_init(struct amdgpu_ip_block *ip_block)
 	r = amdgpu_gmc_ras_late_init(adev);
 	if (r)
 		return r;
+
+	nps_switch_support = !adev->gmc.xgmi.connected_to_cpu &&
+			     (hweight32(adev->gmc.supported_nps_modes &
+					AMDGPU_ALL_NPS_MASK) > 1);
+	/* Initialize requested NPS mode to be the same as current mode */
+	if (nps_switch_support) {
+		enum amdgpu_memory_partition mode =
+			amdgpu_gmc_get_requested_nps_mode(adev);
+		if (mode == UNKNOWN_MEMORY_PARTITION_MODE)
+			amdgpu_gmc_set_requested_nps_mode(
+				adev, amdgpu_gmc_query_memory_partition(adev));
+	}
 
 	return amdgpu_irq_get(adev, &adev->gmc.vm_fault, 0);
 }
