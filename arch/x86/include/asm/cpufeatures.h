@@ -83,8 +83,8 @@
 #define X86_FEATURE_CENTAUR_MCR		( 3*32+ 3) /* Centaur MCRs (= MTRRs) */
 #define X86_FEATURE_K8			( 3*32+ 4) /* "" Opteron, Athlon64 */
 #define X86_FEATURE_ZEN5		( 3*32+ 5) /* "" CPU based on Zen5 microarchitecture */
-#define X86_FEATURE_P3			( 3*32+ 6) /* "" P3 */
-#define X86_FEATURE_P4			( 3*32+ 7) /* "" P4 */
+#define X86_FEATURE_ZEN6		( 3*32+ 6) /* "" CPU based on Zen6 microarchitecture */
+/* Free					( 3*32+ 7)  */
 #define X86_FEATURE_CONSTANT_TSC	( 3*32+ 8) /* TSC ticks at a constant rate */
 #define X86_FEATURE_UP			( 3*32+ 9) /* SMP kernel running on UP */
 #define X86_FEATURE_ART			( 3*32+10) /* Always running timer (ART) */
@@ -410,6 +410,7 @@
 #define X86_FEATURE_OVERFLOW_RECOV	(17*32+ 0) /* MCA overflow recovery support */
 #define X86_FEATURE_SUCCOR		(17*32+ 1) /* Uncorrectable error containment and recovery */
 #define X86_FEATURE_SMCA		(17*32+ 3) /* Scalable MCA */
+#define X86_FEATURE_TSA_FILL_NO		(17*32+ 5) /* AMD CPU not vulnerable to TSA-FILL */
 
 /* Intel-defined CPU features, CPUID level 0x00000007:0 (EDX), word 18 */
 #define X86_FEATURE_AVX512_4VNNIW	(18*32+ 2) /* AVX-512 Neural Network Instructions */
