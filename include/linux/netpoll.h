@@ -36,6 +36,8 @@ struct netpoll {
 struct netpoll_info {
 	atomic_t refcnt;
 
+	bool tx_work_disabled;
+
 	struct semaphore dev_lock;
 
 	struct sk_buff_head txq;
