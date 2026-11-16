@@ -33,10 +33,8 @@ struct netpoll {
 	struct work_struct cleanup_work;
 };
 
-struct netpoll_info {
+struct __orig_netpoll_info {
 	atomic_t refcnt;
-
-	bool tx_work_disabled;
 
 	struct semaphore dev_lock;
 
@@ -47,6 +45,24 @@ struct netpoll_info {
 	struct netpoll *netpoll;
 	struct rcu_head rcu;
 };
+
+struct netpoll_info {
+	atomic_t refcnt;
+#ifndef __GENKSYMS__
+	bool tx_work_disabled;
+#endif
+
+	struct semaphore dev_lock;
+
+	struct sk_buff_head txq;
+
+	struct delayed_work tx_work;
+
+	struct netpoll *netpoll;
+	struct rcu_head rcu;
+};
+suse_kabi_static_assert(offsetof(struct netpoll_info, dev_lock) ==
+			offsetof(struct __orig_netpoll_info, dev_lock));
 
 #ifdef CONFIG_NETPOLL
 void netpoll_poll_dev(struct net_device *dev);
