@@ -219,7 +219,6 @@ void ib_uverbs_release_file(struct kref *ref)
 
 	if (file->disassociate_page)
 		__free_pages(file->disassociate_page, 0);
-	mutex_destroy(&file->disassociation_lock);
 	mutex_destroy(&file->umap_lock);
 	mutex_destroy(&file->ucontext_lock);
 	kfree(file);
@@ -702,12 +701,15 @@ static int ib_uverbs_mmap(struct file *filp, struct vm_area_struct *vma)
 		goto out;
 	}
 
-	mutex_lock(&file->disassociation_lock);
+	if (!down_read_trylock(&file->hw_destroy_rwsem)) {
+		ret = -EIO;
+		goto out;
+	}
 
 	vma->vm_ops = &rdma_umap_ops;
 	ret = ucontext->device->ops.mmap(ucontext, vma);
 
-	mutex_unlock(&file->disassociation_lock);
+	up_read(&file->hw_destroy_rwsem);
 out:
 	srcu_read_unlock(&file->device->disassociate_srcu, srcu_key);
 	return ret;
@@ -729,7 +731,6 @@ static void rdma_umap_open(struct vm_area_struct *vma)
 	/* We are racing with disassociation */
 	if (!down_read_trylock(&ufile->hw_destroy_rwsem))
 		goto out_zap;
-	mutex_lock(&ufile->disassociation_lock);
 
 	/*
 	 * Disassociation already completed, the VMA should already be zapped.
@@ -742,12 +743,10 @@ static void rdma_umap_open(struct vm_area_struct *vma)
 		goto out_unlock;
 	rdma_umap_priv_init(priv, vma, opriv->entry);
 
-	mutex_unlock(&ufile->disassociation_lock);
 	up_read(&ufile->hw_destroy_rwsem);
 	return;
 
 out_unlock:
-	mutex_unlock(&ufile->disassociation_lock);
 	up_read(&ufile->hw_destroy_rwsem);
 out_zap:
 	/*
@@ -831,7 +830,7 @@ void uverbs_user_mmap_disassociate(struct ib_uverbs_file *ufile)
 {
 	struct rdma_umap_priv *priv, *next_priv;
 
-	mutex_lock(&ufile->disassociation_lock);
+	lockdep_assert_held_write(&ufile->hw_destroy_rwsem);
 
 	while (1) {
 		struct mm_struct *mm = NULL;
@@ -857,10 +856,8 @@ void uverbs_user_mmap_disassociate(struct ib_uverbs_file *ufile)
 			break;
 		}
 		mutex_unlock(&ufile->umap_lock);
-		if (!mm) {
-			mutex_unlock(&ufile->disassociation_lock);
+		if (!mm)
 			return;
-		}
 
 		/*
 		 * The umap_lock is nested under mmap_lock since it used within
@@ -890,8 +887,6 @@ void uverbs_user_mmap_disassociate(struct ib_uverbs_file *ufile)
 		mmap_read_unlock(mm);
 		mmput(mm);
 	}
-
-	mutex_unlock(&ufile->disassociation_lock);
 }
 
 /**
@@ -909,8 +904,11 @@ void rdma_user_mmap_disassociate(struct ib_device *device)
 
 	mutex_lock(&uverbs_dev->lists_mutex);
 	list_for_each_entry(ufile, &uverbs_dev->uverbs_file_list, list) {
-		if (ufile->ucontext)
+		if (ufile->ucontext) {
+			down_write(&ufile->hw_destroy_rwsem);
 			uverbs_user_mmap_disassociate(ufile);
+			up_write(&ufile->hw_destroy_rwsem);
+		}
 	}
 	mutex_unlock(&uverbs_dev->lists_mutex);
 }
@@ -984,8 +982,6 @@ static int ib_uverbs_open(struct inode *inode, struct file *filp)
 	init_rwsem(&file->hw_destroy_rwsem);
 	mutex_init(&file->umap_lock);
 	INIT_LIST_HEAD(&file->umaps);
-
-	mutex_init(&file->disassociation_lock);
 
 	filp->private_data = file;
 	list_add_tail(&file->list, &dev->uverbs_file_list);
