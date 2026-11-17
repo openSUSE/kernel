@@ -39,6 +39,7 @@
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_cmnd.h>
+#include <linux/build_bug.h>
 
 #include "scsi_priv.h"
 #include "scsi_logging.h"
@@ -339,11 +340,12 @@ static void scsi_host_dev_release(struct device *dev)
 {
 	struct Scsi_Host *shost = dev_to_shost(dev);
 	struct device *parent = dev->parent;
+	struct shost_work_struct *sws = shost_eh_work(shost);
 
 	/* Wait for functions invoked through call_rcu(&scmd->rcu, ...) */
 	rcu_barrier();
 
-	cancel_work_sync(&shost->eh_work);
+	cancel_work_sync(&sws->work);
 	if (shost->tmf_work_q)
 		destroy_workqueue(shost->tmf_work_q);
 	if (shost->ehandler)
@@ -363,6 +365,7 @@ static void scsi_host_dev_release(struct device *dev)
 		kfree(dev_name(&shost->shost_dev));
 	}
 
+	kfree(sws);
 	kfree(shost->shost_data);
 
 	ida_free(&host_index_ida, shost->host_no);
@@ -393,11 +396,18 @@ static const struct device_type scsi_host_type = {
 struct Scsi_Host *scsi_host_alloc(const struct scsi_host_template *sht, int privsize)
 {
 	struct Scsi_Host *shost;
+	struct shost_work_struct *sws;
 	int index;
 
 	shost = kzalloc(sizeof(struct Scsi_Host) + privsize, GFP_KERNEL);
 	if (!shost)
 		return NULL;
+
+	sws = kzalloc(sizeof(*sws), GFP_KERNEL);
+	if (!sws) {
+		kfree(shost);
+		return NULL;
+	}
 
 	shost->host_lock = &shost->default_lock;
 	spin_lock_init(shost->host_lock);
@@ -409,10 +419,15 @@ struct Scsi_Host *scsi_host_alloc(const struct scsi_host_template *sht, int priv
 	INIT_LIST_HEAD(&shost->starved_list);
 	init_waitqueue_head(&shost->host_wait);
 	mutex_init(&shost->scan_mutex);
-	INIT_WORK(&shost->eh_work, scsi_rcu_eh_wakeup);
+
+	INIT_WORK(&sws->work, scsi_rcu_eh_wakeup);
+	sws->shost = shost;
+	shost->eh_work_high = upper_32_bits((unsigned long)sws);
+	shost->eh_work_low = lower_32_bits((unsigned long)sws);
 
 	index = ida_alloc(&host_index_ida, GFP_KERNEL);
 	if (index < 0) {
+		kfree(sws);
 		kfree(shost);
 		return NULL;
 	}
@@ -754,3 +769,204 @@ void scsi_host_busy_iter(struct Scsi_Host *shost,
 				&iter_data);
 }
 EXPORT_SYMBOL_GPL(scsi_host_busy_iter);
+
+/* Static kABI check for the kABI fix for dccf3b1798b7 */
+struct __orig_Scsi_Host {
+	/*
+	 * __devices is protected by the host_lock, but you should
+	 * usually use scsi_device_lookup / shost_for_each_device
+	 * to access it and don't care about locking yourself.
+	 * In the rare case of being in irq context you can use
+	 * their __ prefixed variants with the lock held. NEVER
+	 * access this list directly from a driver.
+	 */
+	struct list_head	__devices;
+	struct list_head	__targets;
+	
+	struct list_head	starved_list;
+
+	spinlock_t		default_lock;
+	spinlock_t		*host_lock;
+
+	struct mutex		scan_mutex;/* serialize scanning activity */
+
+	struct list_head	eh_abort_list;
+	struct list_head	eh_cmd_q;
+	struct task_struct    * ehandler;  /* Error recovery thread. */
+	struct completion     * eh_action; /* Wait for specific actions on the
+					      host. */
+	wait_queue_head_t       host_wait;
+	const struct scsi_host_template *hostt;
+	struct scsi_transport_template *transportt;
+
+	struct kref		tagset_refcnt;
+	struct completion	tagset_freed;
+	/* Area to keep a shared tag map */
+	struct blk_mq_tag_set	tag_set;
+
+	atomic_t host_blocked;
+
+	unsigned int host_failed;	   /* commands that failed.
+					      protected by host_lock */
+	unsigned int host_eh_scheduled;    /* EH scheduled without command */
+    
+	unsigned int host_no;  /* Used for IOCTL_GET_IDLUN, /proc/scsi et al. */
+
+	/* next two fields are used to bound the time spent in error handling */
+	int eh_deadline;
+	unsigned long last_reset;
+
+
+	/*
+	 * These three parameters can be used to allow for wide scsi,
+	 * and for host adapters that support multiple busses
+	 * The last two should be set to 1 more than the actual max id
+	 * or lun (e.g. 8 for SCSI parallel systems).
+	 */
+	unsigned int max_channel;
+	unsigned int max_id;
+	u64 max_lun;
+
+	/*
+	 * This is a unique identifier that must be assigned so that we
+	 * have some way of identifying each detected host adapter properly
+	 * and uniquely.  For hosts that do not support more than one card
+	 * in the system at one time, this does not need to be set.  It is
+	 * initialized to 0 in scsi_host_alloc.
+	 */
+	unsigned int unique_id;
+
+	/*
+	 * The maximum length of SCSI commands that this host can accept.
+	 * Probably 12 for most host adapters, but could be 16 for others.
+	 * or 260 if the driver supports variable length cdbs.
+	 * For drivers that don't set this field, a value of 12 is
+	 * assumed.
+	 */
+	unsigned short max_cmd_len;
+
+	int this_id;
+	int can_queue;
+	short cmd_per_lun;
+	short unsigned int sg_tablesize;
+	short unsigned int sg_prot_tablesize;
+	unsigned int max_sectors;
+	unsigned int opt_sectors;
+	unsigned int max_segment_size;
+	unsigned int dma_alignment;
+	unsigned long dma_boundary;
+	unsigned long virt_boundary_mask;
+	/*
+	 * In scsi-mq mode, the number of hardware queues supported by the LLD.
+	 *
+	 * Note: it is assumed that each hardware queue has a queue depth of
+	 * can_queue. In other words, the total queue depth per host
+	 * is nr_hw_queues * can_queue. However, for when host_tagset is set,
+	 * the total queue depth is can_queue.
+	 */
+	unsigned nr_hw_queues;
+	unsigned nr_maps;
+	unsigned active_mode:2;
+
+	/*
+	 * Host has requested that no further requests come through for the
+	 * time being.
+	 */
+	unsigned host_self_blocked:1;
+    
+	/*
+	 * Host uses correct SCSI ordering not PC ordering. The bit is
+	 * set for the minority of drivers whose authors actually read
+	 * the spec ;).
+	 */
+	unsigned reverse_ordering:1;
+
+	/* Task mgmt function in progress */
+	unsigned tmf_in_progress:1;
+
+	/* Asynchronous scan in progress */
+	unsigned async_scan:1;
+
+	/* Don't resume host in EH */
+	unsigned eh_noresume:1;
+
+	/* The controller does not support WRITE SAME */
+	unsigned no_write_same:1;
+
+	/* True if the host uses host-wide tagspace */
+	unsigned host_tagset:1;
+
+	/* The queuecommand callback may block. See also BLK_MQ_F_BLOCKING. */
+	unsigned queuecommand_may_block:1;
+
+	/* Host responded with short (<36 bytes) INQUIRY result */
+	unsigned short_inquiry:1;
+
+	/* The transport requires the LUN bits NOT to be stored in CDB[1] */
+	unsigned no_scsi2_lun_in_cdb:1;
+
+	unsigned no_highmem:1;
+
+	/*
+	 * Optional work queue to be utilized by the transport
+	 */
+	struct workqueue_struct *work_q;
+
+	/*
+	 * Task management function work queue
+	 */
+	struct workqueue_struct *tmf_work_q;
+
+	/*
+	 * Value host_blocked counts down from
+	 */
+	unsigned int max_host_blocked;
+
+	/* Protection Information */
+	unsigned int prot_capabilities;
+	unsigned char prot_guard_type;
+
+	/* legacy crap */
+	unsigned long base;
+	unsigned long io_port;
+	unsigned char n_io_port;
+	unsigned char dma_channel;
+	unsigned int  irq;
+	
+
+	enum scsi_host_state shost_state;
+
+	/* ldm bits */
+	struct device		shost_gendev, shost_dev;
+
+	/*
+	 * Points to the transport data (if any) which is allocated
+	 * separately
+	 */
+	void *shost_data;
+
+	/*
+	 * Points to the physical bus device we'd use to do DMA
+	 * Needed just in case we have virtual hosts.
+	 */
+	struct device *dma_dev;
+
+	/* Delay for runtime autosuspend */
+	int rpm_autosuspend_delay;
+
+	/*
+	 * We should ensure that this is aligned, both for better performance
+	 * and also because some compilers (m68k) don't automatically force
+	 * alignment to a long boundary.
+	 */
+	unsigned long hostdata[]  /* Used for storage of host specific stuff */
+		__attribute__ ((aligned (sizeof(unsigned long))));
+};
+
+suse_kabi_static_assert(offsetof(struct Scsi_Host, last_reset) ==
+			offsetof(struct __orig_Scsi_Host, last_reset));
+suse_kabi_static_assert(offsetof(struct Scsi_Host, tagset_freed) ==
+			offsetof(struct __orig_Scsi_Host, tagset_freed));
+suse_kabi_static_assert(offsetof(struct Scsi_Host, hostdata) ==
+			offsetof(struct __orig_Scsi_Host, hostdata));
+suse_kabi_static_assert(sizeof(struct Scsi_Host) == sizeof(struct __orig_Scsi_Host));
