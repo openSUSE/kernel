@@ -4,6 +4,7 @@
 #include <linux/if_vlan.h>
 #include <uapi/linux/tcp.h>
 #include <uapi/linux/udp.h>
+#include <net/tcp.h>
 #include <uapi/linux/virtio_net.h>
 
 static inline bool virtio_net_hdr_match_proto(__be16 protocol, __u8 gso_type)
@@ -142,6 +143,15 @@ retry:
 		/* UFO may not include transport header in gso_size. */
 		if (gso_type & SKB_GSO_UDP)
 			nh_off -= thlen;
+
+
+		switch (gso_type & ~SKB_GSO_TCP_ECN) {
+		case SKB_GSO_TCPV4:
+		case SKB_GSO_TCPV6:
+			BUILD_BUG_ON(TCP_MIN_GSO_SIZE * GSO_MAX_SEGS < GSO_MAX_SIZE);
+			gso_size = max((unsigned long)gso_size, (unsigned long)TCP_MIN_GSO_SIZE);
+			break;
+		}
 
 		/* Kernel has a special handling for GSO_BY_FRAGS. */
 		if (gso_size == GSO_BY_FRAGS)
