@@ -249,6 +249,8 @@ static inline u32 hv_get_bytes_to_read(const struct hv_ring_buffer_info *rbi)
 
 	read_loc = READ_ONCE(rbi->ring_buffer->read_index);
 	write_loc = READ_ONCE(rbi->ring_buffer->write_index);
+	if (unlikely(hv_ringbuffer_indices_invalid(rbi, read_loc, write_loc)))
+		return 0;
 
 	return hv_ringbuffer_avail_read(rbi, read_loc, write_loc);
 }
@@ -259,6 +261,8 @@ static inline u32 hv_get_bytes_to_write(const struct hv_ring_buffer_info *rbi)
 
 	read_loc = READ_ONCE(rbi->ring_buffer->read_index);
 	write_loc = READ_ONCE(rbi->ring_buffer->write_index);
+	if (unlikely(hv_ringbuffer_indices_invalid(rbi, read_loc, write_loc)))
+		return 0;
 
 	return hv_ringbuffer_avail_write(rbi, read_loc, write_loc);
 }
