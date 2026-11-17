@@ -749,11 +749,7 @@ static int nat_receive(struct garmin_data *garmin_data_p,
 			len = GARMIN_PKTHDR_LENGTH;
 
 		if (len >= GPS_IN_BUFSIZ) {
-			/* seems to be an invalid packet, ignore rest
-			   of input */
-			dev_dbg(&garmin_data_p->port->dev,
-				"%s - packet size too large: %d\n",
-				__func__, len);
+			/* should never end up here given the dlen check below */
 			garmin_data_p->insize = 0;
 			count = 0;
 			result = -EINVPKT;
@@ -772,8 +768,17 @@ static int nat_receive(struct garmin_data *garmin_data_p,
 
 		/* do we have a complete packet ? */
 		if (garmin_data_p->insize >= GARMIN_PKTHDR_LENGTH) {
-			len = GARMIN_PKTHDR_LENGTH+
-			   getDataLength(garmin_data_p->inbuffer);
+			u32 dlen = getDataLength(garmin_data_p->inbuffer);
+
+			if (dlen >= GPS_IN_BUFSIZ - GARMIN_PKTHDR_LENGTH) {
+				/* invalid packet, ignore rest of input */
+				dev_dbg(&garmin_data_p->port->dev, "%s - invalid length: %u\n",
+					__func__, dlen);
+				garmin_data_p->insize = 0;
+				result = -EINVPKT;
+				break;
+			}
+			len = GARMIN_PKTHDR_LENGTH + dlen;
 			if (garmin_data_p->insize >= len) {
 				garmin_write_bulk(garmin_data_p->port,
 						   garmin_data_p->inbuffer,
