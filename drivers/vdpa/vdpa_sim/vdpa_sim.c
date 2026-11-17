@@ -639,6 +639,7 @@ static int vdpasim_set_map(struct vdpa_device *vdpa, unsigned int asid,
 	if (asid >= vdpasim->dev_attr.nas)
 		return -EINVAL;
 
+	mutex_lock(&vdpasim->mutex);
 	spin_lock(&vdpasim->iommu_lock);
 
 	iommu = &vdpasim->iommu[asid];
@@ -653,11 +654,13 @@ static int vdpasim_set_map(struct vdpa_device *vdpa, unsigned int asid,
 			goto err;
 	}
 	spin_unlock(&vdpasim->iommu_lock);
+	mutex_unlock(&vdpasim->mutex);
 	return 0;
 
 err:
 	vhost_iotlb_reset(iommu);
 	spin_unlock(&vdpasim->iommu_lock);
+	mutex_unlock(&vdpasim->mutex);
 	return ret;
 }
 
