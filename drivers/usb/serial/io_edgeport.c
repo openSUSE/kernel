@@ -1085,7 +1085,9 @@ static void edge_close(struct usb_serial_port *port)
 
 	/* port->close = true; */
 	edge_port->closePending = false;
+	spin_lock_irq(&edge_port->ep_lock);
 	edge_port->open = false;
+	spin_unlock_irq(&edge_port->ep_lock);
 	edge_port->openPending = false;
 
 	usb_kill_urb(edge_port->write_urb);
@@ -1126,6 +1128,12 @@ static int edge_write(struct tty_struct *tty, struct usb_serial_port *port,
 	fifo = &edge_port->txfifo;
 
 	spin_lock_irqsave(&edge_port->ep_lock, flags);
+
+	/* avoid accessing freed fifo if tty_wakeup() races with close() */
+	if (!edge_port->open) {
+		spin_unlock_irqrestore(&edge_port->ep_lock, flags);
+		return 0;
+	}
 
 	/* calculate number of bytes to put in fifo */
 	copySize = min((unsigned int)count,
