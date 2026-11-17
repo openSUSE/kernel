@@ -2708,6 +2708,7 @@ static void mana_deinit_txq(struct mana_port_context *apc, struct mana_txq *txq)
 
 static void mana_destroy_txq(struct mana_port_context *apc)
 {
+	struct gdma_context *gc = apc->ac->gdma_dev->gdma_context;
 	struct napi_struct *napi;
 	int i;
 
@@ -2727,9 +2728,7 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 			netdev_lock(napi->dev);
 			napi_disable_locked(napi);
 			cancel_work_sync(&apc->tx_qp[i]->tx_cq.dim.work);
-			netif_napi_del_locked(napi);
 			netdev_unlock(napi->dev);
-			apc->tx_qp[i]->txq.napi_initialized = false;
 		}
 		/* Forget the SKBs freed without being completed after a drain
 		 * timeout, now that NAPI can't complete any. Doing it here also
@@ -2740,6 +2739,18 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 
 		if (apc->tx_qp[i]->tx_object != INVALID_MANA_HANDLE)
 			mana_destroy_wq_obj(apc, GDMA_SQ, apc->tx_qp[i]->tx_object);
+
+		if (apc->tx_qp[i]->txq.napi_initialized) {
+			/* Detach the CQ only after the WQ object is destroyed,
+			 * so a completion EQE that arrives before then still
+			 * finds the CQ in cq_table[] rather than hitting the
+			 * WARN in mana_gd_process_eqe(). One grace period then
+			 * covers both mana_gd_intr() and NAPI users.
+			 */
+			mana_gd_detach_cq(gc, apc->tx_qp[i]->tx_cq.gdma_cq);
+			netif_napi_del_locked(napi);
+			apc->tx_qp[i]->txq.napi_initialized = false;
+		}
 
 		mana_deinit_cq(apc, &apc->tx_qp[i]->tx_cq);
 
@@ -2951,7 +2962,6 @@ static void mana_destroy_rxq(struct mana_port_context *apc,
 		netdev_lock(napi->dev);
 		napi_disable_locked(napi);
 		cancel_work_sync(&rxq->rx_cq.dim.work);
-		netif_napi_del_locked(napi);
 		netdev_unlock(napi->dev);
 	}
 
@@ -2960,6 +2970,12 @@ static void mana_destroy_rxq(struct mana_port_context *apc,
 
 	if (rxq->rxobj != INVALID_MANA_HANDLE)
 		mana_destroy_wq_obj(apc, GDMA_RQ, rxq->rxobj);
+
+	if (napi_initialized) {
+		/* See the comment in mana_destroy_txq() */
+		mana_gd_detach_cq(gc, rxq->rx_cq.gdma_cq);
+		netif_napi_del_locked(napi);
+	}
 
 	mana_deinit_cq(apc, &rxq->rx_cq);
 
