@@ -2945,6 +2945,7 @@ static int __dwc3_gadget_start(struct dwc3 *dwc)
 {
 	struct dwc3_ep		*dep;
 	int			ret = 0;
+	u32			epnum;
 	u32			reg;
 
 	/*
@@ -3000,6 +3001,15 @@ static int __dwc3_gadget_start(struct dwc3 *dwc)
 	if (ret) {
 		dev_err(dwc->dev, "failed to config endpoints\n");
 		return ret;
+	}
+
+	for (epnum = 2; epnum < dwc->num_eps; epnum++) {
+		dep = dwc->eps[epnum];
+		if (!dep)
+			continue;
+
+		dep->flags &= (DWC3_EP_TXFIFO_RESIZED |
+			       DWC3_EP_RESOURCE_ALLOCATED);
 	}
 
 	dep = dwc->eps[0];
