@@ -5141,12 +5141,6 @@ int hci_dev_open_sync(struct hci_dev *hdev)
 
 	bt_dev_dbg(hdev, "");
 
-	/* Set HCI_DRAIN_WORKQUEUE flag to prevent queuing work during
-	 * reset/close. See hci_cmd_work() and handle_cmd_cnt_and_timer().
-	 */
-	hci_dev_set_flag(hdev, HCI_CMD_DRAIN_WORKQUEUE);
-	synchronize_rcu();
-
 	if (hci_dev_test_flag(hdev, HCI_UNREGISTER)) {
 		ret = -ENODEV;
 		goto done;
@@ -5299,6 +5293,12 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 	int err = 0;
 
 	bt_dev_dbg(hdev, "");
+
+	/* Set HCI_DRAIN_WORKQUEUE flag to prevent queuing work during
+	 * reset/close. See hci_cmd_work() and handle_cmd_cnt_and_timer().
+	 */
+	hci_dev_set_flag(hdev, HCI_CMD_DRAIN_WORKQUEUE);
+	synchronize_rcu();
 
 	cancel_delayed_work(&hdev->power_off);
 	cancel_delayed_work(&hdev->ncmd_timer);
