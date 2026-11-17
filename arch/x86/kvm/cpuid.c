@@ -831,7 +831,8 @@ void kvm_set_cpu_caps(void)
 
 
 	kvm_cpu_cap_init_kvm_defined(CPUID_8000_0021_ECX, F(TSA_SQ_NO) |
-		F(TSA_L1_NO));
+		F(TSA_L1_NO) |
+		F(TSA_FILL_NO));
 
 	kvm_cpu_cap_init_kvm_defined(CPUID_8000_0022_EAX,
 		F(PERFMON_V2)
