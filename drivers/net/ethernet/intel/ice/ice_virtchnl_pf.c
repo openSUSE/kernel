@@ -997,7 +997,7 @@ static bool ice_reset_vf(struct ice_vf *vf, bool is_vflr)
 
 	vsi = pf->vsi[vf->lan_vsi_idx];
 	if (WARN_ON(!vsi))
-		return  -EIO;
+		return false;
 
 	if (test_bit(ICE_VF_STATE_ENA, vf->vf_states)) {
 		ice_vsi_stop_lan_tx_rings(vsi, ICE_VF_RESET, vf->vf_id);
