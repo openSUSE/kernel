@@ -577,6 +577,9 @@ static void enqueue_pushable_dl_task(struct rq *rq, struct task_struct *p)
 
 	WARN_ON_ONCE(!RB_EMPTY_NODE(&p->pushable_dl_tasks));
 
+	if (p->nr_cpus_allowed <= 1)
+		return;
+
 	leftmost = rb_add_cached(&p->pushable_dl_tasks,
 				 &rq->dl.pushable_dl_tasks_root,
 				 __pushable_less);
@@ -1718,7 +1721,7 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 	enqueue_dl_entity(&p->dl, flags);
 
-	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
+	if (!task_current(rq, p))
 		enqueue_pushable_dl_task(rq, p);
 }
 
@@ -2021,7 +2024,7 @@ static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 	update_curr_dl(rq);
 
 	update_dl_rq_load_avg(rq_clock_pelt(rq), rq, 1);
-	if (on_dl_rq(&p->dl) && p->nr_cpus_allowed > 1)
+	if (on_dl_rq(&p->dl))
 		enqueue_pushable_dl_task(rq, p);
 }
 

@@ -387,6 +387,13 @@ static inline void rt_queue_pull_task(struct rq *rq)
 
 static void enqueue_pushable_task(struct rq *rq, struct task_struct *p)
 {
+	if (p->nr_cpus_allowed <= 1)
+		return;
+#ifdef HAVE_RT_PUSH_IPI
+	if (sched_feat(RT_PUSH_IPI) && is_migration_disabled(p))
+		return;
+#endif
+
 	plist_del(&p->pushable_tasks, &rq->rt.pushable_tasks);
 	plist_node_init(&p->pushable_tasks, p->prio);
 	plist_add(&p->pushable_tasks, &rq->rt.pushable_tasks);
@@ -1498,7 +1505,7 @@ enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 
 	enqueue_rt_entity(rt_se, flags);
 
-	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
+	if (!task_current(rq, p))
 		enqueue_pushable_task(rq, p);
 }
 
@@ -1791,7 +1798,7 @@ static void put_prev_task_rt(struct rq *rq, struct task_struct *p)
 	 * The previous task needs to be made eligible for pushing
 	 * if it is still active
 	 */
-	if (on_rt_rq(&p->rt) && p->nr_cpus_allowed > 1)
+	if (on_rt_rq(&p->rt))
 		enqueue_pushable_task(rq, p);
 }
 
