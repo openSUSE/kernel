@@ -120,7 +120,7 @@ int handshake_nl_accept_doit(struct sk_buff *skb, struct genl_info *info)
 		goto out_complete;
 	}
 
-	fd_install(fd, get_file(req->hr_file));
+	fd_install(fd, req->hr_file);
 
 	trace_handshake_cmd_accept(net, req, req->hr_sk, fd);
 	return 0;
