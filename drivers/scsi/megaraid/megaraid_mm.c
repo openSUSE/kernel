@@ -1002,8 +1002,6 @@ memalloc_error:
 
 	dma_pool_destroy(adapter->pthru_dma_pool);
 
-	kfree(adapter);
-
 	return rval;
 }
 
