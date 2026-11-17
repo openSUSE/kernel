@@ -21,7 +21,7 @@ void mana_xdp_tx(struct sk_buff *skb, struct net_device *ndev)
 	ndevtxq = netdev_get_tx_queue(ndev, txq_idx);
 	__netif_tx_lock(ndevtxq, smp_processor_id());
 
-	rc = mana_start_xmit(skb, ndev);
+	rc = __mana_start_xmit(skb, ndev, true);
 
 	__netif_tx_unlock(ndevtxq);
 
@@ -78,7 +78,8 @@ int mana_xdp_xmit(struct net_device *ndev, int n, struct xdp_frame **frames,
 }
 
 u32 mana_run_xdp(struct net_device *ndev, struct mana_rxq *rxq,
-		 struct xdp_buff *xdp, void *buf_va, uint pkt_len)
+		 struct xdp_buff *xdp, void *buf_va, bool from_pool,
+		 uint pkt_len)
 {
 	struct mana_stats_rx *rx_stats;
 	struct bpf_prog *prog;
@@ -90,7 +91,11 @@ u32 mana_run_xdp(struct net_device *ndev, struct mana_rxq *rxq,
 	if (!prog)
 		goto out;
 
-	xdp_init_buff(xdp, PAGE_SIZE, &rxq->xdp_rxq);
+	/* A redirected buffer is freed by its memory model, so a buffer not
+	 * from the page pool must not claim MEM_TYPE_PAGE_POOL.
+	 */
+	xdp_init_buff(xdp, PAGE_SIZE,
+		      from_pool ? &rxq->xdp_rxq : &rxq->xdp_rxq_shared);
 	xdp_prepare_buff(xdp, buf_va, rxq->headroom, pkt_len, true);
 
 	act = bpf_prog_run_xdp(prog, xdp);
@@ -254,7 +259,6 @@ err_dealloc_rxbuffs:
 int mana_bpf(struct net_device *ndev, struct netdev_bpf *bpf)
 {
 	struct netlink_ext_ack *extack = bpf->extack;
-	int ret;
 
 	switch (bpf->command) {
 	case XDP_SETUP_PROG:
@@ -263,6 +267,4 @@ int mana_bpf(struct net_device *ndev, struct netdev_bpf *bpf)
 	default:
 		return -EOPNOTSUPP;
 	}
-
-	return ret;
 }
