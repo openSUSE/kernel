@@ -4,7 +4,9 @@
 #include <linux/if_vlan.h>
 #include <uapi/linux/tcp.h>
 #include <uapi/linux/udp.h>
+#ifndef __GENKSYMS__
 #include <net/tcp.h>
+#endif
 #include <uapi/linux/virtio_net.h>
 
 static inline bool virtio_net_hdr_match_proto(__be16 protocol, __u8 gso_type)
