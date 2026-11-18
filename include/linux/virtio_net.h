@@ -6,7 +6,9 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/udp.h>
+#ifndef __GENKSYMS__
 #include <net/tcp.h>
+#endif
 #include <uapi/linux/tcp.h>
 #include <uapi/linux/virtio_net.h>
 
