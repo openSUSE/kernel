@@ -18,6 +18,7 @@
 #include <linux/cpufreq.h>
 #include <linux/irq_work.h>
 #include <linux/kthread.h>
+#include <linux/mutex.h>
 #include <linux/time.h>
 #include <linux/vmalloc.h>
 #include <uapi/linux/sched/types.h>
@@ -25,14 +26,6 @@
 #include <linux/unaligned.h>
 
 #include <acpi/cppc_acpi.h>
-
-/*
- * This list contains information parsed from per CPU ACPI _CPC and _PSD
- * structures: e.g. the highest and lowest supported performance, capabilities,
- * desired performance, level requested etc. Depending on the share_type, not
- * all CPUs will have an entry in the list.
- */
-static LIST_HEAD(cpu_data_list);
 
 static bool boost_supported;
 
@@ -69,6 +62,7 @@ MODULE_PARM_DESC(fie_disabled, "Disable Frequency Invariance Engine (FIE)");
 /* Frequency invariance support */
 struct cppc_freq_invariance {
 	int cpu;
+	bool pcc_work_initialized;
 	struct irq_work irq_work;
 	struct kthread_work work;
 	struct cppc_perf_fb_ctrs prev_perf_fb_ctrs;
@@ -77,38 +71,33 @@ struct cppc_freq_invariance {
 
 static DEFINE_PER_CPU(struct cppc_freq_invariance, cppc_freq_inv);
 static struct kthread_worker *kworker_fie;
+static DEFINE_MUTEX(cppc_fie_lock);
 
 static unsigned int hisi_cppc_cpufreq_get_rate(unsigned int cpu);
 static int cppc_perf_from_fbctrs(struct cppc_cpudata *cpu_data,
 				 struct cppc_perf_fb_ctrs *fb_ctrs_t0,
 				 struct cppc_perf_fb_ctrs *fb_ctrs_t1);
+static int cppc_fie_kworker_init(void);
 
 /**
- * cppc_scale_freq_workfn - CPPC arch_freq_scale updater for frequency invariance
- * @work: The work item.
+ * __cppc_scale_freq_tick - CPPC arch_freq_scale updater for frequency invariance
+ * @cppc_fi: per-cpu CPPC FIE data.
  *
- * The CPPC driver register itself with the topology core to provide its own
+ * The CPPC driver registers itself with the topology core to provide its own
  * implementation (cppc_scale_freq_tick()) of topology_scale_freq_tick() which
  * gets called by the scheduler on every tick.
  *
  * Note that the arch specific counters have higher priority than CPPC counters,
  * if available, though the CPPC driver doesn't need to have any special
  * handling for that.
- *
- * On an invocation of cppc_scale_freq_tick(), we schedule an irq work (since we
- * reach here from hard-irq context), which then schedules a normal work item
- * and cppc_scale_freq_workfn() updates the per_cpu arch_freq_scale variable
- * based on the counter updates since the last tick.
  */
-static void cppc_scale_freq_workfn(struct kthread_work *work)
+static void __cppc_scale_freq_tick(struct cppc_freq_invariance *cppc_fi)
 {
-	struct cppc_freq_invariance *cppc_fi;
 	struct cppc_perf_fb_ctrs fb_ctrs = {0};
 	struct cppc_cpudata *cpu_data;
 	unsigned long local_freq_scale;
 	u64 perf;
 
-	cppc_fi = container_of(work, struct cppc_freq_invariance, work);
 	cpu_data = cppc_fi->cpu_data;
 
 	if (cppc_get_perf_ctrs(cppc_fi->cpu, &fb_ctrs)) {
@@ -133,6 +122,24 @@ static void cppc_scale_freq_workfn(struct kthread_work *work)
 	per_cpu(arch_freq_scale, cppc_fi->cpu) = local_freq_scale;
 }
 
+static void cppc_scale_freq_tick(void)
+{
+	__cppc_scale_freq_tick(&per_cpu(cppc_freq_inv, smp_processor_id()));
+}
+
+static struct scale_freq_data cppc_sftd = {
+	.source = SCALE_FREQ_SOURCE_CPPC,
+	.set_freq_scale = cppc_scale_freq_tick,
+};
+
+static void cppc_scale_freq_workfn(struct kthread_work *work)
+{
+	struct cppc_freq_invariance *cppc_fi;
+
+	cppc_fi = container_of(work, struct cppc_freq_invariance, work);
+	__cppc_scale_freq_tick(cppc_fi);
+}
+
 static void cppc_irq_work(struct irq_work *irq_work)
 {
 	struct cppc_freq_invariance *cppc_fi;
@@ -141,7 +148,14 @@ static void cppc_irq_work(struct irq_work *irq_work)
 	kthread_queue_work(kworker_fie, &cppc_fi->work);
 }
 
-static void cppc_scale_freq_tick(void)
+/*
+ * Reading perf counters may sleep if the CPC regs are in PCC.  Thus, we
+ * schedule an irq work in scale_freq_tick (since we reach here from hard-irq
+ * context), which then schedules a normal work item cppc_scale_freq_workfn()
+ * that updates the per_cpu arch_freq_scale variable based on the counter
+ * updates since the last tick.
+ */
+static void cppc_scale_freq_tick_pcc(void)
 {
 	struct cppc_freq_invariance *cppc_fi = &per_cpu(cppc_freq_inv, smp_processor_id());
 
@@ -152,13 +166,14 @@ static void cppc_scale_freq_tick(void)
 	irq_work_queue(&cppc_fi->irq_work);
 }
 
-static struct scale_freq_data cppc_sftd = {
+static struct scale_freq_data cppc_sftd_pcc = {
 	.source = SCALE_FREQ_SOURCE_CPPC,
-	.set_freq_scale = cppc_scale_freq_tick,
+	.set_freq_scale = cppc_scale_freq_tick_pcc,
 };
 
 static void cppc_cpufreq_cpu_fie_init(struct cpufreq_policy *policy)
 {
+	struct scale_freq_data *sftd;
 	struct cppc_freq_invariance *cppc_fi;
 	int cpu, ret;
 
@@ -169,34 +184,42 @@ static void cppc_cpufreq_cpu_fie_init(struct cpufreq_policy *policy)
 		cppc_fi = &per_cpu(cppc_freq_inv, cpu);
 		cppc_fi->cpu = cpu;
 		cppc_fi->cpu_data = policy->driver_data;
-		kthread_init_work(&cppc_fi->work, cppc_scale_freq_workfn);
-		init_irq_work(&cppc_fi->irq_work, cppc_irq_work);
+		if (cppc_perf_ctrs_in_pcc_cpu(cpu)) {
+			if (cppc_fie_kworker_init())
+				return;
+
+			kthread_init_work(&cppc_fi->work, cppc_scale_freq_workfn);
+			init_irq_work(&cppc_fi->irq_work, cppc_irq_work);
+			cppc_fi->pcc_work_initialized = true;
+		}
 
 		ret = cppc_get_perf_ctrs(cpu, &cppc_fi->prev_perf_fb_ctrs);
-		if (ret) {
-			pr_warn("%s: failed to read perf counters for cpu:%d: %d\n",
-				__func__, cpu, ret);
 
-			/*
-			 * Don't abort if the CPU was offline while the driver
-			 * was getting registered.
-			 */
-			if (cpu_online(cpu))
-				return;
+		/*
+		 * Don't abort as the CPU was offline while the driver was
+		 * getting registered.
+		 */
+		if (ret && cpu_online(cpu)) {
+			pr_debug("%s: failed to read perf counters for cpu:%d: %d\n",
+				__func__, cpu, ret);
+			return;
 		}
 	}
 
-	/* Register for freq-invariance */
-	topology_set_scale_freq_source(&cppc_sftd, policy->cpus);
+	/* A shared policy may contain both PCC and non-PCC counters. */
+	for_each_cpu(cpu, policy->cpus) {
+		cppc_fi = &per_cpu(cppc_freq_inv, cpu);
+		if (cppc_fi->pcc_work_initialized)
+			sftd = &cppc_sftd_pcc;
+		else
+			sftd = &cppc_sftd;
+		topology_set_scale_freq_source(sftd, cpumask_of(cpu));
+	}
 }
 
 /*
- * We free all the resources on policy's removal and not on CPU removal as the
- * irq-work are per-cpu and the hotplug core takes care of flushing the pending
- * irq-works (hint: smpcfd_dying_cpu()) on CPU hotplug. Even if the kthread-work
- * fires on another CPU after the concerned CPU is removed, it won't harm.
- *
- * We just need to make sure to remove them all on policy->exit().
+ * Drain work initialized by this policy even if processor removal has
+ * already unpublished the CPU's CPC descriptor.
  */
 static void cppc_cpufreq_cpu_fie_exit(struct cpufreq_policy *policy)
 {
@@ -211,13 +234,17 @@ static void cppc_cpufreq_cpu_fie_exit(struct cpufreq_policy *policy)
 
 	for_each_cpu(cpu, policy->related_cpus) {
 		cppc_fi = &per_cpu(cppc_freq_inv, cpu);
+		if (!cppc_fi->pcc_work_initialized)
+			continue;
 		irq_work_sync(&cppc_fi->irq_work);
 		kthread_cancel_work_sync(&cppc_fi->work);
+		cppc_fi->pcc_work_initialized = false;
 	}
 }
 
-static void __init cppc_freq_invariance_init(void)
+static int cppc_fie_kworker_init(void)
 {
+	struct kthread_worker *worker;
 	struct sched_attr attr = {
 		.size		= sizeof(struct sched_attr),
 		.sched_policy	= SCHED_DEADLINE,
@@ -233,40 +260,48 @@ static void __init cppc_freq_invariance_init(void)
 	};
 	int ret;
 
-	if (fie_disabled != FIE_ENABLED && fie_disabled != FIE_DISABLED) {
-		fie_disabled = FIE_ENABLED;
-		if (cppc_perf_ctrs_in_pcc()) {
-			pr_info("FIE not enabled on systems with registers in PCC\n");
-			fie_disabled = FIE_DISABLED;
-		}
-	}
+	guard(mutex)(&cppc_fie_lock);
 
-	if (fie_disabled)
-		return;
+	if (kworker_fie)
+		return 0;
 
-	kworker_fie = kthread_create_worker(0, "cppc_fie");
-	if (IS_ERR(kworker_fie)) {
+	worker = kthread_create_worker(0, "cppc_fie");
+	if (IS_ERR(worker)) {
 		pr_warn("%s: failed to create kworker_fie: %ld\n", __func__,
-			PTR_ERR(kworker_fie));
-		fie_disabled = FIE_DISABLED;
-		return;
+			PTR_ERR(worker));
+		return PTR_ERR(worker);
 	}
 
-	ret = sched_setattr_nocheck(kworker_fie->task, &attr);
+	ret = sched_setattr_nocheck(worker->task, &attr);
 	if (ret) {
 		pr_warn("%s: failed to set SCHED_DEADLINE: %d\n", __func__,
 			ret);
-		kthread_destroy_worker(kworker_fie);
-		fie_disabled = FIE_DISABLED;
+		kthread_destroy_worker(worker);
+		return ret;
+	}
+
+	kworker_fie = worker;
+	return 0;
+}
+
+static void __init cppc_freq_invariance_init(void)
+{
+	bool perf_ctrs_in_pcc = cppc_perf_ctrs_in_pcc();
+
+	if (fie_disabled == FIE_UNSET) {
+		if (perf_ctrs_in_pcc) {
+			pr_info("FIE not enabled on systems with registers in PCC\n");
+			fie_disabled = FIE_DISABLED;
+		} else {
+			fie_disabled = FIE_ENABLED;
+		}
 	}
 }
 
 static void cppc_freq_invariance_exit(void)
 {
-	if (fie_disabled)
-		return;
-
-	kthread_destroy_worker(kworker_fie);
+	if (kworker_fie)
+		kthread_destroy_worker(kworker_fie);
 }
 
 #else
@@ -401,7 +436,6 @@ static unsigned int cppc_cpufreq_get_transition_delay_us(unsigned int cpu)
 #if defined(CONFIG_ARM64) && defined(CONFIG_ENERGY_MODEL)
 
 static DEFINE_PER_CPU(unsigned int, efficiency_class);
-static void cppc_cpufreq_register_em(struct cpufreq_policy *policy);
 
 /* Create an artificial performance state every CPPC_EM_CAP_STEP capacity unit. */
 #define CPPC_EM_CAP_STEP	(20)
@@ -537,7 +571,19 @@ static int cppc_get_cpu_cost(struct device *cpu_dev, unsigned long KHz,
 	return 0;
 }
 
-static int populate_efficiency_class(void)
+static void cppc_cpufreq_register_em(struct cpufreq_policy *policy)
+{
+	struct cppc_cpudata *cpu_data;
+	struct em_data_callback em_cb =
+		EM_ADV_DATA_CB(cppc_get_cpu_power, cppc_get_cpu_cost);
+
+	cpu_data = policy->driver_data;
+	em_dev_register_perf_domain(get_cpu_device(policy->cpu),
+			get_perf_level_count(policy), &em_cb,
+			cpu_data->shared_cpu_map, 0);
+}
+
+static void populate_efficiency_class(void)
 {
 	struct acpi_madt_generic_interrupt *gicc;
 	DECLARE_BITMAP(used_classes, 256) = {};
@@ -552,7 +598,7 @@ static int populate_efficiency_class(void)
 	if (bitmap_weight(used_classes, 256) <= 1) {
 		pr_debug("Efficiency classes are all equal (=%d). "
 			"No EM registered", class);
-		return -EINVAL;
+		return;
 	}
 
 	/*
@@ -569,26 +615,11 @@ static int populate_efficiency_class(void)
 		index++;
 	}
 	cppc_cpufreq_driver.register_em = cppc_cpufreq_register_em;
-
-	return 0;
-}
-
-static void cppc_cpufreq_register_em(struct cpufreq_policy *policy)
-{
-	struct cppc_cpudata *cpu_data;
-	struct em_data_callback em_cb =
-		EM_ADV_DATA_CB(cppc_get_cpu_power, cppc_get_cpu_cost);
-
-	cpu_data = policy->driver_data;
-	em_dev_register_perf_domain(get_cpu_device(policy->cpu),
-			get_perf_level_count(policy), &em_cb,
-			cpu_data->shared_cpu_map, 0);
 }
 
 #else
-static int populate_efficiency_class(void)
+static void populate_efficiency_class(void)
 {
-	return 0;
 }
 #endif
 
@@ -616,8 +647,6 @@ static struct cppc_cpudata *cppc_cpufreq_get_cpu_data(unsigned int cpu)
 		goto free_mask;
 	}
 
-	list_add(&cpu_data->node, &cpu_data_list);
-
 	ret = cppc_get_perf(cpu, &cpu_data->perf_ctrls);
 	if (ret) {
 		pr_debug("Err reading CPU%d perf ctrls: ret:%d\n", cpu, ret);
@@ -638,7 +667,6 @@ static void cppc_cpufreq_put_cpu_data(struct cpufreq_policy *policy)
 {
 	struct cppc_cpudata *cpu_data = policy->driver_data;
 
-	list_del(&cpu_data->node);
 	free_cpumask_var(cpu_data->shared_cpu_map);
 	kfree(cpu_data);
 	policy->driver_data = NULL;
@@ -664,7 +692,8 @@ static int cppc_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	 * Section 8.4.7.1.1.5 of ACPI 6.1 spec)
 	 */
 	policy->min = cppc_perf_to_khz(caps, caps->lowest_nonlinear_perf);
-	policy->max = cppc_perf_to_khz(caps, caps->nominal_perf);
+	policy->max = cppc_perf_to_khz(caps, policy->boost_enabled ?
+						caps->highest_perf : caps->nominal_perf);
 
 	/*
 	 * Set cpuinfo.min_freq to Lowest to make the full range of performance
@@ -672,7 +701,7 @@ static int cppc_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	 * nonlinear perf
 	 */
 	policy->cpuinfo.min_freq = cppc_perf_to_khz(caps, caps->lowest_perf);
-	policy->cpuinfo.max_freq = cppc_perf_to_khz(caps, caps->nominal_perf);
+	policy->cpuinfo.max_freq = policy->max;
 
 	policy->transition_delay_us = cppc_cpufreq_get_transition_delay_us(cpu);
 	policy->shared_type = cpu_data->shared_type;
@@ -1100,24 +1129,10 @@ static int __init cppc_cpufreq_init(void)
 	return ret;
 }
 
-static inline void free_cpu_data(void)
-{
-	struct cppc_cpudata *iter, *tmp;
-
-	list_for_each_entry_safe(iter, tmp, &cpu_data_list, node) {
-		free_cpumask_var(iter->shared_cpu_map);
-		list_del(&iter->node);
-		kfree(iter);
-	}
-
-}
-
 static void __exit cppc_cpufreq_exit(void)
 {
 	cpufreq_unregister_driver(&cppc_cpufreq_driver);
 	cppc_freq_invariance_exit();
-
-	free_cpu_data();
 }
 
 module_exit(cppc_cpufreq_exit);

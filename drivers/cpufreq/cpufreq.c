@@ -828,7 +828,7 @@ static ssize_t show_scaling_governor(struct cpufreq_policy *policy, char *buf)
 static ssize_t store_scaling_governor(struct cpufreq_policy *policy,
 					const char *buf, size_t count)
 {
-	char str_governor[16];
+	char str_governor[CPUFREQ_NAME_LEN];
 	int ret;
 
 	ret = sscanf(buf, "%15s", str_governor);
@@ -939,9 +939,9 @@ static ssize_t store_scaling_setspeed(struct cpufreq_policy *policy,
 	if (!policy->governor || !policy->governor->store_setspeed)
 		return -EINVAL;
 
-	ret = sscanf(buf, "%u", &freq);
-	if (ret != 1)
-		return -EINVAL;
+	ret = kstrtouint(buf, 0, &freq);
+	if (ret)
+		return ret;
 
 	policy->governor->store_setspeed(policy, freq);
 
@@ -989,6 +989,7 @@ static struct attribute *cpufreq_attrs[] = {
 	&cpuinfo_min_freq.attr,
 	&cpuinfo_max_freq.attr,
 	&cpuinfo_transition_latency.attr,
+	&scaling_cur_freq.attr,
 	&scaling_min_freq.attr,
 	&scaling_max_freq.attr,
 	&affected_cpus.attr,
@@ -1101,10 +1102,6 @@ static int cpufreq_add_dev_interface(struct cpufreq_policy *policy)
 		if (ret)
 			return ret;
 	}
-
-	ret = sysfs_create_file(&policy->kobj, &scaling_cur_freq.attr);
-	if (ret)
-		return ret;
 
 	if (cpufreq_driver->bios_limit) {
 		ret = sysfs_create_file(&policy->kobj, &bios_limit.attr);
@@ -1423,10 +1420,6 @@ static int cpufreq_policy_online(struct cpufreq_policy *policy,
 			goto out_clear_policy;
 		}
 
-		/* Let the per-policy boost flag mirror the cpufreq_driver boost during init */
-		if (cpufreq_boost_enabled() && policy_has_boost_freq(policy))
-			policy->boost_enabled = true;
-
 		/*
 		 * The initialization has succeeded and the policy is online.
 		 * If there is a problem with its frequency table, take it
@@ -1489,6 +1482,10 @@ static int cpufreq_policy_online(struct cpufreq_policy *policy,
 
 		blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
 				CPUFREQ_CREATE_POLICY, policy);
+	} else {
+		ret = freq_qos_update_request(policy->max_freq_req, policy->max);
+		if (ret < 0)
+			goto out_destroy_policy;
 	}
 
 	if (cpufreq_driver->get && has_target()) {
@@ -1631,6 +1628,19 @@ static int cpufreq_online(unsigned int cpu)
 	if (new_policy && cpufreq_thermal_control_enabled(cpufreq_driver))
 		policy->cdev = of_cpufreq_cooling_register(policy);
 
+	/* Let the per-policy boost flag mirror the cpufreq_driver boost during init */
+	if (cpufreq_driver->set_boost &&
+	    policy->boost_enabled != cpufreq_boost_enabled()) {
+		policy->boost_enabled = cpufreq_boost_enabled();
+		ret = cpufreq_driver->set_boost(policy, policy->boost_enabled);
+		if (ret) {
+			/* If the set_boost fails, the online operation is not affected */
+			pr_info("%s: CPU%d: Cannot %s BOOST\n", __func__, policy->cpu,
+				policy->boost_enabled ? "enable" : "disable");
+			policy->boost_enabled = !policy->boost_enabled;
+		}
+	}
+
 	pr_debug("initialization complete\n");
 
 	return 0;
@@ -1687,14 +1697,13 @@ static void __cpufreq_offline(unsigned int cpu, struct cpufreq_policy *policy)
 		return;
 	}
 
-	if (has_target())
+	if (has_target()) {
 		strscpy(policy->last_governor, policy->governor->name,
 			CPUFREQ_NAME_LEN);
-	else
-		policy->last_policy = policy->policy;
-
-	if (has_target())
 		cpufreq_exit_governor(policy);
+	} else {
+		policy->last_policy = policy->policy;
+	}
 
 	/*
 	 * Perform the ->offline() during light-weight tear-down, as
@@ -1795,6 +1804,9 @@ static void cpufreq_out_of_sync(struct cpufreq_policy *policy,
 static unsigned int cpufreq_verify_current_freq(struct cpufreq_policy *policy, bool update)
 {
 	unsigned int new_freq;
+
+	if (!cpufreq_driver->get)
+		return 0;
 
 	new_freq = cpufreq_driver->get(policy->cpu);
 	if (!new_freq)
@@ -1918,10 +1930,7 @@ unsigned int cpufreq_get(unsigned int cpu)
 
 	guard(cpufreq_policy_read)(policy);
 
-	if (cpufreq_driver->get)
-		return __cpufreq_get(policy);
-
-	return 0;
+	return __cpufreq_get(policy);
 }
 EXPORT_SYMBOL(cpufreq_get);
 
@@ -2476,8 +2485,7 @@ int cpufreq_start_governor(struct cpufreq_policy *policy)
 
 	pr_debug("%s: for CPU %u\n", __func__, policy->cpu);
 
-	if (cpufreq_driver->get)
-		cpufreq_verify_current_freq(policy, false);
+	cpufreq_verify_current_freq(policy, false);
 
 	if (policy->governor->start) {
 		ret = policy->governor->start(policy);
