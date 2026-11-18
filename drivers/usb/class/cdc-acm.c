@@ -294,6 +294,7 @@ static void acm_process_notification(struct acm *acm, unsigned char *buf)
 	unsigned long flags;
 	struct usb_cdc_notification *dr = (struct usb_cdc_notification *)buf;
 	unsigned char *data = buf + sizeof(struct usb_cdc_notification);
+	struct tty_struct *tty;
 
 	switch (dr->bNotificationType) {
 	case USB_CDC_NOTIFY_NETWORK_CONNECTION:
@@ -320,12 +321,17 @@ static void acm_process_notification(struct acm *acm, unsigned char *buf)
 
 		difference = acm->ctrlin ^ newctrl;
 
-		if ((difference & USB_CDC_SERIAL_STATE_DCD) && acm->port.tty) {
-			struct tty_ldisc *ld = tty_ldisc_ref(acm->port.tty);
-			if (ld) {
-				if (ld->ops->dcd_change)
-					ld->ops->dcd_change(acm->port.tty, newctrl & USB_CDC_SERIAL_STATE_DCD);
-				tty_ldisc_deref(ld);
+		if (difference & USB_CDC_SERIAL_STATE_DCD) {
+			tty = tty_port_tty_get(&acm->port);
+			if (tty) {
+				struct tty_ldisc *ld = tty_ldisc_ref(tty);
+
+				if (ld) {
+					if (ld->ops->dcd_change)
+						ld->ops->dcd_change(tty, newctrl & USB_CDC_SERIAL_STATE_DCD);
+					tty_ldisc_deref(ld);
+				}
+				tty_kref_put(tty);
 			}
 		}
 
@@ -1822,6 +1828,9 @@ static const struct usb_device_id acm_ids[] = {
 	.driver_info = SINGLE_RX_URB, /* firmware bug */
 	},
 	{ USB_DEVICE(0x11ca, 0x0201), /* VeriFone Mx870 Gadget Serial */
+	.driver_info = SINGLE_RX_URB,
+	},
+	{ USB_DEVICE(0x11ca, 0x0219), /* VeriFone Vx820 Gadget Serial */
 	.driver_info = SINGLE_RX_URB,
 	},
 	{ USB_DEVICE(0x1901, 0x0006), /* GE Healthcare Patient Monitor UI Controller */
