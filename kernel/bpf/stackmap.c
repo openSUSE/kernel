@@ -318,6 +318,7 @@ BPF_CALL_3(bpf_get_stackid, struct pt_regs *, regs, struct bpf_map *, map,
 
 	max_depth = stack_map_calculate_max_depth(map->value_size, elem_size, flags);
 
+	guard(preempt)();
 	trace = get_perf_callchain(regs, 0, kernel, user, max_depth,
 				   false, false);
 
