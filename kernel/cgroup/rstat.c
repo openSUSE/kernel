@@ -41,11 +41,10 @@ __bpf_kfunc void cgroup_rstat_updated(struct cgroup *cgrp, int cpu)
 	lockdep_assert_preemption_disabled();
 
 	/*
-	 * For archs withnot nmi safe cmpxchg or percpu ops support, ignore
-	 * the requests from nmi context.
+	 * The lockless insertion below relies on NMI-safe cmpxchg;
+	 * bail out in NMI on archs that don't provide it.
 	 */
-	if ((!IS_ENABLED(CONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG) ||
-	     !IS_ENABLED(CONFIG_ARCH_HAS_NMI_SAFE_THIS_CPU_OPS)) && in_nmi())
+	if (!IS_ENABLED(CONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG) && in_nmi())
 		return;
 
 	rstatc = cgroup_rstat_cpu(cgrp, cpu);
