@@ -893,7 +893,7 @@ int amdxdna_drm_sync_bo_ioctl(struct drm_device *dev,
 
 	if (is_import_bo(abo))
 		drm_clflush_sg(abo->base.sgt);
-	else if (abo->mem.kva)
+	else if (abo->mem.kva && args->size)
 		drm_clflush_virt_range(abo->mem.kva + args->offset, args->size);
 	else if (abo->base.pages)
 		drm_clflush_pages(abo->base.pages, gobj->size >> PAGE_SHIFT);
