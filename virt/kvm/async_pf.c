@@ -239,7 +239,6 @@ int kvm_setup_async_pf(struct kvm_vcpu *vcpu, gva_t gva, unsigned long hva,
 	kvm_arch_async_page_not_present(vcpu, work);
 	return 1;
 retry_sync:
-	kvm_put_kvm(work->vcpu->kvm);
 	mmput(work->mm);
 	kmem_cache_free(async_pf_cache, work);
 	return 0;
