@@ -1217,6 +1217,8 @@ static int hci_set_adv_set_random_addr_sync(struct hci_dev *hdev, u8 instance,
 					    bdaddr_t *random_addr)
 {
 	struct hci_cp_le_set_adv_set_rand_addr cp;
+	struct adv_info *adv;
+	u8 handle = instance;
 	int err;
 
 	if (!instance) {
@@ -1228,15 +1230,46 @@ static int hci_set_adv_set_random_addr_sync(struct hci_dev *hdev, u8 instance,
 		err = hci_set_random_addr_sync(hdev, random_addr);
 		if (err)
 			return err;
+	} else {
+		hci_dev_lock(hdev);
+		adv = hci_find_adv_instance(hdev, instance);
+		if (adv)
+			handle = adv->handle;
+		hci_dev_unlock(hdev);
 	}
 
 	memset(&cp, 0, sizeof(cp));
 
-	cp.handle = instance;
+	cp.handle = handle;
 	bacpy(&cp.bdaddr, random_addr);
 
-	return __hci_cmd_sync_status(hdev, HCI_OP_LE_SET_ADV_SET_RAND_ADDR,
-				     sizeof(cp), &cp, HCI_CMD_TIMEOUT);
+	err = __hci_cmd_sync_status(hdev, HCI_OP_LE_SET_ADV_SET_RAND_ADDR,
+				    sizeof(cp), &cp, HCI_CMD_TIMEOUT);
+	if (err || handle == instance)
+		return err;
+
+	/* hci_cc_le_set_adv_set_random_addr() records the address of the
+	 * instance numbered as the handle, and leaves handle 0x00 to
+	 * hdev->random_addr, so record it here for an instance using another
+	 * handle: instance 1 on handle 0x00, on a controller supporting a
+	 * single advertising set.
+	 */
+	hci_dev_lock(hdev);
+
+	adv = hci_find_adv_instance(hdev, instance);
+	if (adv) {
+		bacpy(&adv->random_addr, random_addr);
+		if (!bacmp(&hdev->rpa, random_addr)) {
+			adv->rpa_expired = false;
+			queue_delayed_work(hdev->workqueue,
+					   &adv->rpa_expired_cb,
+					   secs_to_jiffies(hdev->rpa_timeout));
+		}
+	}
+
+	hci_dev_unlock(hdev);
+
+	return 0;
 }
 
 static int
@@ -2004,6 +2037,9 @@ int hci_enable_advertising(struct hci_dev *hdev)
 int hci_remove_ext_adv_instance_sync(struct hci_dev *hdev, u8 instance,
 				     struct sock *sk)
 {
+	struct adv_info *adv = NULL;
+	u8 handle = instance;
+	bool global = false;
 	int err;
 
 	if (!ext_adv_capable(hdev))
@@ -2013,13 +2049,53 @@ int hci_remove_ext_adv_instance_sync(struct hci_dev *hdev, u8 instance,
 	if (err)
 		return err;
 
-	/* If request specifies an instance that doesn't exist, fail */
-	if (instance > 0 && !hci_find_adv_instance(hdev, instance))
-		return -EINVAL;
+	if (instance) {
+		hci_dev_lock(hdev);
 
-	return __hci_cmd_sync_status_sk(hdev, HCI_OP_LE_REMOVE_ADV_SET,
-					sizeof(instance), &instance, 0,
-					HCI_CMD_TIMEOUT, sk);
+		adv = hci_find_adv_instance(hdev, instance);
+		if (adv) {
+			handle = adv->handle;
+
+			/* An instance sharing handle 0x00 with Global
+			 * Advertising doesn't own the set while Global
+			 * Advertising is on, and the set may still be enabled
+			 * for it, which the controller would refuse to remove.
+			 */
+			global = !handle &&
+				 (hci_dev_test_flag(hdev, HCI_ADVERTISING) ||
+				  hci_dev_test_flag(hdev, HCI_LE_ADV_0));
+		}
+
+		hci_dev_unlock(hdev);
+
+		/* If request specifies an instance that doesn't exist, fail */
+		if (!adv)
+			return -EINVAL;
+	}
+
+	if (!global) {
+		err = __hci_cmd_sync_status_sk(hdev, HCI_OP_LE_REMOVE_ADV_SET,
+					       sizeof(handle), &handle, 0,
+					       HCI_CMD_TIMEOUT, sk);
+		if (err)
+			return err;
+	}
+
+	/* hci_cc_le_remove_adv_set() removes the instance numbered as the
+	 * handle it sent, so remove here an instance using another handle:
+	 * instance 1 on handle 0x00, on a controller supporting a single
+	 * advertising set. The completion can't tell it from instance 0.
+	 */
+	if (handle != instance) {
+		hci_dev_lock(hdev);
+
+		if (!hci_remove_adv_instance(hdev, instance))
+			mgmt_advertising_removed(sk, hdev, instance);
+
+		hci_dev_unlock(hdev);
+	}
+
+	return 0;
 }
 
 static int remove_ext_adv_sync(struct hci_dev *hdev, void *data)
