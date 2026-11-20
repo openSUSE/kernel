@@ -31,21 +31,23 @@ static void hci_cmd_sync_complete(struct hci_dev *hdev, u8 result, u16 opcode,
 	hdev->req_result = result;
 	WRITE_ONCE(hdev->req_status, HCI_REQ_DONE);
 
-	/* Free the request command so it is not used as response */
+	/* Free the request command so it is not used as response, and drop
+	 * the reference hci_cmd_sync_alloc() took on its sk, if set: the
+	 * response skb doesn't carry it.
+	 */
 	hci_dev_lock(hdev);
+	if (hdev->req_skb) {
+		struct sock *sk = hci_skb_sk(hdev->req_skb);
+
+		if (sk)
+			sock_put(sk);
+	}
 	kfree_skb(hdev->req_skb);
 	hdev->req_skb = NULL;
 	hci_dev_unlock(hdev);
 
-	if (skb) {
-		struct sock *sk = hci_skb_sk(skb);
-
-		/* Drop sk reference if set */
-		if (sk)
-			sock_put(sk);
-
+	if (skb)
 		hdev->req_rsp = skb_get(skb);
-	}
 
 	wake_up_interruptible(&hdev->req_wait_q);
 }
