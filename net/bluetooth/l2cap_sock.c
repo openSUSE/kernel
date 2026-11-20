@@ -1213,11 +1213,11 @@ static void l2cap_publish_rx_avail(struct l2cap_chan *chan)
 
 	/* Correct available memory by estimated sk_buff overhead.
 	 * This is significant due to small transfer sizes. However, accept
-	 * at least one full packet if receive space is non-zero.
+	 * at least one full SDU if receive space is non-zero.
 	 */
 	expected_skbs = DIV_ROUND_UP(avail, chan->mps);
 	skb_overhead = expected_skbs * sizeof(struct sk_buff);
-	if (skb_overhead < avail)
+	if (avail - skb_overhead >= chan->imtu + L2CAP_SDULEN_SIZE)
 		l2cap_chan_rx_avail(chan, avail - skb_overhead);
 	else
 		l2cap_chan_rx_avail(chan, -1);
