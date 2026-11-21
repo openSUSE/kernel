@@ -168,7 +168,9 @@ static int ads7871_probe(struct spi_device *spi)
 	/* Configure the SPI bus */
 	spi->mode = (SPI_MODE_0);
 	spi->bits_per_word = 8;
-	spi_setup(spi);
+	ret = spi_setup(spi);
+	if (ret)
+		return ret;
 
 	ads7871_write_reg8(spi, REG_SER_CONTROL, 0);
 	ads7871_write_reg8(spi, REG_AD_CONTROL, 0);
