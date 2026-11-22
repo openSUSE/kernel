@@ -583,6 +583,29 @@ static int vmw_cmd_ok(struct vmw_private *dev_priv,
 }
 
 /**
+ * vmw_cmd_body_fits - Check that a command body covers what a handler reads
+ *
+ * @header: Pointer to the command header in the command stream.
+ * @size: Number of body bytes that the command handler interprets.
+ *
+ * vmw_cmd_check() only verifies that @header->size fits into the submitted
+ * command buffer. A handler that reads past the declared body reads the next
+ * command, which is verified separately. A relocation recorded there would
+ * rewrite the already verified command after verification has finished.
+ *
+ * Return: true if the body is at least @size bytes, false otherwise.
+ */
+static bool vmw_cmd_body_fits(const SVGA3dCmdHeader *header, size_t size)
+{
+	if (likely(header->size >= size))
+		return true;
+
+	VMW_DEBUG_USER("SVGA3D command %u: body size %u is smaller than %zu.\n",
+		       header->id, header->size, size);
+	return false;
+}
+
+/**
  * vmw_resources_reserve - Reserve all resources on the sw_context's resource
  * list.
  *
@@ -828,6 +851,9 @@ static int vmw_cmd_cid_check(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, uint32_t) =
 		container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_context,
 				 VMW_RES_DIRTY_SET, user_context_converter,
 				 &cmd->body, NULL);
@@ -871,6 +897,8 @@ static int vmw_cmd_set_render_target_check(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (cmd->body.type >= SVGA3D_RT_MAX) {
 		VMW_DEBUG_USER("Illegal render target type %u.\n",
@@ -916,6 +944,8 @@ static int vmw_cmd_surface_copy_check(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				VMW_RES_DIRTY_NONE, user_surface_converter,
@@ -936,6 +966,9 @@ static int vmw_cmd_buffer_copy_check(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				VMW_RES_DIRTY_NONE, user_surface_converter,
 				&cmd->body.src, NULL);
@@ -955,6 +988,9 @@ static int vmw_cmd_pred_copy_check(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				VMW_RES_DIRTY_NONE, user_surface_converter,
 				&cmd->body.srcSid, NULL);
@@ -974,6 +1010,9 @@ static int vmw_cmd_stretch_blt_check(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				VMW_RES_DIRTY_NONE, user_surface_converter,
 				&cmd->body.src.sid, NULL);
@@ -992,6 +1031,9 @@ static int vmw_cmd_blt_surf_screen_check(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdBlitSurfaceToScreen) =
 		container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_NONE, user_surface_converter,
 				 &cmd->body.srcImage.sid, NULL);
@@ -1003,6 +1045,9 @@ static int vmw_cmd_present_check(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdPresent) =
 		container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_NONE, user_surface_converter,
@@ -1261,6 +1306,8 @@ static int vmw_cmd_dx_define_query(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (cmd->body.type <  SVGA3D_QUERYTYPE_MIN ||
 	    cmd->body.type >= SVGA3D_QUERYTYPE_MAX)
@@ -1298,6 +1345,8 @@ static int vmw_cmd_dx_bind_query(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	/*
 	 * Look up the buffer pointed to by q.mobid, put it on the relocation
@@ -1328,6 +1377,9 @@ static int vmw_cmd_begin_gb_query(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdBeginGBQuery) =
 		container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_context,
 				 VMW_RES_DIRTY_SET, user_context_converter,
 				 &cmd->body.cid, NULL);
@@ -1346,6 +1398,9 @@ static int vmw_cmd_begin_query(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdBeginQuery) =
 		container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (unlikely(dev_priv->has_mob)) {
 		VMW_DECLARE_CMD_VAR(gb_cmd, SVGA3dCmdBeginGBQuery);
@@ -1382,6 +1437,9 @@ static int vmw_cmd_end_gb_query(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_cid_check(dev_priv, sw_context, header);
 	if (unlikely(ret != 0))
 		return ret;
@@ -1412,6 +1470,9 @@ static int vmw_cmd_end_query(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (dev_priv->has_mob) {
 		VMW_DECLARE_CMD_VAR(gb_cmd, SVGA3dCmdEndGBQuery);
 
@@ -1458,6 +1519,9 @@ static int vmw_cmd_wait_gb_query(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_cid_check(dev_priv, sw_context, header);
 	if (unlikely(ret != 0))
 		return ret;
@@ -1486,6 +1550,9 @@ static int vmw_cmd_wait_query(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (dev_priv->has_mob) {
 		VMW_DECLARE_CMD_VAR(gb_cmd, SVGA3dCmdWaitForGBQuery);
 
@@ -1655,6 +1722,15 @@ static int vmw_cmd_tex_state(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
+	/* The loop below must not read a truncated trailing state. */
+	if ((header->size - sizeof(cmd->body)) % sizeof(*cur_state)) {
+		VMW_DEBUG_USER("Invalid texture state size %u.\n",
+			       header->size);
+		return -EINVAL;
+	}
 
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_context,
 				VMW_RES_DIRTY_SET, user_context_converter,
@@ -1800,6 +1876,9 @@ static int vmw_cmd_bind_gb_surface(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdBindGBSurface) =
 		container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	return vmw_cmd_switch_backup(dev_priv, sw_context, vmw_res_surface,
 				     user_surface_converter, &cmd->body.sid,
 				     &cmd->body.mobid, 0);
@@ -1818,6 +1897,9 @@ static int vmw_cmd_update_gb_image(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdUpdateGBImage) =
 		container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_NONE, user_surface_converter,
@@ -1838,6 +1920,9 @@ static int vmw_cmd_update_gb_surface(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdUpdateGBSurface) =
 		container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_CLEAR, user_surface_converter,
 				 &cmd->body.sid, NULL);
@@ -1856,6 +1941,9 @@ static int vmw_cmd_readback_gb_image(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdReadbackGBImage) =
 		container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_NONE, user_surface_converter,
@@ -1877,6 +1965,9 @@ static int vmw_cmd_readback_gb_surface(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdReadbackGBSurface) =
 		container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_CLEAR, user_surface_converter,
 				 &cmd->body.sid, NULL);
@@ -1897,6 +1988,9 @@ static int vmw_cmd_invalidate_gb_image(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdInvalidateGBImage) =
 		container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_NONE, user_surface_converter,
 				 &cmd->body.image.sid, NULL);
@@ -1916,6 +2010,9 @@ static int vmw_cmd_invalidate_gb_surface(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdInvalidateGBSurface) =
 		container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_CLEAR, user_surface_converter,
@@ -1939,6 +2036,8 @@ static int vmw_cmd_shader_define(struct vmw_private *dev_priv,
 	struct vmw_resource *ctx;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_context,
 				VMW_RES_DIRTY_SET, user_context_converter,
@@ -1978,6 +2077,8 @@ static int vmw_cmd_shader_destroy(struct vmw_private *dev_priv,
 	struct vmw_resource *ctx;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_context,
 				VMW_RES_DIRTY_SET, user_context_converter,
@@ -2017,6 +2118,8 @@ static int vmw_cmd_set_shader(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!vmw_shadertype_is_valid(VMW_SM_LEGACY, cmd->body.type)) {
 		VMW_DEBUG_USER("Illegal shader type %u.\n",
@@ -2095,6 +2198,8 @@ static int vmw_cmd_set_shader_const(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_context,
 				VMW_RES_DIRTY_SET, user_context_converter,
@@ -2121,6 +2226,9 @@ static int vmw_cmd_bind_gb_shader(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdBindGBShader) =
 		container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	return vmw_cmd_switch_backup(dev_priv, sw_context, vmw_res_shader,
 				     user_shader_converter, &cmd->body.shid,
@@ -2151,6 +2259,9 @@ vmw_cmd_dx_set_single_constant_buffer(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				VMW_RES_DIRTY_NONE, user_surface_converter,
 				&cmd->body.sid, &res);
@@ -2204,6 +2315,9 @@ vmw_cmd_dx_set_constant_buffer_offset(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (cmd->body.slot >= SVGA3D_DX_MAX_CONSTBUFFERS) {
 		VMW_DEBUG_USER("Illegal const buffer slot %u.\n",
 			       (unsigned int) cmd->body.slot);
@@ -2234,6 +2348,9 @@ static int vmw_cmd_dx_set_shader_res(struct vmw_private *dev_priv,
 
 	u32 num_sr_view = (cmd->header.size - sizeof(cmd->body)) /
 		sizeof(SVGA3dShaderResourceViewId);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if ((u64) cmd->body.startView + (u64) num_sr_view >
 	    (u64) SVGA3D_DX_MAX_SRVIEWS ||
@@ -2270,6 +2387,8 @@ static int vmw_cmd_dx_set_shader(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!vmw_shadertype_is_valid(dev_priv->sm_type, cmd->body.type)) {
 		VMW_DEBUG_USER("Illegal shader type %u.\n",
@@ -2327,6 +2446,9 @@ static int vmw_cmd_dx_set_vertex_buffers(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	num = (cmd->header.size - sizeof(cmd->body)) /
 		sizeof(SVGA3dVertexBuffer);
 	if ((u64)num + (u64)cmd->body.startBuffer >
@@ -2378,6 +2500,9 @@ static int vmw_cmd_dx_set_index_buffer(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				VMW_RES_DIRTY_NONE, user_surface_converter,
 				&cmd->body.sid, &res);
@@ -2413,6 +2538,9 @@ static int vmw_cmd_dx_set_rendertargets(struct vmw_private *dev_priv,
 		sizeof(SVGA3dRenderTargetViewId);
 	int ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (num_rt_view > SVGA3D_DX_MAX_RENDER_TARGETS) {
 		VMW_DEBUG_USER("Invalid DX Rendertarget binding.\n");
 		return -EINVAL;
@@ -2444,6 +2572,9 @@ static int vmw_cmd_dx_clear_rendertarget_view(struct vmw_private *dev_priv,
 		container_of(header, typeof(*cmd), header);
 	struct vmw_resource *ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_view_id_val_add(sw_context, vmw_view_rt,
 				  cmd->body.renderTargetViewId);
 
@@ -2465,6 +2596,9 @@ static int vmw_cmd_dx_clear_depthstencil_view(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdDXClearDepthStencilView) =
 		container_of(header, typeof(*cmd), header);
 	struct vmw_resource *ret;
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	ret = vmw_view_id_val_add(sw_context, vmw_view_ds,
 				  cmd->body.depthStencilViewId);
@@ -2499,6 +2633,9 @@ static int vmw_cmd_dx_view_define(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(*cmd) - sizeof(*header)))
+		return -EINVAL;
+
 	if (unlikely(cmd->sid == SVGA3D_INVALID_ID)) {
 		VMW_DEBUG_USER("Invalid surface id.\n");
 		return -EINVAL;
@@ -2547,6 +2684,9 @@ static int vmw_cmd_dx_set_so_targets(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	num = (cmd->header.size - sizeof(cmd->body)) / sizeof(SVGA3dSoTarget);
 
 	if (num > SVGA3D_DX_MAX_SOTARGETS) {
@@ -2600,6 +2740,9 @@ static int vmw_cmd_dx_so_define(struct vmw_private *dev_priv,
 	if (IS_ERR_OR_NULL(res))
 		return res ? PTR_ERR(res) : -EINVAL;
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(*cmd) - sizeof(*header)))
+		return -EINVAL;
+
 	ret = vmw_cotable_notify(res, cmd->defined_id);
 
 	return ret;
@@ -2635,6 +2778,9 @@ static int vmw_cmd_dx_check_subresource(struct vmw_private *dev_priv,
 		     offsetof(typeof(*cmd), sid));
 
 	cmd = container_of(header, typeof(*cmd), header);
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->sid)))
+		return -EINVAL;
+
 	return vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				 VMW_RES_DIRTY_NONE, user_surface_converter,
 				 &cmd->sid, NULL);
@@ -2676,6 +2822,9 @@ static int vmw_cmd_dx_view_remove(struct vmw_private *dev_priv,
 	struct vmw_resource *view;
 	int ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!ctx_node)
 		return -EINVAL;
 
@@ -2713,6 +2862,9 @@ static int vmw_cmd_dx_define_shader(struct vmw_private *dev_priv,
 		container_of(header, typeof(*cmd), header);
 	int ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!ctx_node)
 		return -EINVAL;
 
@@ -2744,6 +2896,9 @@ static int vmw_cmd_dx_destroy_shader(struct vmw_private *dev_priv,
 		container_of(header, typeof(*cmd), header);
 	int ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!ctx_node)
 		return -EINVAL;
 
@@ -2769,6 +2924,9 @@ static int vmw_cmd_dx_bind_shader(struct vmw_private *dev_priv,
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdDXBindShader) =
 		container_of(header, typeof(*cmd), header);
 	int ret;
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (cmd->body.cid != SVGA3D_INVALID_ID) {
 		ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_context,
@@ -2821,6 +2979,9 @@ static int vmw_cmd_dx_genmips(struct vmw_private *dev_priv,
 	struct vmw_resource *view;
 	struct vmw_res_cache_entry *rcache;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	view = vmw_view_id_val_add(sw_context, vmw_view_sr,
 				   cmd->body.shaderResourceViewId);
 	if (IS_ERR(view))
@@ -2854,6 +3015,9 @@ static int vmw_cmd_dx_transfer_from_buffer(struct vmw_private *dev_priv,
 		container_of(header, typeof(*cmd), header);
 	int ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	ret = vmw_cmd_res_check(dev_priv, sw_context, vmw_res_surface,
 				VMW_RES_DIRTY_NONE, user_surface_converter,
 				&cmd->body.srcSid, NULL);
@@ -2878,6 +3042,9 @@ static int vmw_cmd_intra_surface_copy(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdIntraSurfaceCopy) =
 		container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!(dev_priv->capabilities2 & SVGA_CAP2_INTRA_SURFACE_COPY))
 		return -EINVAL;
@@ -2927,6 +3094,9 @@ static int vmw_cmd_clear_uav_uint(struct vmw_private *dev_priv,
 	} *cmd = container_of(header, typeof(*cmd), header);
 	struct vmw_resource *ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
 
@@ -2945,6 +3115,9 @@ static int vmw_cmd_clear_uav_float(struct vmw_private *dev_priv,
 		SVGA3dCmdDXClearUAViewFloat body;
 	} *cmd = container_of(header, typeof(*cmd), header);
 	struct vmw_resource *ret;
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
@@ -2966,6 +3139,9 @@ static int vmw_cmd_set_uav(struct vmw_private *dev_priv,
 	u32 num_uav = (cmd->header.size - sizeof(cmd->body)) /
 		sizeof(SVGA3dUAViewId);
 	int ret;
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
@@ -2999,6 +3175,9 @@ static int vmw_cmd_set_cs_uav(struct vmw_private *dev_priv,
 		sizeof(SVGA3dUAViewId);
 	int ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
 
@@ -3031,6 +3210,9 @@ static int vmw_cmd_dx_define_streamoutput(struct vmw_private *dev_priv,
 	} *cmd = container_of(header, typeof(*cmd), header);
 	int ret;
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
 
@@ -3061,6 +3243,9 @@ static int vmw_cmd_dx_destroy_streamoutput(struct vmw_private *dev_priv,
 		SVGA3dCmdHeader header;
 		SVGA3dCmdDXDestroyStreamOutput body;
 	} *cmd = container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!ctx_node) {
 		DRM_ERROR("DX Context not set.\n");
@@ -3098,6 +3283,9 @@ static int vmw_cmd_dx_bind_streamoutput(struct vmw_private *dev_priv,
 		SVGA3dCmdDXBindStreamOutput body;
 	} *cmd = container_of(header, typeof(*cmd), header);
 	int ret;
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
@@ -3140,6 +3328,9 @@ static int vmw_cmd_dx_set_streamoutput(struct vmw_private *dev_priv,
 		SVGA3dCmdDXSetStreamOutput body;
 	} *cmd = container_of(header, typeof(*cmd), header);
 	int ret;
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!ctx_node) {
 		DRM_ERROR("DX Context not set.\n");
@@ -3193,6 +3384,9 @@ static int vmw_cmd_indexed_instanced_indirect(struct vmw_private *dev_priv,
 		SVGA3dCmdDXDrawIndexedInstancedIndirect body;
 	} *cmd = container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
 
@@ -3210,6 +3404,9 @@ static int vmw_cmd_instanced_indirect(struct vmw_private *dev_priv,
 		SVGA3dCmdDXDrawInstancedIndirect body;
 	} *cmd = container_of(header, typeof(*cmd), header);
 
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
+
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
 
@@ -3226,6 +3423,9 @@ static int vmw_cmd_dispatch_indirect(struct vmw_private *dev_priv,
 		SVGA3dCmdHeader header;
 		SVGA3dCmdDXDispatchIndirect body;
 	} *cmd = container_of(header, typeof(*cmd), header);
+
+	if (!vmw_cmd_body_fits(header, sizeof(cmd->body)))
+		return -EINVAL;
 
 	if (!has_sm5_context(dev_priv))
 		return -EINVAL;
