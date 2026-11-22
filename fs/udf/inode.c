@@ -901,8 +901,10 @@ static sector_t inode_getblk(struct inode *inode, sector_t block,
 	 * of extents is greater than the old number, and deleting extents if
 	 * the new number of extents is less than the old number */
 	*err = udf_update_extents(inode, laarr, startnum, endnum, &prev_epos);
-	if (*err < 0)
+	if (*err < 0) {
+		newblock = 0;
 		goto out_free;
+	}
 
 	newblock = udf_get_pblock(inode->i_sb, newblocknum,
 				iinfo->i_location.partitionReferenceNum, 0);
