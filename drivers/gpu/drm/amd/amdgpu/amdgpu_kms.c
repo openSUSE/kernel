@@ -432,7 +432,7 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 			    !adev->gfx.compute_ring[i].no_user_submission)
 				++num_rings;
 
-		if (!adev->sdma.disable_uq) {
+		if (!adev->gfx.disable_uq) {
 			for (i = 0; i < AMDGPU_MES_MAX_COMPUTE_PIPES; i++)
 				num_slots += hweight32(adev->mes.compute_hqd_mask[i]);
 		}
@@ -447,7 +447,7 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 			    !adev->sdma.instance[i].ring.no_user_submission)
 				++num_rings;
 
-		if (!adev->gfx.disable_uq) {
+		if (!adev->sdma.disable_uq) {
 			for (i = 0; i < AMDGPU_MES_MAX_SDMA_PIPES; i++)
 				num_slots += hweight32(adev->mes.sdma_hqd_mask[i]);
 		}
