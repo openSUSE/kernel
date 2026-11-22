@@ -1231,9 +1231,10 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 	int lmce = 1;
 	int cpu = smp_processor_id();
 
-	if (mce_flags.skx_repmov_quirk && quirk_skylake_repmov())
-		goto clear;
-
+	if (mce_flags.skx_repmov_quirk && quirk_skylake_repmov()) {
+		mce_wrmsrl(MSR_IA32_MCG_STATUS, 0);
+		return;
+	}
 
 	/*
 	 * Cases where we avoid rendezvous handler timeout:
@@ -1403,7 +1404,7 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 
 	if (worst > 0)
 		mce_report_event(regs);
-clear:
+
 	mce_wrmsrl(MSR_IA32_MCG_STATUS, 0);
 out:
 	sync_core();

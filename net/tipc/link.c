@@ -455,7 +455,7 @@ bool tipc_link_create(struct net *net, char *if_name, int bearer_id,
 	sprintf(l->name, "%u.%u.%u:%s-%u.%u.%u:unknown",
 		tipc_zone(ownnode), tipc_cluster(ownnode), tipc_node(ownnode),
 		if_name, tipc_zone(peer), tipc_cluster(peer), tipc_node(peer));
-	strcpy(l->if_name, if_name);
+	strscpy(l->if_name, if_name, sizeof(l->if_name));
 	l->addr = peer;
 	l->peer_caps = peer_caps;
 	l->net = net;
@@ -507,7 +507,7 @@ bool tipc_link_bc_create(struct net *net, u32 ownnode, u32 peer,
 		return false;
 
 	l = *link;
-	strcpy(l->name, tipc_bclink_name);
+	strscpy(l->name, tipc_bclink_name, sizeof(l->name));
 	tipc_link_reset(l);
 	l->state = LINK_RESET;
 	l->ackers = 0;
@@ -1356,7 +1356,7 @@ static void tipc_link_build_proto_msg(struct tipc_link *l, int mtyp, bool probe,
 	} else {
 		/* RESET_MSG or ACTIVATE_MSG */
 		msg_set_max_pkt(hdr, l->advertised_mtu);
-		strcpy(data, l->if_name);
+		memcpy(data, l->if_name, TIPC_MAX_IF_NAME);
 		msg_set_size(hdr, INT_H_SIZE + TIPC_MAX_IF_NAME);
 		skb_trim(skb, INT_H_SIZE + TIPC_MAX_IF_NAME);
 	}
