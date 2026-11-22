@@ -369,26 +369,32 @@ BPF_CALL_3(bpf_get_stackid, struct pt_regs *, regs, struct bpf_map *, map,
 	bool kernel = !user;
 	u64 *ips;
 	bool hash_matches;
+	u64 ret;
 
 	if (unlikely(flags & ~(BPF_F_SKIP_FIELD_MASK | BPF_F_USER_STACK |
 			       BPF_F_FAST_STACK_CMP | BPF_F_REUSE_STACKID)))
 		return -EINVAL;
 
+	preempt_disable();
 	trace = get_perf_callchain(regs, init_nr, kernel, user,
 				   sysctl_perf_event_max_stack, false, false);
 
-	if (unlikely(!trace))
+	if (unlikely(!trace)) {
 		/* couldn't fetch the stack trace */
-		return -EFAULT;
+		ret = -EFAULT;
+		goto out;
+	}
 
 	/* get_perf_callchain() guarantees that trace->nr >= init_nr
 	 * and trace-nr <= sysctl_perf_event_max_stack, so trace_nr <= max_depth
 	 */
 	trace_nr = trace->nr - init_nr;
 
-	if (trace_nr <= skip)
+	if (trace_nr <= skip) {
 		/* skipping more than usable stack trace */
-		return -EFAULT;
+		ret = -EFAULT;
+		goto out;
+	}
 
 	trace_nr -= skip;
 	trace_len = trace_nr * sizeof(u64);
@@ -399,15 +405,19 @@ BPF_CALL_3(bpf_get_stackid, struct pt_regs *, regs, struct bpf_map *, map,
 
 	hash_matches = bucket && bucket->hash == hash;
 	/* fast cmp */
-	if (hash_matches && flags & BPF_F_FAST_STACK_CMP)
-		return id;
+	if (hash_matches && flags & BPF_F_FAST_STACK_CMP) {
+		ret = id;
+		goto out;
+	}
 
 	if (stack_map_use_build_id(map)) {
 		/* for build_id+offset, pop a bucket before slow cmp */
 		new_bucket = (struct stack_map_bucket *)
 			pcpu_freelist_pop(&smap->freelist);
-		if (unlikely(!new_bucket))
-			return -ENOMEM;
+		if (unlikely(!new_bucket)) {
+			ret = -ENOMEM;
+			goto out;
+		}
 		new_bucket->nr = trace_nr;
 		stack_map_get_build_id_offset(
 			(struct bpf_stack_build_id *)new_bucket->data,
@@ -416,23 +426,31 @@ BPF_CALL_3(bpf_get_stackid, struct pt_regs *, regs, struct bpf_map *, map,
 		if (hash_matches && bucket->nr == trace_nr &&
 		    memcmp(bucket->data, new_bucket->data, trace_len) == 0) {
 			pcpu_freelist_push(&smap->freelist, &new_bucket->fnode);
-			return id;
+			ret = id;
+			goto out;
 		}
 		if (bucket && !(flags & BPF_F_REUSE_STACKID)) {
 			pcpu_freelist_push(&smap->freelist, &new_bucket->fnode);
-			return -EEXIST;
+			ret = -EEXIST;
+			goto out;
 		}
 	} else {
 		if (hash_matches && bucket->nr == trace_nr &&
-		    memcmp(bucket->data, ips, trace_len) == 0)
-			return id;
-		if (bucket && !(flags & BPF_F_REUSE_STACKID))
-			return -EEXIST;
+		    memcmp(bucket->data, ips, trace_len) == 0) {
+			ret = id;
+			goto out;
+		}
+		if (bucket && !(flags & BPF_F_REUSE_STACKID)) {
+			ret = -EEXIST;
+			goto out;
+		}
 
 		new_bucket = (struct stack_map_bucket *)
 			pcpu_freelist_pop(&smap->freelist);
-		if (unlikely(!new_bucket))
-			return -ENOMEM;
+		if (unlikely(!new_bucket)) {
+			ret = -ENOMEM;
+			goto out;
+		}
 		memcpy(new_bucket->data, ips, trace_len);
 	}
 
@@ -442,7 +460,10 @@ BPF_CALL_3(bpf_get_stackid, struct pt_regs *, regs, struct bpf_map *, map,
 	old_bucket = xchg(&smap->buckets[id], new_bucket);
 	if (old_bucket)
 		pcpu_freelist_push(&smap->freelist, &old_bucket->fnode);
-	return id;
+	ret = id;
+out:
+	preempt_enable();
+	return ret;
 }
 
 const struct bpf_func_proto bpf_get_stackid_proto = {
