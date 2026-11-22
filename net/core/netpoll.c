@@ -127,7 +127,8 @@ static void queue_process(struct work_struct *work)
 			HARD_TX_UNLOCK(dev, txq);
 			local_irq_restore(flags);
 
-			schedule_delayed_work(&npinfo->tx_work, HZ/10);
+			if (!npinfo->tx_work_disabled)
+				schedule_delayed_work(&npinfo->tx_work, HZ/10);
 			return;
 		}
 		HARD_TX_UNLOCK(dev, txq);
@@ -354,7 +355,8 @@ void netpoll_send_skb_on_dev(struct netpoll *np, struct sk_buff *skb,
 
 	if (!dev_xmit_complete(status)) {
 		skb_queue_tail(&npinfo->txq, skb);
-		schedule_delayed_work(&npinfo->tx_work,0);
+		if (!npinfo->tx_work_disabled)
+			schedule_delayed_work(&npinfo->tx_work,0);
 	}
 }
 EXPORT_SYMBOL(netpoll_send_skb_on_dev);
@@ -608,6 +610,7 @@ int __netpoll_setup(struct netpoll *np, struct net_device *ndev)
 		sema_init(&npinfo->dev_lock, 1);
 		skb_queue_head_init(&npinfo->txq);
 		INIT_DELAYED_WORK(&npinfo->tx_work, queue_process);
+		npinfo->tx_work_disabled = false;
 
 		atomic_set(&npinfo->refcnt, 1);
 
@@ -774,14 +777,6 @@ static void rcu_cleanup_netpoll_info(struct rcu_head *rcu_head)
 			container_of(rcu_head, struct netpoll_info, rcu);
 
 	skb_queue_purge(&npinfo->txq);
-
-	/* we can't call cancel_delayed_work_sync here, as we are in softirq */
-	cancel_delayed_work(&npinfo->tx_work);
-
-	/* clean after last, unfinished work */
-	__skb_queue_purge(&npinfo->txq);
-	/* now cancel it again */
-	cancel_delayed_work(&npinfo->tx_work);
 	kfree(npinfo);
 }
 
@@ -811,6 +806,8 @@ void __netpoll_cleanup(struct netpoll *np)
 			ops->ndo_netpoll_cleanup(np->dev);
 
 		RCU_INIT_POINTER(np->dev->npinfo, NULL);
+		npinfo->tx_work_disabled = true;
+		cancel_delayed_work_sync(&npinfo->tx_work);
 		call_rcu_bh(&npinfo->rcu, rcu_cleanup_netpoll_info);
 	}
 }
