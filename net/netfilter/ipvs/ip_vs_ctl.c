@@ -960,37 +960,45 @@ void ip_vs_stats_free(struct ip_vs_stats *stats)
 	}
 }
 
-/* Update overload flag based on number of dest conns and lower/upper
+/* Update overload state based on number of dest conns and lower/upper
  * connection thresholds:
- * - conns reach u_threshold and exceed it: set the flag
- * - conns go below l_threshold (or 75% of u_threshold): clear the flag
+ * - conns reach u_threshold and exceed it: set the overload state
+ * - conns go below l_threshold (or 75% of u_threshold): clear the state
  */
-static void __ip_vs_dest_update_overload(struct ip_vs_dest *dest, int mode)
+static void __ip_vs_dest_update_overload(struct ip_vs_dest *dest)
 {
 	int conns;
 	u32 l, u;
 
 	lockdep_assert_held(&dest->dst_lock);
 	u = READ_ONCE(dest->u_threshold);
-	if (!u)
-		goto unset;
-	l = READ_ONCE(dest->l_threshold_val);
-	conns = atomic_read(&dest->totalconns);
-	if (conns >= (mode > 0 ? l : u)) {
-		dest->flags |= IP_VS_DEST_F_OVERLOAD;
-		return;
+	if (u) {
+		/* Low threshold defaults to 75% of upper threshold */
+		l = READ_ONCE(dest->l_threshold) ? : (u - (u >> 2));
+		conns = atomic_read(&dest->totalconns);
+		if (conns >= (ip_vs_dest_is_overloaded(dest) ? l : u)) {
+			WRITE_ONCE(dest->u_threshold_val, INT_MAX);
+			WRITE_ONCE(dest->l_threshold_val, l);
+			/* Commit thresholds before repeating the check,
+			 * it is paired with atomic_fetch_dec() in
+			 * ip_vs_unbind_dest() to avoid entering the
+			 * overload state forever.
+			 */
+			smp_mb();
+			conns = atomic_read(&dest->totalconns);
+			if (conns >= l)
+				return;
+		}
 	}
-	if (conns >= (mode < 0 ? u : l))
-		return;
 
-unset:
-	dest->flags &= ~IP_VS_DEST_F_OVERLOAD;
+	WRITE_ONCE(dest->u_threshold_val, u ? : INT_MAX);
+	WRITE_ONCE(dest->l_threshold_val, 0);
 }
 
-void ip_vs_dest_update_overload(struct ip_vs_dest *dest, int mode)
+void ip_vs_dest_update_overload(struct ip_vs_dest *dest)
 {
 	spin_lock_bh(&dest->dst_lock);
-	__ip_vs_dest_update_overload(dest, mode);
+	__ip_vs_dest_update_overload(dest);
 	spin_unlock_bh(&dest->dst_lock);
 }
 
@@ -1065,12 +1073,7 @@ __ip_vs_update_dest(struct ip_vs_service *svc, struct ip_vs_dest *dest,
 		spin_lock_bh(&dest->dst_lock);
 		WRITE_ONCE(dest->u_threshold, udest->u_threshold);
 		WRITE_ONCE(dest->l_threshold, udest->l_threshold);
-		/* Low threshold defaults to 75% of upper threshold */
-		WRITE_ONCE(dest->l_threshold_val,
-			   udest->l_threshold ? :
-			   (udest->u_threshold -
-			    (udest->u_threshold >> 2)));
-		__ip_vs_dest_update_overload(dest, 0);
+		__ip_vs_dest_update_overload(dest);
 		spin_unlock_bh(&dest->dst_lock);
 	}
 
@@ -1135,6 +1138,7 @@ ip_vs_new_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	if (ret < 0)
 		goto err_stats;
 
+	dest->u_threshold_val = INT_MAX;
 	dest->af = udest->af;
 	dest->protocol = svc->protocol;
 	dest->vaddr = svc->addr;
