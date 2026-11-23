@@ -123,6 +123,9 @@ static union acpi_object *amdgpu_atif_call(struct amdgpu_atif *atif,
 		return NULL;
 	}
 
+	if (!obj)
+		return NULL;
+
 	if (obj->type != ACPI_TYPE_BUFFER) {
 		DRM_DEBUG_DRIVER("bad object returned from ATIF: %d\n",
 				 obj->type);
