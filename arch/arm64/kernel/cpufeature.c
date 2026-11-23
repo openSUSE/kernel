@@ -2088,6 +2088,7 @@ bool cpu_supports_bbml2_noabort(void)
 	 */
 	static const struct midr_range supports_bbml2_noabort_list[] = {
 		MIDR_ALL_VERSIONS(MIDR_NVIDIA_OLYMPUS),
+		MIDR_ALL_VERSIONS(MIDR_NVIDIA_RIGEL),
 		MIDR_ALL_VERSIONS(MIDR_AMPERE1),
 		MIDR_ALL_VERSIONS(MIDR_AMPERE1A),
 		{}
