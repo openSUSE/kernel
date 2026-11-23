@@ -304,8 +304,9 @@ begin:
 				      saddr, daddr, ports, dif))) {
 			if (unlikely(!atomic_inc_not_zero(&sk->sk_refcnt)))
 				goto out;
-			if (unlikely(!INET_MATCH(sk, net, acookie,
-						 saddr, daddr, ports, dif))) {
+			if (unlikely(hlist_nulls_unhashed_lockless(&sk->sk_nulls_node) ||
+				     !INET_MATCH(sk, net, acookie, saddr, daddr, ports,
+						 dif))) {
 				sock_gen_put(sk);
 				goto begin;
 			}

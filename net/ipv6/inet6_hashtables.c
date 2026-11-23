@@ -78,7 +78,8 @@ begin:
 		if (unlikely(!atomic_inc_not_zero(&sk->sk_refcnt)))
 			goto out;
 
-		if (unlikely(!INET6_MATCH(sk, net, saddr, daddr, ports, dif))) {
+		if (unlikely(hlist_nulls_unhashed_lockless(&sk->sk_nulls_node) ||
+			     !INET6_MATCH(sk, net, saddr, daddr, ports, dif))) {
 			sock_gen_put(sk);
 			goto begin;
 		}
