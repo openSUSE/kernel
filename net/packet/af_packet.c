@@ -571,7 +571,7 @@ static int prb_calc_retire_blk_tmo(struct packet_sock *po,
 	} else
 		return DEFAULT_PRB_RETIRE_TOV;
 
-	mbits = (blk_size_in_bytes * 8) / (1024 * 1024);
+	mbits = (u64)blk_size_in_bytes * 8 / (1024 * 1024);
 
 	if (div)
 		mbits /= div;
