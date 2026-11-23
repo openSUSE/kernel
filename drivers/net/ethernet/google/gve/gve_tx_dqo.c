@@ -854,6 +854,16 @@ static bool gve_can_send_tso(const struct sk_buff *skb)
 	return true;
 }
 
+netdev_features_t gve_features_check_dqo(struct sk_buff *skb,
+					 struct net_device *dev,
+					 netdev_features_t features)
+{
+	if (skb_is_gso(skb) && !gve_can_send_tso(skb))
+		return features & ~NETIF_F_GSO_MASK;
+
+	return features;
+}
+
 /* Attempt to transmit specified SKB.
  *
  * Returns 0 if the SKB was transmitted or dropped.
@@ -875,21 +885,8 @@ static int gve_try_tx_skb(struct gve_priv *priv, struct gve_tx_ring *tx,
 		 */
 		num_buffer_descs = DIV_ROUND_UP(skb->len, GVE_TX_BUF_SIZE_DQO);
 	} else {
-		if (skb_is_gso(skb)) {
-			/* If TSO doesn't meet HW requirements, attempt to linearize the
-			 * packet.
-			 */
-			if (unlikely(!gve_can_send_tso(skb) &&
-				     skb_linearize(skb) < 0)) {
-				net_err_ratelimited("%s: Failed to transmit TSO packet\n",
-						    priv->dev->name);
-				goto drop;
-			}
-
-			num_buffer_descs = gve_num_buffer_descs_needed(skb);
-		} else {
-			num_buffer_descs = gve_num_buffer_descs_needed(skb);
-
+		num_buffer_descs = gve_num_buffer_descs_needed(skb);
+		if (!skb_is_gso(skb)) {
 			if (unlikely(num_buffer_descs > GVE_TX_MAX_DATA_DESCS)) {
 				if (unlikely(skb_linearize(skb) < 0))
 					goto drop;
