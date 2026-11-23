@@ -2087,7 +2087,6 @@ bool cpu_supports_bbml2_noabort(void)
 	 * TLB conflict aborts for BBML2 mapping granularity changes.
 	 */
 	static const struct midr_range supports_bbml2_noabort_list[] = {
-		MIDR_REV_RANGE(MIDR_CORTEX_X4, 0, 3, 0xf),
 		MIDR_ALL_VERSIONS(MIDR_NVIDIA_OLYMPUS),
 		MIDR_ALL_VERSIONS(MIDR_AMPERE1),
 		MIDR_ALL_VERSIONS(MIDR_AMPERE1A),
