@@ -225,6 +225,11 @@ struct vc4_dev {
 	struct {
 		struct timer_list timer;
 		struct work_struct reset_work;
+
+		/* The instruction and uniforms caches were cleared at the
+		 * last check that found no progress.
+		 */
+		bool caches_cleared;
 	} hangcheck;
 
 	struct drm_modeset_lock ctm_state_lock;
@@ -271,6 +276,9 @@ struct vc4_bo {
 	 * DRM_IOCTL_VC4_CREATE_SHADER_BO.
 	 */
 	struct vc4_validated_shader_info *validated_shader;
+
+	/* Byte offset of the shader code in the BO. */
+	u32 shader_offset;
 
 	/* One of enum vc4_kernel_bo_type, or VC4_BO_TYPE_COUNT + i
 	 * for user-allocated labels.
@@ -780,6 +788,11 @@ struct vc4_file {
 	} perfmon;
 
 	bool bin_bo_used;
+
+	/* Counter picking the start offset of the next shader BO's code,
+	 * see vc4_create_shader_bo_ioctl().
+	 */
+	atomic_t shader_offset_idx;
 };
 
 static inline struct vc4_exec_info *
@@ -1067,7 +1080,7 @@ bool vc4_check_tex_size(struct vc4_exec_info *exec,
 
 /* vc4_validate_shader.c */
 struct vc4_validated_shader_info *
-vc4_validate_shader(struct drm_gem_dma_object *shader_obj);
+vc4_validate_shader(struct drm_gem_dma_object *shader_obj, u32 offset);
 
 /* vc4_perfmon.c */
 void vc4_perfmon_get(struct vc4_perfmon *perfmon);
