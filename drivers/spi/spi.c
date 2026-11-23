@@ -1757,7 +1757,6 @@ static int __spi_pump_transfer_message(struct spi_controller *ctlr,
 	if (!was_busy && ctlr->auto_runtime_pm) {
 		ret = pm_runtime_get_sync(ctlr->dev.parent);
 		if (ret < 0) {
-			pm_runtime_put_noidle(ctlr->dev.parent);
 			dev_err(&ctlr->dev, "Failed to power device: %d\n",
 				ret);
 
@@ -1777,9 +1776,6 @@ static int __spi_pump_transfer_message(struct spi_controller *ctlr,
 			dev_err(&ctlr->dev,
 				"failed to prepare transfer hardware: %d\n",
 				ret);
-
-			if (ctlr->auto_runtime_pm)
-				pm_runtime_put(ctlr->dev.parent);
 
 			msg->status = ret;
 			spi_finalize_current_message(ctlr);
