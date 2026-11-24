@@ -64,6 +64,7 @@
 #include <linux/nsproxy.h>
 #include <linux/virtio_net.h>
 #include <linux/rcupdate.h>
+#include <linux/uidgid.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 #include <net/rtnetlink.h>
@@ -148,6 +149,20 @@ static inline struct tun_sock *tun_sk(struct sock *sk)
 {
 	return container_of(sk, struct tun_sock, sk);
 }
+
+static inline bool tun_permitted(struct tun_struct *tun)
+{
+	const struct cred *cred = current_cred();
+
+	/* If both uid and gid are set, *both* must match */
+	if ((uid_valid(tun->owner) || gid_valid(tun->group)) &&
+	    (!uid_valid(tun->owner) || uid_eq(cred->euid, tun->owner)) &&
+	    (!gid_valid(tun->group) || in_egroup_p(tun->group)))
+		return true;
+
+	return capable(CAP_NET_ADMIN);
+}
+
 
 static int tun_attach(struct tun_struct *tun, struct file *file)
 {
@@ -1048,8 +1063,6 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 
 	dev = __dev_get_by_name(net, ifr->ifr_name);
 	if (dev) {
-		const struct cred *cred = current_cred();
-
 		if (ifr->ifr_flags & IFF_TUN_EXCL)
 			return -EBUSY;
 		if ((ifr->ifr_flags & IFF_TUN) && dev->netdev_ops == &tun_netdev_ops)
@@ -1059,9 +1072,7 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 		else
 			return -EINVAL;
 
-		if (((tun->owner != -1 && cred->euid != tun->owner) ||
-		     (tun->group != -1 && !in_egroup_p(tun->group))) &&
-		    !capable(CAP_NET_ADMIN))
+		if (!tun_permitted(tun))
 			return -EPERM;
 		err = security_tun_dev_attach(tun->socket.sk);
 		if (err < 0)
