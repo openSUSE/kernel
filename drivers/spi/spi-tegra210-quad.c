@@ -1253,8 +1253,17 @@ static int tegra_qspi_handle_timeout(struct tegra_qspi *tqspi)
 	 * loaded the cache but before we masked).
 	 */
 	refreshed = smp_load_acquire(&tqspi->trans_status);
-	if (refreshed)
+	if (refreshed) {
 		status = refreshed;
+		/*
+		 * The drain observed a real ISR completion. Prefer the
+		 * ISR-published status_reg / tx_status / rx_status over
+		 * the pre-drain lost-IRQ snapshot, which may have been
+		 * taken after the ISR W1C-ed the hardware error bits and
+		 * therefore holds cleared values.
+		 */
+		lost_irq_snapshot = false;
+	}
 
 	if (!(status & QSPI_RDY)) {
 		retval = -ETIMEDOUT;

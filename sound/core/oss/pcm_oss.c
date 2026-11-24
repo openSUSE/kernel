@@ -1084,8 +1084,10 @@ static int snd_pcm_oss_change_params_locked(struct snd_pcm_substream *substream)
 
 	err = 0;
 failure:
-	if (err)
+	if (err) {
+		runtime->oss.params = 1;
 		snd_pcm_oss_release_buffers(substream);
+	}
 	kfree(sw_params);
 	kfree(params);
 	kfree(sparams);
@@ -3123,17 +3125,16 @@ static inline void snd_pcm_oss_proc_done(struct snd_pcm *pcm)
  *  ENTRY functions
  */
 
-static const struct file_operations snd_pcm_oss_f_reg =
-{
-	.owner =	THIS_MODULE,
-	.read =		snd_pcm_oss_read,
-	.write =	snd_pcm_oss_write,
-	.open =		snd_pcm_oss_open,
-	.release =	snd_pcm_oss_release,
-	.poll =		snd_pcm_oss_poll,
-	.unlocked_ioctl =	snd_pcm_oss_ioctl,
-	.compat_ioctl =	snd_pcm_oss_ioctl_compat,
-	.mmap =		snd_pcm_oss_mmap,
+static const struct file_operations snd_pcm_oss_f_reg = {
+	.owner		=	THIS_MODULE,
+	.read		=	snd_pcm_oss_read,
+	.write		=	snd_pcm_oss_write,
+	.open		=	snd_pcm_oss_open,
+	.release	=	snd_pcm_oss_release,
+	.poll		=	snd_pcm_oss_poll,
+	.unlocked_ioctl	=	snd_pcm_oss_ioctl,
+	.compat_ioctl	=	snd_pcm_oss_ioctl_compat,
+	.mmap		=	snd_pcm_oss_mmap,
 };
 
 static void register_oss_dsp(struct snd_pcm *pcm, int index)

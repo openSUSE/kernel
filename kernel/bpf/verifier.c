@@ -4540,29 +4540,16 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 			  */
 		}
 	} else if (class == BPF_LD) {
+		if (!bt_is_reg_set(bt, dreg))
+			return 0;
+		bt_clear_reg(bt, dreg);
 		/* It's ld_imm64 or ld_abs or ld_ind.
 		 * For ld_imm64 no further tracking of precision
 		 * into parent is necessary
 		 */
-		if (mode == BPF_IMM) {
-			bt_clear_reg(bt, dreg);
-			return 0;
-		}
-		/*
-		 * BPF_{IND,ABS} are modelled as two branches:
-		 * - fallthrough;
-		 * - implicit subprogram exit.
-		 * It is necessary to switch current frame if
-		 * implicit subprogram exit branch is backtracked.
-		 */
-		if (mode == BPF_IND || mode == BPF_ABS) {
-			if (bt_is_reg_set(bt, dreg))
-				return -ENOTSUPP;
-			if (subseq_idx != idx + 1)
-				if (bt_subprog_enter(bt))
-					return -EFAULT;
-			return 0;
-		}
+		if (mode == BPF_IND || mode == BPF_ABS)
+			/* to be analyzed */
+			return -ENOTSUPP;
 	}
 	/* Propagate precision marks to linked registers, to account for
 	 * registers marked as precise in this function.
@@ -7304,6 +7291,11 @@ static int check_ptr_to_btf_access(struct bpf_verifier_env *env,
 		return -EACCES;
 	}
 
+	if (atype != BPF_READ && (type_flag(reg->type) & PTR_UNTRUSTED)) {
+		verbose(env, "only read is supported\n");
+		return -EACCES;
+	}
+
 	if (env->ops->btf_struct_access && !type_is_alloc(reg->type) && atype == BPF_WRITE) {
 		if (!btf_is_kernel(reg->btf)) {
 			verifier_bug(env, "reg->btf must be kernel btf");
@@ -7312,8 +7304,7 @@ static int check_ptr_to_btf_access(struct bpf_verifier_env *env,
 		ret = env->ops->btf_struct_access(&env->log, reg, off, size);
 	} else {
 		/* Writes are permitted with default btf_struct_access for
-		 * program allocated objects (which always have ref_obj_id > 0),
-		 * but not for untrusted PTR_TO_BTF_ID | MEM_ALLOC.
+		 * program allocated objects (which always have id > 0).
 		 */
 		if (atype != BPF_READ && !type_is_ptr_alloc_obj(reg->type)) {
 			verbose(env, "only read is supported\n");

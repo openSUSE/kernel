@@ -1512,6 +1512,15 @@ int acpi_cppc_processor_probe(struct acpi_processor *pr)
 			memcpy(&cpc_ptr->cpc_regs[i - 2].cpc_entry.reg, gas_t,
 			       sizeof(*gas_t));
 
+			/* EPP interfaces require the full 0-255 preference range. */
+			if (i - 2 == ENERGY_PERF && gas_t->bit_width < 8 &&
+			    !IS_NULL_REG(gas_t)) {
+				pr_debug("CPU%d: EPP register width %u is not supported\n",
+					 pr->id, gas_t->bit_width);
+				ret = -EOPNOTSUPP;
+				goto out_free;
+			}
+
 			/*
 			 * The PCC Subspace index is encoded inside
 			 * the CPC table entries. The same PCC index
