@@ -637,9 +637,6 @@ static struct page *follow_huge_pud(struct vm_area_struct *vma,
 	if ((flags & FOLL_WRITE) && !pud_write(pud))
 		return NULL;
 
-	if (!pud_present(pud))
-		return NULL;
-
 	pfn += (addr & ~PUD_MASK) >> PAGE_SHIFT;
 
 	if (IS_ENABLED(CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD) &&
@@ -951,7 +948,7 @@ no_page:
 }
 
 static struct page *follow_pmd_mask(struct vm_area_struct *vma,
-				    unsigned long address, pud_t *pudp,
+				    unsigned long address, pud_t *pudp, pud_t pud,
 				    unsigned int flags,
 				    struct follow_page_context *ctx)
 {
@@ -959,6 +956,9 @@ static struct page *follow_pmd_mask(struct vm_area_struct *vma,
 	spinlock_t *ptl;
 	struct page *page;
 	struct mm_struct *mm = vma->vm_mm;
+
+	if (unlikely(pud_bad(pud)))
+		return no_page_table(vma, flags, address);
 
 	pmd = pmd_offset(pudp, address);
 	pmdval = pmdp_get_lockless(pmd);
@@ -1016,18 +1016,23 @@ static struct page *follow_pud_mask(struct vm_area_struct *vma,
 	pud = READ_ONCE(*pudp);
 	if (!pud_present(pud))
 		return no_page_table(vma, flags, address);
-	if (pud_leaf(pud)) {
-		ptl = pud_lock(mm, pudp);
-		page = follow_huge_pud(vma, address, pudp, flags, ctx);
+	if (!pud_leaf(pud))
+		return follow_pmd_mask(vma, address, pudp, pud, flags, ctx);
+
+	ptl = pud_lock(mm, pudp);
+	pud = *pudp;
+	if (unlikely(!pud_present(pud))) {
 		spin_unlock(ptl);
-		if (page)
-			return page;
 		return no_page_table(vma, flags, address);
 	}
-	if (unlikely(pud_bad(pud)))
-		return no_page_table(vma, flags, address);
+	if (unlikely(!pud_leaf(pud))) {
+		spin_unlock(ptl);
+		return follow_pmd_mask(vma, address, pudp, pud, flags, ctx);
+	}
 
-	return follow_pmd_mask(vma, address, pudp, flags, ctx);
+	page = follow_huge_pud(vma, address, pudp, flags, ctx);
+	spin_unlock(ptl);
+	return page;
 }
 
 static struct page *follow_p4d_mask(struct vm_area_struct *vma,
