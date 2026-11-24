@@ -3816,6 +3816,7 @@ void __l2cap_le_connect_rsp_defer(struct l2cap_chan *chan)
 
 	l2cap_send_cmd(conn, chan->ident, L2CAP_LE_CONN_RSP, sizeof(rsp),
 		       &rsp);
+	chan->ident = 0;
 }
 
 static void l2cap_ecred_list_defer(struct l2cap_chan *chan, void *data)
@@ -4985,10 +4986,10 @@ static int l2cap_le_connect_req(struct l2cap_conn *conn,
 
 	__set_chan_timer(chan, chan->ops->get_sndtimeo(chan));
 
-	chan->ident = cmd->ident;
 	chan->mode = L2CAP_MODE_LE_FLOWCTL;
 
 	if (test_bit(FLAG_DEFER_SETUP, &chan->flags)) {
+		chan->ident = cmd->ident;
 		l2cap_state_change(chan, BT_CONNECT2);
 		/* The following result value is actually not defined
 		 * for LE CoC but we use it to let the function know
@@ -5216,10 +5217,10 @@ static inline int l2cap_ecred_conn_req(struct l2cap_conn *conn,
 
 		__set_chan_timer(chan, chan->ops->get_sndtimeo(chan));
 
-		chan->ident = cmd->ident;
 		chan->mode = L2CAP_MODE_EXT_FLOWCTL;
 
 		if (test_bit(FLAG_DEFER_SETUP, &chan->flags)) {
+			chan->ident = cmd->ident;
 			l2cap_state_change(chan, BT_CONNECT2);
 			defer = true;
 			chan->ops->defer(chan);
@@ -5356,6 +5357,16 @@ static inline int l2cap_ecred_conn_rsp(struct l2cap_conn *conn,
 		default:
 			/* If dcid was not set it means channels was refused */
 			if (!dcid) {
+				l2cap_chan_del(chan, ECONNREFUSED);
+				break;
+			}
+
+			/*
+			 * Validate MPS and MTU per BT Core Spec
+			 * Vol 3 Part A Sec 10.2
+			 */
+			if (mtu < L2CAP_ECRED_MIN_MTU ||
+			    mps < L2CAP_ECRED_MIN_MPS) {
 				l2cap_chan_del(chan, ECONNREFUSED);
 				break;
 			}
@@ -5824,6 +5835,7 @@ static void append_skb_frag(struct sk_buff *skb, struct sk_buff *new_frag,
 static int l2cap_reassemble_sdu(struct l2cap_chan *chan, struct sk_buff *skb,
 				struct l2cap_ctrl *control)
 {
+	struct sk_buff *sdu;
 	int err = -EINVAL;
 
 	switch (control->sar) {
@@ -5884,15 +5896,25 @@ static int l2cap_reassemble_sdu(struct l2cap_chan *chan, struct sk_buff *skb,
 		if (chan->sdu->len != chan->sdu_len)
 			break;
 
-		err = chan->ops->recv(chan, chan->sdu);
+		/* Reassembly complete.  Hand the SDU over before the
+		 * callback, for the reason given in l2cap_ecred_data_rcv():
+		 * the callback takes ownership and may free it, while
+		 * l2cap_chan_rx_avail() -> l2cap_chan_le_send_credits() reads
+		 * chan->sdu->len on the way out - it does so before the mode
+		 * test that makes the rest of that function a no-op here.
+		 * Return directly, since the state this leaves is what the
+		 * trailing error block would otherwise set again.
+		 */
+		sdu = chan->sdu;
+		chan->sdu = NULL;
+		chan->sdu_last_frag = NULL;
+		chan->sdu_len = 0;
 
-		if (!err) {
-			/* Reassembly complete */
-			chan->sdu = NULL;
-			chan->sdu_last_frag = NULL;
-			chan->sdu_len = 0;
-		}
-		break;
+		err = chan->ops->recv(chan, sdu);
+		if (err)
+			kfree_skb(sdu);
+
+		return err;
 	}
 
 	if (err) {
@@ -6866,12 +6888,26 @@ static int l2cap_ecred_data_rcv(struct l2cap_chan *chan, struct sk_buff *skb)
 	skb = NULL;
 
 	if (chan->sdu->len == chan->sdu_len) {
-		err = l2cap_ecred_recv(chan, chan->sdu);
-		if (!err) {
-			chan->sdu = NULL;
-			chan->sdu_last_frag = NULL;
-			chan->sdu_len = 0;
-		}
+		struct sk_buff *sdu = chan->sdu;
+
+		/* The receive callback takes ownership of a reassembled SDU and
+		 * may free it, while l2cap_ecred_recv() goes on to update the
+		 * credits - which reads chan->sdu->len.  Drop the reassembly
+		 * state before handing the SDU over, and release it here if the
+		 * callback refused it, so that it is still freed exactly once.
+		 * The reassembly state is already clear at that point, so
+		 * return instead of falling into the failed: block, whose
+		 * kfree_skb(chan->sdu) would have nothing left to free.
+		 */
+		chan->sdu = NULL;
+		chan->sdu_last_frag = NULL;
+		chan->sdu_len = 0;
+
+		err = l2cap_ecred_recv(chan, sdu);
+		if (err)
+			kfree_skb(sdu);
+
+		return 0;
 	}
 
 failed:

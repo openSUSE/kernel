@@ -766,6 +766,9 @@ struct kfd_process_device {
 	/* per-process-per device QCM data structure */
 	struct qcm_process_device qpd;
 
+	/* Serializes process doorbell allocation for this device */
+	struct mutex doorbell_mutex;
+
 	/*Apertures*/
 	uint64_t lds_base;
 	uint64_t lds_limit;
@@ -879,6 +882,8 @@ struct svm_range_list {
 	struct list_head		deferred_range_list;
 	struct list_head                criu_svm_metadata_list;
 	spinlock_t			deferred_list_lock;
+	/* serializes XNACK-off evictions with the queue quiesce */
+	struct mutex			evict_lock;
 	atomic_t			evicted_ranges;
 	atomic_t			drain_pagefaults;
 	struct delayed_work		restore_work;
@@ -1074,6 +1079,7 @@ void kfd_unref_process(struct kfd_process *p);
 int kfd_process_evict_queues(struct kfd_process *p, uint32_t trigger);
 int kfd_process_restore_queues(struct kfd_process *p);
 void kfd_suspend_all_processes(void);
+void kfd_process_wait_gpu_reset_complete(struct kfd_process *p);
 int kfd_resume_all_processes(void);
 
 struct kfd_process_device *kfd_process_device_data_by_id(struct kfd_process *process,

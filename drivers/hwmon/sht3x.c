@@ -361,8 +361,8 @@ static size_t limit_store(struct device *dev,
 	 * adapted for fixed point arithmetic and packed the same as
 	 * in limit_show()
 	 */
-	raw = ((u32)(temperature + 45000) * 24543) >> (16 + 7);
-	raw |= ((humidity * 42950) >> 16) & 0xfe00;
+	raw = min(((u64)(temperature + 45000) * 24543) >> (16 + 7), 0x1ff);
+	raw |= min(((u64)humidity * 42950) >> 16, 0xffff) & 0xfe00;
 
 	*((__be16 *)position) = cpu_to_be16(raw);
 	position += SHT3X_WORD_LEN;

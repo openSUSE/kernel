@@ -337,7 +337,7 @@ static int fq_pie_change(struct Qdisc *sch, struct nlattr *opt,
 		q->p_params.beta = nla_get_u32(tb[TCA_FQ_PIE_BETA]);
 
 	if (tb[TCA_FQ_PIE_QUANTUM])
-		q->quantum = nla_get_u32(tb[TCA_FQ_PIE_QUANTUM]);
+		q->quantum = max(256U, nla_get_u32(tb[TCA_FQ_PIE_QUANTUM]));
 
 	if (tb[TCA_FQ_PIE_MEMORY_LIMIT])
 		q->memory_limit = nla_get_u32(tb[TCA_FQ_PIE_MEMORY_LIMIT]);
