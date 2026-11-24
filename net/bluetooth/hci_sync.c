@@ -2404,9 +2404,17 @@ static int hci_le_add_resolve_list_sync(struct hci_dev *hdev,
 		goto done;
 	}
 
+	rcu_read_lock();
+
 	irk = hci_find_irk_by_addr(hdev, &params->addr, params->addr_type);
-	if (!irk)
+	if (!irk) {
+		rcu_read_unlock();
 		return 0;
+	}
+
+	memcpy(cp.peer_irk, irk->val, 16);
+
+	rcu_read_unlock();
 
 	/* Check if the IK has _not_ been programmed yet. */
 	entry = hci_bdaddr_list_lookup_with_irk(&hdev->le_resolv_list,
@@ -2417,7 +2425,6 @@ static int hci_le_add_resolve_list_sync(struct hci_dev *hdev,
 
 	cp.bdaddr_type = params->addr_type;
 	bacpy(&cp.bdaddr, &params->addr);
-	memcpy(cp.peer_irk, irk->val, 16);
 
 	/* Default privacy mode is always Network */
 	params->privacy_mode = HCI_NETWORK_PRIVACY;
@@ -2602,7 +2609,7 @@ static int hci_pause_advertising_sync(struct hci_dev *hdev)
 static int hci_resume_advertising_sync(struct hci_dev *hdev)
 {
 	struct adv_info *adv, *tmp;
-	int err;
+	int err = 0;
 
 	/* If advertising has not been paused there is nothing  to do. */
 	if (!hdev->advertising_paused)
@@ -2635,13 +2642,19 @@ static int hci_resume_advertising_sync(struct hci_dev *hdev)
 		 */
 		if (hci_dev_test_and_clear_flag(hdev, HCI_LE_ADV_0))
 			err = hci_enable_ext_advertising_sync(hdev, 0x00);
-	} else {
+	} else if (hdev->cur_adv_instance) {
 		/* Schedule for most recent instance to be restarted and begin
 		 * the software rotation loop
 		 */
 		err = hci_schedule_adv_instance_sync(hdev,
 						     hdev->cur_adv_instance,
 						     true);
+	} else if (hci_dev_test_flag(hdev, HCI_ADVERTISING) &&
+		   !hci_dev_test_flag(hdev, HCI_LE_ADV)) {
+		/* hci_schedule_adv_instance_sync() rejects instance 0x00 while
+		 * HCI_ADVERTISING is set, so enable it directly.
+		 */
+		err = hci_start_adv_sync(hdev, 0x00);
 	}
 
 	hdev->advertising_paused = false;
@@ -5128,12 +5141,6 @@ int hci_dev_open_sync(struct hci_dev *hdev)
 
 	bt_dev_dbg(hdev, "");
 
-	/* Set HCI_DRAIN_WORKQUEUE flag to prevent queuing work during
-	 * reset/close. See hci_cmd_work() and handle_cmd_cnt_and_timer().
-	 */
-	hci_dev_set_flag(hdev, HCI_CMD_DRAIN_WORKQUEUE);
-	synchronize_rcu();
-
 	if (hci_dev_test_flag(hdev, HCI_UNREGISTER)) {
 		ret = -ENODEV;
 		goto done;
@@ -5282,10 +5289,17 @@ static int hci_dev_shutdown(struct hci_dev *hdev)
 
 int hci_dev_close_sync(struct hci_dev *hdev)
 {
+	struct hci_conn *conn;
 	bool auto_off;
 	int err = 0;
 
 	bt_dev_dbg(hdev, "");
+
+	/* Set HCI_DRAIN_WORKQUEUE flag to prevent queuing work during
+	 * reset/close. See hci_cmd_work() and handle_cmd_cnt_and_timer().
+	 */
+	hci_dev_set_flag(hdev, HCI_CMD_DRAIN_WORKQUEUE);
+	synchronize_rcu();
 
 	cancel_delayed_work(&hdev->power_off);
 	cancel_delayed_work(&hdev->ncmd_timer);
@@ -5331,6 +5345,22 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 		list_for_each_entry(adv_instance, &hdev->adv_instances, list)
 			cancel_delayed_work_sync(&adv_instance->rpa_expired_cb);
 	}
+
+	/* A delayed work whose timer was armed before close would queue
+	 * itself while the workqueue is draining. Disable the connection
+	 * works so that hci_conn_drop() and the timers can no longer queue
+	 * them. The connections are deleted below, so nothing re-enables
+	 * them. HCI_UP is clear, so no new connection can be added after
+	 * this walk.
+	 */
+	hci_dev_lock(hdev);
+	list_for_each_entry(conn, &hdev->conn_hash.list, list) {
+		disable_delayed_work(&conn->disc_work);
+		disable_delayed_work(&conn->auto_accept_work);
+		disable_delayed_work(&conn->idle_work);
+		disable_delayed_work(&conn->le_conn_timeout);
+	}
+	hci_dev_unlock(hdev);
 
 	/* Avoid potential lockdep warnings from the *_flush() calls by
 	 * ensuring the workqueue is empty up front.

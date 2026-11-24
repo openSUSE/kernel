@@ -246,7 +246,7 @@ void kfd_smi_event_update_vmfault(struct kfd_node *dev, uint16_t pasid)
 	if (!task_info.pid)
 		return;
 
-	kfd_smi_event_add(0, dev, KFD_SMI_EVENT_VMFAULT, "%x:%s\n",
+	kfd_smi_event_add(task_info.tgid, dev, KFD_SMI_EVENT_VMFAULT, "%x:%s\n",
 			  task_info.pid, task_info.task_name);
 }
 

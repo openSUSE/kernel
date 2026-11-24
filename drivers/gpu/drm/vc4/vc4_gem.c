@@ -41,8 +41,7 @@ vc4_queue_hangcheck(struct drm_device *dev)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
-	mod_timer(&vc4->hangcheck.timer,
-		  round_jiffies_up(jiffies + msecs_to_jiffies(100)));
+	mod_timer(&vc4->hangcheck.timer, jiffies + msecs_to_jiffies(100));
 }
 
 struct vc4_hang_state {
@@ -341,6 +340,7 @@ vc4_hangcheck_elapsed(struct timer_list *t)
 
 	/* If idle, we can stop watching for hangs. */
 	if (!bin_exec && !render_exec) {
+		vc4->hangcheck.caches_cleared = false;
 		spin_unlock_irqrestore(&vc4->job_lock, irqflags);
 		return;
 	}
@@ -357,10 +357,26 @@ vc4_hangcheck_elapsed(struct timer_list *t)
 			bin_exec->last_ct0ca = ct0ca;
 		if (render_exec)
 			render_exec->last_ct1ca = ct1ca;
+
+		vc4->hangcheck.caches_cleared = false;
+
 		spin_unlock_irqrestore(&vc4->job_lock, irqflags);
 		vc4_queue_hangcheck(dev);
 		return;
 	}
+
+	/* Clear the slice caches to workaround GFXH-16 */
+	if (!vc4->hangcheck.caches_cleared) {
+		V3D_WRITE(V3D_SLCACTL, VC4_SET_FIELD(0xf, V3D_SLCACTL_ICC) |
+			  VC4_SET_FIELD(0xf, V3D_SLCACTL_UCC));
+
+		vc4->hangcheck.caches_cleared = true;
+		spin_unlock_irqrestore(&vc4->job_lock, irqflags);
+		vc4_queue_hangcheck(dev);
+		return;
+	}
+
+	vc4->hangcheck.caches_cleared = false;
 
 	spin_unlock_irqrestore(&vc4->job_lock, irqflags);
 
@@ -706,8 +722,11 @@ vc4_queue_submit(struct drm_device *dev, struct vc4_exec_info *exec,
 	fence->seqno = exec->seqno;
 	exec->fence = &fence->base;
 
+	/* The job can complete and drop exec->fence as soon as job_lock is
+	 * released, so hold our own reference.
+	 */
 	if (out_sync)
-		drm_syncobj_replace_fence(out_sync, exec->fence);
+		dma_fence_get(&fence->base);
 
 	vc4_update_bo_seqnos(exec, seqno);
 
@@ -728,6 +747,11 @@ vc4_queue_submit(struct drm_device *dev, struct vc4_exec_info *exec,
 	}
 
 	spin_unlock_irqrestore(&vc4->job_lock, irqflags);
+
+	if (out_sync) {
+		drm_syncobj_replace_fence(out_sync, &fence->base);
+		dma_fence_put(&fence->base);
+	}
 
 	return 0;
 }

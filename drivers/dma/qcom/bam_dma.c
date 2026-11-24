@@ -1332,7 +1332,7 @@ static int bam_dma_probe(struct platform_device *pdev)
 	ret = dma_set_max_seg_size(bdev->common.dev, BAM_FIFO_SIZE);
 	if (ret) {
 		dev_err(bdev->dev, "cannot set maximum segment size\n");
-		goto err_bam_channel_exit;
+		goto err_free_irq;
 	}
 
 	platform_set_drvdata(pdev, bdev);
