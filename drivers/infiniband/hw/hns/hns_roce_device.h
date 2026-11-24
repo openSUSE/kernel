@@ -729,7 +729,7 @@ struct hns_roce_eq_table {
 struct hns_roce_caps {
 	u64		fw_ver;
 	u8		num_ports;
-	int		gid_table_len[HNS_ROCE_MAX_PORTS];
+	u32		gid_table_len[HNS_ROCE_MAX_PORTS];
 	int		pkey_table_len[HNS_ROCE_MAX_PORTS];
 	int		local_ca_ack_delay;
 	int		num_uars;
