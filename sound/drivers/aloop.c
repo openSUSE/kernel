@@ -1023,6 +1023,7 @@ static void free_cable(struct snd_pcm_substream *substream)
 	struct loopback *loopback = substream->private_data;
 	int dev = get_cable_index(substream);
 	struct loopback_cable *cable;
+	struct loopback_pcm *dpcm;
 	bool other_alive;
 
 	cable = loopback->cables[substream->number][dev];
@@ -1038,6 +1039,9 @@ static void free_cable(struct snd_pcm_substream *substream)
 	if (other_alive)
 		return;
 
+	dpcm = substream->runtime->private_data;
+	if (cable->ops && cable->ops->close_cable && dpcm)
+		cable->ops->close_cable(dpcm);
 	/* free the cable */
 	loopback->cables[substream->number][dev] = NULL;
 	kfree(cable);
