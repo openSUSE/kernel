@@ -66,13 +66,13 @@ bool io_kbuf_recycle_legacy(struct io_kiocb *req, unsigned issue_flags)
 	 * If the buffer list was upgraded to a ring-based one, or removed,
 	 * while the request was in-flight in io-wq, drop it.
 	 */
+	req->buf_index = buf->bgid;
 	if (bl && !(bl->flags & IOBL_BUF_RING)) {
 		list_add(&buf->list, &bl->buf_list);
 	} else {
 		kfree(buf);
 	}
 	req->flags &= ~REQ_F_BUFFER_SELECTED;
-	req->buf_index = buf->bgid;
 	req->kbuf = NULL;
 
 	io_ring_submit_unlock(ctx, issue_flags);
