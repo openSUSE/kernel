@@ -142,6 +142,12 @@ static inline void inet_frag_put(struct inet_frag_queue *q)
 		inet_frag_destroy(q);
 }
 
+static inline void inet_frag_putn(struct inet_frag_queue *q, int refs)
+{
+	if (refs && refcount_sub_and_test(refs, &q->refcnt))
+		inet_frag_destroy(q);
+}
+
 /* Memory Tracking Functions. */
 
 static inline long frag_mem_limit(const struct fqdir *fqdir)
