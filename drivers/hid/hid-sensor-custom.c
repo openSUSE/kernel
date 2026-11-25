@@ -720,6 +720,7 @@ static __poll_t hid_sensor_custom_poll(struct file *file,
 }
 
 static const struct file_operations hid_sensor_custom_fops = {
+	.owner = THIS_MODULE,
 	.open =  hid_sensor_custom_open,
 	.read =  hid_sensor_custom_read,
 	.release = hid_sensor_custom_release,
@@ -1017,20 +1018,19 @@ static int hid_sensor_custom_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_remove_callback;
 
-	ret = sysfs_create_group(&sensor_inst->pdev->dev.kobj,
-				 &enable_sensor_attr_group);
+	ret = hid_sensor_custom_dev_if_add(sensor_inst);
 	if (ret)
 		goto err_remove_attributes;
 
-	ret = hid_sensor_custom_dev_if_add(sensor_inst);
+	ret = sysfs_create_group(&sensor_inst->pdev->dev.kobj,
+				 &enable_sensor_attr_group);
 	if (ret)
-		goto err_remove_group;
+		goto err_remove_dev_if;
 
 	return 0;
 
-err_remove_group:
-	sysfs_remove_group(&sensor_inst->pdev->dev.kobj,
-			   &enable_sensor_attr_group);
+err_remove_dev_if:
+	hid_sensor_custom_dev_if_remove(sensor_inst);
 err_remove_attributes:
 	hid_sensor_custom_remove_attributes(sensor_inst);
 err_remove_callback:
@@ -1053,6 +1053,13 @@ static int hid_sensor_custom_remove(struct platform_device *pdev)
 	/* Remove enable_sensor first as it uses fields via power_state/report_state. */
 	sysfs_remove_group(&sensor_inst->pdev->dev.kobj,
 			   &enable_sensor_attr_group);
+	mutex_lock(&sensor_inst->mutex);
+	if (sensor_inst->enable) {
+		set_power_report_state(sensor_inst, false);
+		sensor_hub_device_close(hsdev);
+		sensor_inst->enable = false;
+	}
+	mutex_unlock(&sensor_inst->mutex);
 	hid_sensor_custom_remove_attributes(sensor_inst);
 	sensor_hub_remove_callback(hsdev, hsdev->usage);
 

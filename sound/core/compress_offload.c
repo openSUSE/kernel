@@ -458,23 +458,20 @@ static int
 snd_compr_get_codec_caps(struct snd_compr_stream *stream, unsigned long arg)
 {
 	int retval;
-	struct snd_compr_codec_caps *caps;
 
 	if (!stream->ops->get_codec_caps)
 		return -ENXIO;
 
-	caps = kzalloc(sizeof(*caps), GFP_KERNEL);
+	struct snd_compr_codec_caps *caps __free(kfree) =
+		kzalloc(sizeof(*caps), GFP_KERNEL);
 	if (!caps)
 		return -ENOMEM;
 
 	retval = stream->ops->get_codec_caps(stream, caps);
 	if (retval)
-		goto out;
+		return retval;
 	if (copy_to_user((void __user *)arg, caps, sizeof(*caps)))
-		retval = -EFAULT;
-
-out:
-	kfree(caps);
+		return -EFAULT;
 	return retval;
 }
 #endif /* !COMPR_CODEC_CAPS_OVERFLOW */
@@ -579,7 +576,6 @@ static int snd_compress_check_input(struct snd_compr_params *params)
 static int
 snd_compr_set_params(struct snd_compr_stream *stream, unsigned long arg)
 {
-	struct snd_compr_params *params;
 	int retval;
 
 	if (stream->runtime->state == SNDRV_PCM_STATE_OPEN || stream->next_track) {
@@ -587,26 +583,43 @@ snd_compr_set_params(struct snd_compr_stream *stream, unsigned long arg)
 		 * we should allow parameter change only when stream has been
 		 * opened not in other cases
 		 */
-		params = memdup_user((void __user *)arg, sizeof(*params));
+		struct snd_compr_params *params __free(kfree) =
+			memdup_user((void __user *)arg, sizeof(*params));
+
 		if (IS_ERR(params))
-			return PTR_ERR(params);
+			return PTR_ERR(no_free_ptr(params));
 
 		retval = snd_compress_check_input(params);
 		if (retval)
-			goto out;
+			return retval;
 
-		retval = snd_compr_allocate_buffer(stream, params);
-		if (retval) {
-			retval = -ENOMEM;
-			goto out;
+		if (stream->next_track) {
+			/*
+			 * total_bytes_available/transferred still refer to the
+			 * current buffer; its geometry must not change.
+			 */
+			if (params->buffer.fragment_size != stream->runtime->fragment_size ||
+			    params->buffer.fragments != stream->runtime->fragments)
+				return -EINVAL;
+		} else {
+			retval = snd_compr_allocate_buffer(stream, params);
+			if (retval)
+				return retval;
 		}
 
 		retval = stream->ops->set_params(stream, params);
-		if (retval)
-			goto out;
+		if (retval) {
+			/* the stream stays OPEN: drop the buffer of the rejected setup */
+			if (stream->runtime->state == SNDRV_PCM_STATE_OPEN &&
+			    !stream->runtime->dma_buffer_p) {
+				kfree(stream->runtime->buffer);
+				stream->runtime->buffer = NULL;
+			}
+			return retval;
+		}
 
 		if (stream->next_track)
-			goto out;
+			return retval;
 
 		stream->metadata_set = false;
 		stream->next_track = false;
@@ -615,31 +628,26 @@ snd_compr_set_params(struct snd_compr_stream *stream, unsigned long arg)
 	} else {
 		return -EPERM;
 	}
-out:
-	kfree(params);
 	return retval;
 }
 
 static int
 snd_compr_get_params(struct snd_compr_stream *stream, unsigned long arg)
 {
-	struct snd_codec *params;
 	int retval;
 
 	if (!stream->ops->get_params)
 		return -EBADFD;
 
-	params = kzalloc(sizeof(*params), GFP_KERNEL);
+	struct snd_codec *params __free(kfree) =
+		kzalloc(sizeof(*params), GFP_KERNEL);
 	if (!params)
 		return -ENOMEM;
 	retval = stream->ops->get_params(stream, params);
 	if (retval)
-		goto out;
+		return retval;
 	if (copy_to_user((char __user *)arg, params, sizeof(*params)))
-		retval = -EFAULT;
-
-out:
-	kfree(params);
+		return -EFAULT;
 	return retval;
 }
 
