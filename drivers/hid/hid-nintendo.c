@@ -2701,7 +2701,7 @@ static int nintendo_hid_probe(struct hid_device *hdev,
 	ret = joycon_leds_create(ctlr);
 	if (ret) {
 		hid_err(hdev, "Failed to create leds; ret=%d\n", ret);
-		goto err_io_stop;
+		goto err_ida;
 	}
 
 	/* Initialize the battery power supply */
