@@ -75,7 +75,8 @@ void scsi_eh_wakeup(struct Scsi_Host *shost, unsigned int busy)
 
 void scsi_rcu_eh_wakeup(struct work_struct *work)
 {
-	struct Scsi_Host *shost = container_of(work, struct Scsi_Host, eh_work);
+	struct shost_work_struct *sws = container_of(work, struct shost_work_struct, work);
+	struct Scsi_Host *shost = sws->shost;
 	unsigned long flags;
 	unsigned int busy;
 
@@ -108,7 +109,7 @@ void scsi_schedule_eh(struct Scsi_Host *shost)
 	if (scsi_host_set_state(shost, SHOST_RECOVERY) == 0 ||
 	    scsi_host_set_state(shost, SHOST_CANCEL_RECOVERY) == 0) {
 		shost->host_eh_scheduled++;
-		queue_work(shost->tmf_work_q, &shost->eh_work);
+		queue_work(shost->tmf_work_q, &shost_eh_work(shost)->work);
 	}
 
 	spin_unlock_irqrestore(shost->host_lock, flags);

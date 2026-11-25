@@ -563,6 +563,10 @@ struct Scsi_Host {
 	struct scsi_transport_template *transportt;
 
 	struct kref		tagset_refcnt;
+#ifndef __GENKSYMS__
+	/* Used for an rcu-synchronizing eh wakeup - high bytes */
+	u32			eh_work_high;
+#endif
 	struct completion	tagset_freed;
 	/* Area to keep a shared tag map */
 	struct blk_mq_tag_set	tag_set;
@@ -575,8 +579,12 @@ struct Scsi_Host {
     
 	unsigned int host_no;  /* Used for IOCTL_GET_IDLUN, /proc/scsi et al. */
 
-	/* next two fields are used to bound the time spent in error handling */
+	/* eh_deadline and last_reset are used to bound the time spent in error handling */
 	int eh_deadline;
+#ifndef __GENKSYMS__
+	/* Used for an rcu-synchronizing eh wakeup - low bytes */
+	u32			eh_work_low;
+#endif
 	unsigned long last_reset;
 
 
@@ -712,9 +720,6 @@ struct Scsi_Host {
 	 */
 	struct device *dma_dev;
 
-	/* Used for an rcu-synchronizing eh wakeup */
-	struct work_struct eh_work;
-
 	/*
 	 * We should ensure that this is aligned, both for better performance
 	 * and also because some compilers (m68k) don't automatically force
@@ -723,6 +728,25 @@ struct Scsi_Host {
 	unsigned long hostdata[]  /* Used for storage of host specific stuff */
 		__attribute__ ((aligned (sizeof(unsigned long))));
 };
+
+#ifndef __GENKSYMS__
+/*
+ * KABI workaround for struct Scsi_Host
+ * Commit dccf3b1798b7 ("scsi: core: wake eh reliably when using scsi_schedule_eh")
+ * For SCSI core internal use only.
+ */
+struct shost_work_struct {
+	struct work_struct work;
+	struct Scsi_Host *shost;
+};
+
+static inline struct shost_work_struct *shost_eh_work(struct Scsi_Host *shost)
+{
+	u64 addr = ((u64)shost->eh_work_high << 32) | shost->eh_work_low;
+
+	return (void *)(unsigned long)addr;
+}
+#endif
 
 #define		class_to_shost(d)	\
 	container_of(d, struct Scsi_Host, shost_dev)
