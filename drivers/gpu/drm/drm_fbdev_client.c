@@ -27,6 +27,15 @@ static void drm_fbdev_client_unregister(struct drm_client_dev *client)
 
 static int drm_fbdev_client_restore(struct drm_client_dev *client)
 {
+	struct drm_fb_helper *fb_helper = drm_fb_helper_from_client(client);
+	/*
+	 * The client is registered before the initial fbdev probe.
+	 * If probing failed, the client remains registered but there
+	 * is no valid fbdev framebuffer to restore.
+	 */
+	if (!fb_helper->info || !fb_helper->fb)
+		return 0;
+
 	drm_fb_helper_lastclose(client->dev);
 
 	return 0;
