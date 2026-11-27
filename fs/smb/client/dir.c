@@ -494,14 +494,14 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 		goto out;
 	}
 
-	is_regular = S_ISREG(inode->i_mode);
+	is_regular = S_ISREG(d_inode(direntry)->i_mode);
 	if (!is_regular || !opened) {
 		if (opened && server->ops->close)
 			server->ops->close(xid, tcon, &fid);
 		cifs_del_pending_open(&open);
-		if (S_ISLNK(inode->i_mode) &&
+		if (S_ISLNK(d_inode(direntry)->i_mode) &&
 		    (oflags & O_NOFOLLOW) && !(oflags & O_EXCL)) {
-			iput(inode);
+			iput(d_inode(direntry));
 			rc = -ELOOP;
 			goto out;
 		}
