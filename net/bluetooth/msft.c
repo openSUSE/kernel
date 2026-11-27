@@ -290,6 +290,10 @@ static int msft_le_monitor_advertisement_cb(struct hci_dev *hdev, u16 opcode,
 	handle_data->mgmt_handle = monitor->handle;
 	handle_data->msft_handle = rp->handle;
 	handle_data->cond_type   = MSFT_MONITOR_ADVERTISEMENT_TYPE_PATTERN;
+	handle_data->rssi_high	= monitor->rssi.high_threshold;
+	handle_data->rssi_low	= monitor->rssi.low_threshold;
+	handle_data->rssi_low_interval	  = (u8)monitor->rssi.low_threshold_timeout;
+	handle_data->rssi_sampling_period = monitor->rssi.sampling_period;
 	INIT_LIST_HEAD(&handle_data->list);
 	list_add(&handle_data->list, &msft->handle_map);
 
@@ -431,23 +435,54 @@ static int msft_remove_monitor_sync(struct hci_dev *hdev,
 	struct msft_cp_le_cancel_monitor_advertisement cp;
 	struct msft_monitor_advertisement_handle_data *handle_data;
 	struct sk_buff *skb;
+	int err;
 
+	hci_dev_lock(hdev);
 	handle_data = msft_find_handle_data(hdev, monitor->handle, true);
+	if (handle_data)
+		cp.handle = handle_data->msft_handle;
+	hci_dev_unlock(hdev);
 
 	/* If no matched handle, just remove without telling controller */
 	if (!handle_data)
 		return -ENOENT;
 
 	cp.sub_opcode = MSFT_OP_LE_CANCEL_MONITOR_ADVERTISEMENT;
-	cp.handle = handle_data->msft_handle;
 
 	skb = __hci_cmd_sync(hdev, hdev->msft_opcode, sizeof(cp), &cp,
 			     HCI_CMD_TIMEOUT);
 	if (IS_ERR(skb))
 		return PTR_ERR(skb);
 
-	return msft_le_cancel_monitor_advertisement_cb(hdev, hdev->msft_opcode,
-						       monitor, skb);
+	err = msft_le_cancel_monitor_advertisement_cb(hdev, hdev->msft_opcode,
+						      monitor, skb);
+	kfree_skb(skb);
+
+	return err;
+}
+
+/* Keep the advertisement filter enabled only while at least one monitor is
+ * offloaded to the controller. With the filter enabled and no monitors, some
+ * controllers (e.g. MediaTek MT7922) drop every advertisement, which breaks
+ * LE discovery and passive scanning entirely.
+ *
+ * This function requires the caller holds hci_req_sync_lock
+ */
+static void msft_update_filter_enable(struct hci_dev *hdev)
+{
+	struct msft_data *msft = hdev->msft_data;
+	bool enable, update;
+
+	if (!msft)
+		return;
+
+	hci_dev_lock(hdev);
+	enable = !list_empty(&msft->handle_map);
+	update = enable != msft->filter_enabled;
+	hci_dev_unlock(hdev);
+
+	if (update)
+		msft_set_filter_enable(hdev, enable);
 }
 
 /* This function requires the caller holds hci_req_sync_lock */
@@ -474,6 +509,8 @@ int msft_suspend_sync(struct hci_dev *hdev)
 
 	/* All monitors have been removed */
 	msft->suspending = false;
+
+	msft_update_filter_enable(hdev);
 
 	return 0;
 }
@@ -512,7 +549,6 @@ static int msft_add_monitor_sync(struct hci_dev *hdev,
 {
 	struct msft_cp_le_monitor_advertisement *cp;
 	struct msft_le_monitor_advertisement_pattern_data *pattern_data;
-	struct msft_monitor_advertisement_handle_data *handle_data;
 	struct msft_le_monitor_advertisement_pattern *pattern;
 	struct adv_pattern *entry;
 	size_t total_size = sizeof(*cp) + sizeof(*pattern_data);
@@ -564,19 +600,7 @@ static int msft_add_monitor_sync(struct hci_dev *hdev,
 
 	err = msft_le_monitor_advertisement_cb(hdev, hdev->msft_opcode,
 					       monitor, skb);
-	if (err)
-		goto out_free;
-
-	handle_data = msft_find_handle_data(hdev, monitor->handle, true);
-	if (!handle_data) {
-		err = -ENODATA;
-		goto out_free;
-	}
-
-	handle_data->rssi_high	= cp->rssi_high;
-	handle_data->rssi_low	= cp->rssi_low;
-	handle_data->rssi_low_interval	  = cp->rssi_low_interval;
-	handle_data->rssi_sampling_period = cp->rssi_sampling_period;
+	kfree_skb(skb);
 
 out_free:
 	kfree(cp);
@@ -628,6 +652,7 @@ int msft_resume_sync(struct hci_dev *hdev)
 	hci_dev_unlock(hdev);
 
 	reregister_monitor(hdev);
+	msft_update_filter_enable(hdev);
 
 	return 0;
 }
@@ -663,11 +688,11 @@ void msft_do_open(struct hci_dev *hdev)
 
 	if (msft_monitor_supported(hdev)) {
 		msft->resuming = true;
-		msft_set_filter_enable(hdev, true);
 		/* Monitors get removed on power off, so we need to explicitly
 		 * tell the controller to re-monitor.
 		 */
 		reregister_monitor(hdev);
+		msft_update_filter_enable(hdev);
 	}
 }
 
@@ -698,6 +723,11 @@ void msft_do_close(struct hci_dev *hdev)
 		list_del(&handle_data->list);
 		kfree(handle_data);
 	}
+
+	/* The advertisement filter is back to its default, disabled state
+	 * after power off as well.
+	 */
+	msft->filter_enabled = false;
 
 	hci_dev_unlock(hdev);
 
@@ -1163,6 +1193,7 @@ static void msft_le_set_advertisement_filter_enable_cb(struct hci_dev *hdev,
 int msft_add_monitor_pattern(struct hci_dev *hdev, struct adv_monitor *monitor)
 {
 	struct msft_data *msft = hdev->msft_data;
+	int err;
 
 	if (!msft)
 		return -EOPNOTSUPP;
@@ -1170,13 +1201,17 @@ int msft_add_monitor_pattern(struct hci_dev *hdev, struct adv_monitor *monitor)
 	if (msft->resuming || msft->suspending)
 		return -EBUSY;
 
-	return msft_add_monitor_sync(hdev, monitor);
+	err = msft_add_monitor_sync(hdev, monitor);
+	msft_update_filter_enable(hdev);
+
+	return err;
 }
 
 /* This function requires the caller holds hci_req_sync_lock */
 int msft_remove_monitor(struct hci_dev *hdev, struct adv_monitor *monitor)
 {
 	struct msft_data *msft = hdev->msft_data;
+	int err;
 
 	if (!msft)
 		return -EOPNOTSUPP;
@@ -1184,7 +1219,10 @@ int msft_remove_monitor(struct hci_dev *hdev, struct adv_monitor *monitor)
 	if (msft->resuming || msft->suspending)
 		return -EBUSY;
 
-	return msft_remove_monitor_sync(hdev, monitor);
+	err = msft_remove_monitor_sync(hdev, monitor);
+	msft_update_filter_enable(hdev);
+
+	return err;
 }
 
 int msft_set_filter_enable(struct hci_dev *hdev, bool enable)
