@@ -161,7 +161,7 @@ static struct rtnl_link_ops vxcan_link_ops;
 
 static int vxcan_newlink(struct net *net, struct net_device *dev,
 			 struct nlattr *tb[], struct nlattr *data[],
-			 struct netlink_ext_ack *extack)
+			 struct netlink_ext_ack *extack, struct sk_buff *skb)
 {
 	struct vxcan_priv *priv;
 	struct net_device *peer;
@@ -202,6 +202,10 @@ static int vxcan_newlink(struct net *net, struct net_device *dev,
 	peer_net = rtnl_link_get_net(net, tbp);
 	if (IS_ERR(peer_net))
 		return PTR_ERR(peer_net);
+	if (skb && !netlink_ns_capable(skb, peer_net->user_ns, CAP_NET_ADMIN)) {
+		put_net(peer_net);
+		return -EPERM;
+	}
 
 	peer = rtnl_create_link(peer_net, ifname, name_assign_type,
 				&vxcan_link_ops, tbp, extack);
@@ -291,7 +295,8 @@ static struct rtnl_link_ops vxcan_link_ops = {
 	.kind		= DRV_NAME,
 	.priv_size	= ALIGN(sizeof(struct vxcan_priv), NETDEV_ALIGN) + sizeof(struct can_ml_priv),
 	.setup		= vxcan_setup,
-	.newlink	= vxcan_newlink,
+	.newlink_has_skb = true,
+	.newlink_skb	= vxcan_newlink,
 	.dellink	= vxcan_dellink,
 	.policy		= vxcan_policy,
 	.maxtype	= VXCAN_INFO_MAX,
@@ -302,7 +307,7 @@ static __init int vxcan_init(void)
 {
 	pr_info("vxcan: Virtual CAN Tunnel driver\n");
 
-	return rtnl_link_register(&vxcan_link_ops);
+	return rtnl_link_register_with_newlink_skb(&vxcan_link_ops);
 }
 
 static __exit void vxcan_exit(void)
