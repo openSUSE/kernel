@@ -9,7 +9,6 @@
 #include <linux/ethtool.h>
 #include <linux/filter.h>
 #include <linux/mm.h>
-#include <linux/pci.h>
 #include <linux/export.h>
 #include <linux/skbuff.h>
 
@@ -19,6 +18,7 @@
 #include <net/xdp.h>
 
 #include <net/mana/mana.h>
+
 #include <net/mana/mana_auxiliary.h>
 #include <net/mana/hw_channel.h>
 
@@ -345,7 +345,14 @@ clear_flag:
 	rtnl_unlock();
 }
 
-netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+/* skb->cb of the SKBs pending a TX completion */
+struct mana_skb_cb {
+	struct gdma_posted_wqe_info wqe_info;
+	bool xdp;
+};
+
+netdev_tx_t __mana_start_xmit(struct sk_buff *skb, struct net_device *ndev,
+			      bool xdp)
 {
 	enum mana_tx_pkt_format pkt_fmt = MANA_SHORT_PKT_FMT;
 	struct mana_port_context *apc = netdev_priv(ndev);
@@ -359,6 +366,7 @@ netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	struct gdma_queue *gdma_sq;
 	int err, len, num_gso_seg;
 	unsigned int csum_type;
+	struct mana_skb_cb *cb;
 	struct mana_txq *txq;
 	struct mana_cq *cq;
 
@@ -523,14 +531,16 @@ netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		goto free_sgl_ptr;
 	}
 
+	cb = (struct mana_skb_cb *)skb->cb;
+	cb->xdp = xdp;
+
 	skb_queue_tail(&txq->pending_skbs, skb);
 
 	len = skb->len;
 	num_gso_seg = skb_is_gso(skb) ? skb_shinfo(skb)->gso_segs : 1;
 	net_txq = netdev_get_tx_queue(ndev, txq_idx);
 
-	err = mana_gd_post_work_request(gdma_sq, &pkg.wqe_req,
-					(struct gdma_posted_wqe_info *)skb->cb);
+	err = mana_gd_post_work_request(gdma_sq, &pkg.wqe_req, &cb->wqe_info);
 	if (!mana_can_tx(gdma_sq)) {
 		netif_tx_stop_queue(net_txq);
 		apc->eth_stats.stop_queue++;
@@ -545,6 +555,14 @@ netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 	err = NETDEV_TX_OK;
 	atomic_inc(&txq->pending_sends);
+
+	/* Account the skb in BQL before the doorbell lets the hardware
+	 * complete it. XDP frames bypass the qdisc and BQL can't hold them
+	 * back, so leave them out: XDP traffic could otherwise keep the
+	 * queue stopped, starving the stack and tripping the TX watchdog.
+	 */
+	if (!xdp)
+		netdev_tx_sent_queue(net_txq, len);
 
 	mana_gd_wq_ring_doorbell(gd->gdma_context, gdma_sq);
 
@@ -575,6 +593,11 @@ tx_drop_count:
 tx_drop:
 	dev_kfree_skb_any(skb);
 	return NETDEV_TX_OK;
+}
+
+netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+{
+	return __mana_start_xmit(skb, ndev, false);
 }
 
 #if (MAX_SKB_FRAGS + 2 > MANA_MAX_TX_WQE_SGL_ENTRIES)
@@ -1764,9 +1787,10 @@ void mana_unmap_skb(struct sk_buff *skb, struct mana_port_context *apc)
 static void mana_poll_tx_cq(struct mana_cq *cq)
 {
 	struct gdma_comp *completions = cq->gdma_comp_buf;
-	struct gdma_posted_wqe_info *wqe_info;
 	unsigned int pkt_transmitted = 0;
 	unsigned int wqe_unit_cnt = 0;
+	unsigned int bql_bytes = 0;
+	unsigned int bql_pkts = 0;
 	unsigned int tx_bytes = 0;
 	struct mana_txq *txq = cq->txq;
 	struct mana_port_context *apc;
@@ -1774,6 +1798,7 @@ static void mana_poll_tx_cq(struct mana_cq *cq)
 	struct gdma_queue *gdma_wq;
 	unsigned int avail_space;
 	struct net_device *ndev;
+	struct mana_skb_cb *cb;
 	struct sk_buff *skb;
 	bool txq_stopped;
 	int comp_read;
@@ -1844,12 +1869,16 @@ static void mana_poll_tx_cq(struct mana_cq *cq)
 		if (WARN_ON_ONCE(!skb))
 			return;
 
-		wqe_info = (struct gdma_posted_wqe_info *)skb->cb;
-		wqe_unit_cnt += wqe_info->wqe_size_in_bu;
+		cb = (struct mana_skb_cb *)skb->cb;
+		wqe_unit_cnt += cb->wqe_info.wqe_size_in_bu;
 
 		mana_unmap_skb(skb, apc);
 
 		tx_bytes += skb->len;
+		if (!cb->xdp) {
+			bql_pkts++;
+			bql_bytes += skb->len;
+		}
 
 		napi_consume_skb(skb, cq->budget);
 
@@ -1864,10 +1893,12 @@ static void mana_poll_tx_cq(struct mana_cq *cq)
 	gdma_wq = txq->gdma_sq;
 	avail_space = mana_gd_wq_avail_space(gdma_wq);
 
+	net_txq = txq->net_txq;
+	netdev_tx_completed_queue(net_txq, bql_pkts, bql_bytes);
+
 	/* Ensure tail updated before checking q stop */
 	smp_mb();
 
-	net_txq = txq->net_txq;
 	txq_stopped = netif_tx_queue_stopped(net_txq);
 
 	/* Ensure checking txq_stopped before apc->port_is_up. */
@@ -1952,7 +1983,7 @@ static void mana_rx_skb(void *buf_va, bool from_pool,
 		return;
 	}
 
-	act = mana_run_xdp(ndev, rxq, &xdp, buf_va, pkt_len);
+	act = mana_run_xdp(ndev, rxq, &xdp, buf_va, from_pool, pkt_len);
 
 	if (act == XDP_REDIRECT && !rxq->xdp_rc)
 		return;
@@ -1974,10 +2005,9 @@ static void mana_rx_skb(void *buf_va, bool from_pool,
 	skb_checksum_none_assert(skb);
 	skb_record_rx_queue(skb, rxq_idx);
 
-	if ((ndev->features & NETIF_F_RXCSUM) && cqe->rx_iphdr_csum_succeed) {
-		if (cqe->rx_tcp_csum_succeed || cqe->rx_udp_csum_succeed)
-			skb->ip_summed = CHECKSUM_UNNECESSARY;
-	}
+	if ((ndev->features & NETIF_F_RXCSUM) &&
+	    (cqe->rx_tcp_csum_succeed || cqe->rx_udp_csum_succeed))
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 	if (cqe->rx_hashtype != 0 && (ndev->features & NETIF_F_RXHASH)) {
 		if (cqe->rx_hashtype & MANA_HASH_L4)
@@ -2498,6 +2528,7 @@ static void mana_deinit_txq(struct mana_port_context *apc, struct mana_txq *txq)
 
 static void mana_destroy_txq(struct mana_port_context *apc)
 {
+	struct gdma_context *gc = apc->ac->gdma_dev->gdma_context;
 	struct napi_struct *napi;
 	int i;
 
@@ -2516,11 +2547,28 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 			napi_synchronize(napi);
 			napi_disable(napi);
 			cancel_work_sync(&apc->tx_qp[i]->tx_cq.dim.work);
+		}
+		/* Forget the SKBs freed without being completed after a drain
+		 * timeout, now that NAPI can't complete any. Doing it here also
+		 * covers the queues that a lower channel count won't recreate,
+		 * which could otherwise stay stopped.
+		 */
+		netdev_tx_reset_queue(apc->tx_qp[i]->txq.net_txq);
+
+		if (apc->tx_qp[i]->tx_object != INVALID_MANA_HANDLE)
+			mana_destroy_wq_obj(apc, GDMA_SQ, apc->tx_qp[i]->tx_object);
+
+		if (apc->tx_qp[i]->txq.napi_initialized) {
+			/* Detach the CQ only after the WQ object is destroyed,
+			 * so a completion EQE that arrives before then still
+			 * finds the CQ in cq_table[] rather than hitting the
+			 * WARN in mana_gd_process_eqe(). One grace period then
+			 * covers both mana_gd_intr() and NAPI users.
+			 */
+			mana_gd_detach_cq(gc, apc->tx_qp[i]->tx_cq.gdma_cq);
 			netif_napi_del(napi);
 			apc->tx_qp[i]->txq.napi_initialized = false;
 		}
-		if (apc->tx_qp[i]->tx_object != INVALID_MANA_HANDLE)
-			mana_destroy_wq_obj(apc, GDMA_SQ, apc->tx_qp[i]->tx_object);
 
 		mana_deinit_cq(apc, &apc->tx_qp[i]->tx_cq);
 
@@ -2729,14 +2777,22 @@ static void mana_destroy_rxq(struct mana_port_context *apc,
 		napi_disable(napi);
 		cancel_work_sync(&rxq->rx_cq.dim.work);
 
-		netif_napi_del(napi);
 	}
 
 	if (xdp_rxq_info_is_reg(&rxq->xdp_rxq))
 		xdp_rxq_info_unreg(&rxq->xdp_rxq);
 
+	if (xdp_rxq_info_is_reg(&rxq->xdp_rxq_shared))
+		xdp_rxq_info_unreg(&rxq->xdp_rxq_shared);
+
 	if (rxq->rxobj != INVALID_MANA_HANDLE)
 		mana_destroy_wq_obj(apc, GDMA_RQ, rxq->rxobj);
+
+	if (napi_initialized) {
+		/* See the comment in mana_destroy_txq() */
+		mana_gd_detach_cq(gc, rxq->rx_cq.gdma_cq);
+		netif_napi_del(napi);
+	}
 
 	mana_deinit_cq(apc, &rxq->rx_cq);
 
@@ -3012,6 +3068,12 @@ static struct mana_rxq *mana_create_rxq(struct mana_port_context *apc,
 				 cq->napi.napi_id));
 	WARN_ON(xdp_rxq_info_reg_mem_model(&rxq->xdp_rxq, MEM_TYPE_PAGE_POOL,
 					   rxq->page_pool));
+
+	/* The pre-allocated buffers (mana_pre_alloc_rxbufs) are plain pages */
+	WARN_ON(xdp_rxq_info_reg(&rxq->xdp_rxq_shared, ndev, rxq_idx,
+				 cq->napi.napi_id));
+	WARN_ON(xdp_rxq_info_reg_mem_model(&rxq->xdp_rxq_shared,
+					   MEM_TYPE_PAGE_SHARED, NULL));
 
 	/* Initialize the DIM work before enabling NAPI, so that a poll
 	 * cannot reach net_dim() with an uninitialized cq->dim.work.
@@ -3578,10 +3640,9 @@ static int mana_dealloc_queues(struct net_device *ndev)
 				tsleep <<= 1;
 			}
 			if (atomic_read(&txq->pending_sends)) {
-				err =
-				    pcie_flr(to_pci_dev(gd->gdma_context->dev));
+				err = mana_gd_dev_reset(gd->gdma_context);
 				if (err) {
-					netdev_err(ndev, "flr failed %d with %d pkts pending in txq %u\n",
+					netdev_err(ndev, "device reset failed %d with %d pkts pending in txq %u\n",
 						   err,
 					    atomic_read(&txq->pending_sends),
 					    txq->gdma_txq_id);
@@ -3810,7 +3871,9 @@ static int add_adev(struct gdma_dev *gd, const char *name)
 
 	/* madev is owned by the auxiliary device */
 	madev = NULL;
-	ret = auxiliary_device_add(adev);
+	/* Keep match names independent of the common module's name. */
+	ret = __auxiliary_device_add(adev,
+				     gd->gdma_context->bus_ops->adev_prefix);
 	if (ret)
 		goto add_fail;
 
@@ -3882,6 +3945,9 @@ int mana_rdma_service_event(struct gdma_context *gc, enum gdma_service_type even
 		/* RDMA device is not detected on pci */
 		return 0;
 	}
+
+	if (!gc->service_wq)
+		return -EOPNOTSUPP;
 
 	serv_work = kzalloc(sizeof(*serv_work), GFP_ATOMIC);
 	if (!serv_work)
@@ -4041,6 +4107,7 @@ out:
 
 	return err;
 }
+EXPORT_SYMBOL_NS(mana_probe, NET_MANA);
 
 void mana_remove(struct gdma_dev *gd, bool suspending)
 {
@@ -4119,6 +4186,7 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 	kfree(ac);
 	dev_dbg(dev, "%s succeeded\n", __func__);
 }
+EXPORT_SYMBOL_NS(mana_remove, NET_MANA);
 
 int mana_rdma_probe(struct gdma_dev *gd)
 {
@@ -4154,6 +4222,7 @@ int mana_rdma_probe(struct gdma_dev *gd)
 
 	return err;
 }
+EXPORT_SYMBOL_NS(mana_rdma_probe, NET_MANA);
 
 void mana_rdma_remove(struct gdma_dev *gd)
 {
@@ -4174,6 +4243,7 @@ void mana_rdma_remove(struct gdma_dev *gd)
 
 	mana_gd_deregister_device(gd);
 }
+EXPORT_SYMBOL_NS(mana_rdma_remove, NET_MANA);
 
 struct net_device *mana_get_primary_netdev(struct mana_context *ac,
 					   u32 port_index,
