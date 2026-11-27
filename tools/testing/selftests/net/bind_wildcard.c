@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright Amazon.com Inc. or its affiliates. */
 
+#define _GNU_SOURCE
+#include <sched.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -45,6 +47,9 @@ FIXTURE_VARIANT_ADD(bind_wildcard, v4_local_v6_local)
 
 FIXTURE_SETUP(bind_wildcard)
 {
+	ASSERT_EQ(unshare(CLONE_NEWNET), 0);
+	ASSERT_EQ(system("ip link set lo up"), 0);
+
 	self->addr4.sin_family = AF_INET;
 	self->addr4.sin_port = htons(0);
 	self->addr4.sin_addr.s_addr = htonl(variant->addr4_const);
