@@ -13,6 +13,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/bits.h>
+#include <linux/cleanup.h>
 #include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/hwmon.h>
@@ -180,6 +181,11 @@ static void cc2_disable(struct cc2_data *data)
 	}
 
 	data->regulator_enabled = false;
+}
+
+static void cc2_disable_action(void *data)
+{
+	cc2_disable(data);
 }
 
 static int cc2_cmd_response_diagnostic(struct device *dev, u8 status)
@@ -594,55 +600,40 @@ static int cc2_read(struct device *dev, enum hwmon_sensor_types type, u32 attr,
 		    int channel, long *val)
 {
 	struct cc2_data *data = dev_get_drvdata(dev);
-	int ret = 0;
 
-	mutex_lock(&data->dev_access_lock);
+	guard(mutex)(&data->dev_access_lock);
 
 	switch (type) {
 	case hwmon_temp:
-		ret = cc2_measurement(data, type, val);
-		break;
+		return cc2_measurement(data, type, val);
 	case hwmon_humidity:
 		switch (attr) {
 		case hwmon_humidity_input:
-			ret = cc2_measurement(data, type, val);
-			break;
+			return cc2_measurement(data, type, val);
 		case hwmon_humidity_min:
-			ret = cc2_get_reg_val(data, CC2_R_ALARM_L_ON, val);
-			break;
+			return cc2_get_reg_val(data, CC2_R_ALARM_L_ON, val);
 		case hwmon_humidity_min_hyst:
-			ret = cc2_get_reg_val(data, CC2_R_ALARM_L_OFF, val);
-			break;
+			return cc2_get_reg_val(data, CC2_R_ALARM_L_OFF, val);
 		case hwmon_humidity_max:
-			ret = cc2_get_reg_val(data, CC2_R_ALARM_H_ON, val);
-			break;
+			return cc2_get_reg_val(data, CC2_R_ALARM_H_ON, val);
 		case hwmon_humidity_max_hyst:
-			ret = cc2_get_reg_val(data, CC2_R_ALARM_H_OFF, val);
-			break;
+			return cc2_get_reg_val(data, CC2_R_ALARM_H_OFF, val);
 		case hwmon_humidity_min_alarm:
-			ret = cc2_humidity_min_alarm_status(data, val);
-			break;
+			return cc2_humidity_min_alarm_status(data, val);
 		case hwmon_humidity_max_alarm:
-			ret = cc2_humidity_max_alarm_status(data, val);
-			break;
+			return cc2_humidity_max_alarm_status(data, val);
 		default:
-			ret = -EOPNOTSUPP;
+			return -EOPNOTSUPP;
 		}
-		break;
 	default:
-		ret = -EOPNOTSUPP;
+		return -EOPNOTSUPP;
 	}
-
-	mutex_unlock(&data->dev_access_lock);
-
-	return ret;
 }
 
 static int cc2_write(struct device *dev, enum hwmon_sensor_types type, u32 attr,
 		     int channel, long val)
 {
 	struct cc2_data *data = dev_get_drvdata(dev);
-	int ret;
 	u16 arg;
 	u8 cmd;
 
@@ -652,69 +643,71 @@ static int cc2_write(struct device *dev, enum hwmon_sensor_types type, u32 attr,
 	if (val < 0 || val > CC2_RH_MAX)
 		return -EINVAL;
 
-	mutex_lock(&data->dev_access_lock);
+	guard(mutex)(&data->dev_access_lock);
 
 	switch (attr) {
 	case hwmon_humidity_min:
 		cmd = CC2_W_ALARM_L_ON;
 		arg = cc2_rh_to_reg(val);
-		ret = cc2_write_reg(data, cmd, arg);
-		break;
-
+		return cc2_write_reg(data, cmd, arg);
 	case hwmon_humidity_min_hyst:
 		cmd = CC2_W_ALARM_L_OFF;
 		arg = cc2_rh_to_reg(val);
-		ret = cc2_write_reg(data, cmd, arg);
-		break;
-
+		return cc2_write_reg(data, cmd, arg);
 	case hwmon_humidity_max:
 		cmd = CC2_W_ALARM_H_ON;
 		arg = cc2_rh_to_reg(val);
-		ret = cc2_write_reg(data, cmd, arg);
-		break;
-
+		return cc2_write_reg(data, cmd, arg);
 	case hwmon_humidity_max_hyst:
 		cmd = CC2_W_ALARM_H_OFF;
 		arg = cc2_rh_to_reg(val);
-		ret = cc2_write_reg(data, cmd, arg);
-		break;
-
+		return cc2_write_reg(data, cmd, arg);
 	default:
-		ret = -EOPNOTSUPP;
-		break;
+		return -EOPNOTSUPP;
 	}
-
-	mutex_unlock(&data->dev_access_lock);
-
-	return ret;
 }
 
-static int cc2_request_ready_irq(struct cc2_data *data, struct device *dev)
+static int cc2_get_irqs(struct cc2_data *data, struct device *dev)
 {
-	int ret = 0;
-
 	data->irq_ready = fwnode_irq_get_byname(dev_fwnode(dev), "ready");
 	if (data->irq_ready == -EPROBE_DEFER)
 		return data->irq_ready;
-	if (data->irq_ready > 0) {
+	if (data->irq_ready > 0)
 		init_completion(&data->complete);
+
+	data->irq_low = fwnode_irq_get_byname(dev_fwnode(dev), "low");
+	if (data->irq_low == -EPROBE_DEFER)
+		return data->irq_low;
+	if (data->irq_low > 0)
+		data->rh_alarm.low_alarm_visible = true;
+
+	data->irq_high = fwnode_irq_get_byname(dev_fwnode(dev), "high");
+	if (data->irq_high == -EPROBE_DEFER)
+		return data->irq_high;
+	if (data->irq_high > 0)
+		data->rh_alarm.high_alarm_visible = true;
+
+	return 0;
+}
+
+static int cc2_request_data_ready(struct cc2_data *data, struct device *dev)
+{
+	int ret = 0;
+
+	if (data->irq_ready > 0)
 		ret = devm_request_threaded_irq(dev, data->irq_ready, NULL,
 						cc2_ready_interrupt,
 						IRQF_ONESHOT |
 						IRQF_TRIGGER_RISING,
 						dev_name(dev), data);
-	}
 
 	return ret;
 }
 
-static int cc2_request_alarm_irqs(struct cc2_data *data, struct device *dev)
+static int cc2_request_alarms(struct cc2_data *data, struct device *dev)
 {
 	int ret = 0;
 
-	data->irq_low = fwnode_irq_get_byname(dev_fwnode(dev), "low");
-	if (data->irq_low == -EPROBE_DEFER)
-		return data->irq_low;
 	if (data->irq_low > 0) {
 		ret = devm_request_threaded_irq(dev, data->irq_low, NULL,
 						cc2_low_interrupt,
@@ -723,13 +716,8 @@ static int cc2_request_alarm_irqs(struct cc2_data *data, struct device *dev)
 						dev_name(dev), data);
 		if (ret)
 			return ret;
-
-		data->rh_alarm.low_alarm_visible = true;
 	}
 
-	data->irq_high = fwnode_irq_get_byname(dev_fwnode(dev), "high");
-	if (data->irq_high == -EPROBE_DEFER)
-		return data->irq_high;
 	if (data->irq_high > 0) {
 		ret = devm_request_threaded_irq(dev, data->irq_high, NULL,
 						cc2_high_interrupt,
@@ -738,8 +726,6 @@ static int cc2_request_alarm_irqs(struct cc2_data *data, struct device *dev)
 						dev_name(dev), data);
 		if (ret)
 			return ret;
-
-		data->rh_alarm.high_alarm_visible = true;
 	}
 
 	return ret;
@@ -790,13 +776,17 @@ static int cc2_probe(struct i2c_client *client)
 		return dev_err_probe(dev, PTR_ERR(data->regulator),
 				     "Failed to get regulator\n");
 
-	ret = cc2_request_ready_irq(data, dev);
+	ret = cc2_get_irqs(data, dev);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to get IRQs\n");
+
+	ret = devm_add_action_or_reset(dev, cc2_disable_action, data);
+	if (ret)
+		return ret;
+
+	ret = cc2_request_data_ready(data, dev);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to request ready irq\n");
-
-	ret = cc2_request_alarm_irqs(data, dev);
-	if (ret)
-		return dev_err_probe(dev, ret, "Failed to request alarm irqs\n");
 
 	data->hwmon = devm_hwmon_device_register_with_info(dev, client->name,
 							   data, &cc2_chip_info,
@@ -805,14 +795,11 @@ static int cc2_probe(struct i2c_client *client)
 		return dev_err_probe(dev, PTR_ERR(data->hwmon),
 				     "Failed to register hwmon device\n");
 
+	ret = cc2_request_alarms(data, dev);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to request alarm irqs\n");
+
 	return 0;
-}
-
-static void cc2_remove(struct i2c_client *client)
-{
-	struct cc2_data *data = i2c_get_clientdata(client);
-
-	cc2_disable(data);
 }
 
 static const struct i2c_device_id cc2_id[] = {
@@ -847,7 +834,6 @@ static struct i2c_driver cc2_driver = {
 		.of_match_table = cc2_of_match,
 	},
 	.probe		= cc2_probe,
-	.remove		= cc2_remove,
 	.id_table = cc2_id,
 };
 module_i2c_driver(cc2_driver);

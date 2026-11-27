@@ -2204,10 +2204,9 @@ static int joycon_player_led_brightness_set(struct led_classdev *led,
 		return -ENODEV;
 	}
 
+	mutex_lock(&ctlr->output_mutex);
 	for (i = 0; i < JC_NUM_LEDS; i++)
 		val |= ctlr->leds[i].brightness << i;
-
-	mutex_lock(&ctlr->output_mutex);
 	ret = joycon_set_player_leds(ctlr, 0, val);
 	mutex_unlock(&ctlr->output_mutex);
 
@@ -2702,7 +2701,7 @@ static int nintendo_hid_probe(struct hid_device *hdev,
 	ret = joycon_leds_create(ctlr);
 	if (ret) {
 		hid_err(hdev, "Failed to create leds; ret=%d\n", ret);
-		goto err_io_stop;
+		goto err_ida;
 	}
 
 	/* Initialize the battery power supply */
