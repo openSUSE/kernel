@@ -8942,9 +8942,9 @@ static void add_advertising_complete(struct hci_dev *hdev, void *data, int err)
 static int add_advertising_sync(struct hci_dev *hdev, void *data)
 {
 	struct mgmt_pending_cmd *cmd = data;
-	struct mgmt_cp_add_advertising *cp = cmd->param;
+	u8 instance = PTR_UINT(cmd->user_data);
 
-	return hci_schedule_adv_instance_sync(hdev, cp->instance, true);
+	return hci_schedule_adv_instance_sync(hdev, instance, true);
 }
 
 static int add_advertising(struct sock *sk, struct hci_dev *hdev,
@@ -9028,7 +9028,9 @@ static int add_advertising(struct sock *sk, struct hci_dev *hdev,
 	if (hdev->adv_instance_cnt > prev_instance_cnt)
 		mgmt_advertising_added(sk, hdev, cp->instance);
 
-	if (hdev->cur_adv_instance == cp->instance) {
+	if (ext_adv_capable(hdev)) {
+		schedule_instance = cp->instance;
+	} else if (hdev->cur_adv_instance == cp->instance) {
 		/* If the currently advertised instance is being changed then
 		 * cancel the current advertising and schedule the next
 		 * instance. If there is only one instance then the overridden
@@ -9075,7 +9077,7 @@ static int add_advertising(struct sock *sk, struct hci_dev *hdev,
 		goto unlock;
 	}
 
-	cp->instance = schedule_instance;
+	cmd->user_data = UINT_PTR(schedule_instance);
 
 	err = hci_cmd_sync_queue(hdev, add_advertising_sync, cmd,
 				 add_advertising_complete);
@@ -9301,6 +9303,7 @@ static int add_ext_adv_data_sync(struct hci_dev *hdev, void *data)
 {
 	struct mgmt_pending_cmd *cmd = data;
 	struct mgmt_cp_add_ext_adv_data *cp = cmd->param;
+	u8 instance = PTR_UINT(cmd->user_data);
 	int err;
 
 	if (ext_adv_capable(hdev)) {
@@ -9315,7 +9318,7 @@ static int add_ext_adv_data_sync(struct hci_dev *hdev, void *data)
 		return hci_enable_ext_advertising_sync(hdev, cp->instance);
 	}
 
-	return hci_schedule_adv_instance_sync(hdev, cp->instance, true);
+	return hci_schedule_adv_instance_sync(hdev, instance, true);
 }
 
 static int add_ext_adv_data(struct sock *sk, struct hci_dev *hdev, void *data,
@@ -9377,7 +9380,9 @@ static int add_ext_adv_data(struct sock *sk, struct hci_dev *hdev, void *data,
 				  cp->data + cp->adv_data_len);
 
 	/* If using software rotation, determine next instance to use */
-	if (hdev->cur_adv_instance == cp->instance) {
+	if (ext_adv_capable(hdev)) {
+		schedule_instance = cp->instance;
+	} else if (hdev->cur_adv_instance == cp->instance) {
 		/* If the currently advertised instance is being changed
 		 * then cancel the current advertising and schedule the
 		 * next instance. If there is only one instance then the
@@ -9417,6 +9422,8 @@ static int add_ext_adv_data(struct sock *sk, struct hci_dev *hdev, void *data,
 		err = -ENOMEM;
 		goto clear_new_instance;
 	}
+
+	cmd->user_data = UINT_PTR(schedule_instance);
 
 	err = hci_cmd_sync_queue(hdev, add_ext_adv_data_sync, cmd,
 				 add_ext_adv_data_complete);
